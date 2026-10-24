@@ -71,12 +71,12 @@ class App:
   self.throttle=Gauge(top,"POIGNÉE DE GAZ",100,GREEN,"%");self.throttle.pack(side="left",fill="both",expand=True,padx=4)
   cards=tk.Frame(body,bg=BG);cards.pack(fill="x",pady=8)
   self.cards={}
-  for i,(key,label,unit) in enumerate([("gear","RAPPORT",""),("temp","TEMP. MOTEUR","°C"),("oil","TEMP. HUILE","°C"),("front","ROUE AVANT","km/h"),("rear","ROUE ARRIÈRE","km/h"),("battery","BATTERIE","V")]):
-   c=tk.Frame(cards,bg=PANEL,height=90);c.grid(row=i//3,column=i%3,padx=4,pady=4,sticky="nsew");c.grid_propagate(False)
+  for i,(key,label,unit) in enumerate([("gear","RAPPORT",""),("temp","TEMP. MOTEUR","°C"),("oil","TEMP. HUILE","°C"),("front","ROUE AVANT","km/h"),("rear","ROUE ARRIÈRE","km/h"),("battery","BATTERIE","V"),("tps1","PAPILLON TPS1 · 0x7F2","%"),("tps2","PAPILLON TPS2 · 0x7F2","%")]):
+   c=tk.Frame(cards,bg=PANEL,height=90);c.grid(row=i//4,column=i%4,padx=4,pady=4,sticky="nsew");c.grid_propagate(False)
    tk.Label(c,text=label,fg=SUB,bg=PANEL,font=(FONT,10,"bold")).pack(anchor="w",padx=16,pady=(9,0))
    value=tk.Label(c,text="—",fg=TEXT,bg=PANEL,font=(FONT,23,"bold"));value.pack(anchor="w",padx=16)
    self.cards[key]=(value,unit)
-  for i in range(3):cards.columnconfigure(i,weight=1)
+  for i in range(4):cards.columnconfigure(i,weight=1)
   bottom=tk.Frame(body,bg=BG);bottom.pack(fill="both",expand=True,pady=(4,8))
   left=tk.Frame(bottom,bg=PANEL);left.pack(side="left",fill="both",expand=True,padx=(4,7))
   tk.Label(left,text="ÉVOLUTION POIGNÉE DE GAZ  ·  CAN 0x601",fg=TEXT,bg=PANEL,font=(FONT,11,"bold")).pack(anchor="w",padx=16,pady=(12,3))
@@ -88,7 +88,7 @@ class App:
    self.table.heading(col,text=label);self.table.column(col,width=width)
   self.table.pack(fill="both",expand=True,padx=8,pady=8)
   style=ttk.Style();style.theme_use("clam");style.configure("Treeview",background=PANEL2,foreground=TEXT,fieldbackground=PANEL2,rowheight=24);style.configure("Treeview.Heading",background="#2a3b52",foreground=TEXT)
-  footer=tk.Label(self.root,text="IMPORTANT : Seule la poignée de gaz est validée sur cette moto. Les autres canaux sont expérimentaux et affichés à titre indicatif.",bg=BG,fg=YELLOW,font=(FONT,10))
+  footer=tk.Label(self.root,text="IMPORTANT : Seule la poignée de gaz est validée sur cette moto. TPS1/TPS2 : identifiés dans la définition AiM (CAN 0x7F2), mais absents des captures actuelles ; — signifie non disponible.",bg=BG,fg=YELLOW,font=(FONT,10))
   footer.pack(fill="x",pady=(0,10))
   self.root.after(40,self.tick);self.root.after(180,self.paint_chart)
   # bundled test log, if present
@@ -120,6 +120,11 @@ class App:
   self.rpm.set(None);self.speedg.set(None);self.throttle.set(None)
  def ingest(self,t,cid,data):
   self.last[cid]=data;self.count[cid]+=1
+  if cid==0x7F2 and len(data)>=5:
+   # Définition AiM RSV4 EU5: TPS1 sBit=8, TPS2 sBit=24, 16 bits, facteur .119.
+   # Hypothèse d'ordre des octets little-endian à valider.
+   self.set_card("tps1",f"{int.from_bytes(data[1:3], 'little') * .119:.1f}*")
+   self.set_card("tps2",f"{int.from_bytes(data[3:5], 'little') * .119:.1f}*")
   if cid==0x601 and data:
    self.throttle.set(data[0]);self.series.append((t/1000,data[0]))
   if self.experimental.get():
