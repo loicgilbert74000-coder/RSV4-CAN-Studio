@@ -130,7 +130,7 @@ class App:
      if len(data)>=3:self.speedg.set(round((((data[1]<<8)|data[2])&4095)*.25,1))
    if cid==0x200 and len(data)>=2:
     self.set_card("temp",data[0]-40);self.set_card("oil",data[1]-40)
-    if len(data)>=5:self.set_card("battery",round(data[4]*.1,1))
+    if len(data)>=6:self.set_card("battery",f"{data[5] / 10:.1f}*")
    if cid==0x260 and len(data)>=5:
     self.set_card("front",round(int.from_bytes(data[1:3],"big")*.01,1))
     self.set_card("rear",round(int.from_bytes(data[3:5],"big")*.01,1))
