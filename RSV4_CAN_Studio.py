@@ -52,7 +52,7 @@ class App:
  def __init__(self):
   self.root=tk.Tk();self.root.title("RSV4 CAN STUDIO | Telemetry Lab");self.root.geometry("1420x920");self.root.minsize(1040,730);self.root.configure(bg=BG)
   self.frames=[];self.idx=0;self.playing=False;self.speed=tk.DoubleVar(value=1.0);self.status=tk.StringVar(value="PRÊT · OUVRIR UNE CAPTURE")
-  self.port=tk.StringVar(value="COM7");self.baud=tk.StringVar(value="2000000");self.experimental=tk.BooleanVar(value=False)
+  self.port=tk.StringVar(value="COM7");self.baud=tk.StringVar(value="2000000");self.experimental=tk.BooleanVar(value=True)
   self.last={};self.count=Counter();self.rows={};self.series=deque(maxlen=500);self.start_wall=0;self.start_frame=0;self.q=queue.Queue();self.live=False;self.stop_event=threading.Event()
   header=tk.Frame(self.root,bg=BG);header.pack(fill="x",padx=26,pady=(18,10))
   tk.Label(header,text="RSV4",fg=RED,bg=BG,font=(FONT,28,"bold")).pack(side="left")
@@ -88,7 +88,7 @@ class App:
    self.table.heading(col,text=label);self.table.column(col,width=width)
   self.table.pack(fill="both",expand=True,padx=8,pady=8)
   style=ttk.Style();style.theme_use("clam");style.configure("Treeview",background=PANEL2,foreground=TEXT,fieldbackground=PANEL2,rowheight=24);style.configure("Treeview.Heading",background="#2a3b52",foreground=TEXT)
-  footer=tk.Label(self.root,text="IMPORTANT : Seule la poignée de gaz est validée sur cette moto. Les autres canaux sont expérimentaux et masqués par défaut.",bg=BG,fg=YELLOW,font=(FONT,10))
+  footer=tk.Label(self.root,text="IMPORTANT : Seule la poignée de gaz est validée sur cette moto. Les autres canaux sont expérimentaux et affichés à titre indicatif.",bg=BG,fg=YELLOW,font=(FONT,10))
   footer.pack(fill="x",pady=(0,10))
   self.root.after(40,self.tick);self.root.after(180,self.paint_chart)
   # bundled test log, if present
@@ -125,9 +125,12 @@ class App:
   if self.experimental.get():
    if cid==0x100 and len(data)>=5:
     self.rpm.set((data[3]<<8)|data[4])
-    if len(data)>=2:self.set_card("gear",data[0]&15)
+    if len(data)>=2:
+     self.set_card("gear",data[0]&15)
+     if len(data)>=3:self.speedg.set(round((((data[1]<<8)|data[2])&4095)*.25,1))
    if cid==0x200 and len(data)>=2:
     self.set_card("temp",data[0]-40);self.set_card("oil",data[1]-40)
+    if len(data)>=5:self.set_card("battery",round(data[4]*.1,1))
    if cid==0x260 and len(data)>=5:
     self.set_card("front",round(int.from_bytes(data[1:3],"big")*.01,1))
     self.set_card("rear",round(int.from_bytes(data[3:5],"big")*.01,1))
