@@ -16,6 +16,22 @@ SPEEDS=[0.25,0.5,1,2,4,8]
 SERIES=[("Régime moteur","rpm",RED,16000),("Vitesse","speed",CYAN,320),("Position gaz","thr",GREEN,100),
         ("Temp. moteur","temp",ORANGE,150),("Roue AV","front",VIOLET,300),("Roue AR","rear",PINK,300)]
 
+# Profils de moto. "decoder" : décodages CAN définis pour ce modèle (None = trames brutes seulement).
+# Les échelles (rpm_max, speed_max) sont des valeurs d'affichage ; à confirmer pour chaque moto.
+MODELS={
+ "rsv4":{"label":"Aprilia RSV4 Factory 2024","subtitle":"Aprilia RSV4 Factory 2024",
+         "decoder":"aprilia","rpm_max":16000,"speed_max":320,"validated":("throttle",),
+         "bitrates":["250 kbit/s"],"bitrate":"250 kbit/s",
+         "short":"Poignée seule",
+         "note":"Seule la poignée de gaz est validée · TPS1 / TPS2 non identifiés dans vos captures"},
+ "cbr1000rr_r_2021":{"label":"Honda CBR1000RR-R Fireblade 2021",
+         "subtitle":"Honda CBR1000RR-R Fireblade 2021 · 999 cm³ · 217 ch",
+         "decoder":None,"rpm_max":15000,"speed_max":300,"validated":(),
+         "bitrates":["Non défini"],"bitrate":None,
+         "short":"Trames brutes",
+         "note":"Aucun décodage CAN défini pour ce modèle · trames brutes uniquement, valeurs non interprétées"},
+}
+
 # Exports USB-CAN: NUL between columns; frame ID 8-digit hex, DLC, bytes.
 LINE=re.compile(r"Receive\s+(\d{2}:\d{2}:\d{2}:\d{3}).*?(?:Standard|Extended)\s+frame\s+([0-9a-fA-F]{8})\s+([0-8])\s+((?:[0-9a-fA-F]{2}\s*){1,8})",re.I)
 def load_capture(path):
@@ -54,6 +70,7 @@ class Gauge(tk.Canvas):
   self.value=None;self.dirty=True
   self.bind("<Configure>",lambda e:self.render())
  def set(self,value):self.value=value;self.dirty=True
+ def set_scale(self,maximum,ticks):self.maximum=maximum;self.ticks=ticks;self.dirty=True
  def flush(self):
   if self.dirty:self.dirty=False;self.render()
  def render(self):
@@ -123,16 +140,17 @@ class App:
   self.port=tk.StringVar(value="COM7");self.baud=tk.StringVar(value="2000000");self.experimental=tk.BooleanVar(value=True)
   self.filter_on=tk.BooleanVar(value=True)
   self.visible={key:tk.BooleanVar(value=True) for _,key,_,_ in SERIES}
-  self.count=Counter();self.first_t={};self.last_t={};self.decode_txt={}
+  self.count=Counter();self.first_t={};self.last_t={}
   self.series=deque(maxlen=6000);self.window=60
   self.recent=deque();self.ingested=0;self.t_last=0;self.t0=0;self.last_row=None
   self.sv={"rpm":None,"speed":None,"thr":None,"temp":None,"front":None,"rear":None}
   self.start_wall=0;self.start_frame=0;self.q=queue.Queue();self.live=False;self.stop_event=threading.Event()
-  self.cards={};self.pages={};self.nav={};self.flushables=[];self.srow={};self.fl={}
+  self.cards={};self.pages={};self.nav={};self.flushables=[];self.srow={};self.fl={};self.badge={}
   self.set_styles()
   self.build_footer()
   self.build_sidebar()
   self.build_main()
+  self.apply_model("rsv4")
   self.show_page("dash")
   self.set_conn_ui(False,"Déconnecté")
   self.set_state("Prêt · ouvrez une capture",MUTED)
@@ -140,6 +158,34 @@ class App:
   base=getattr(sys,"_MEIPASS",os.path.dirname(os.path.abspath(__file__)))
   bundled=os.path.join(base,"CAPTURE_GAZ_RSV4.txt")
   if os.path.exists(bundled):self.load(bundled)
+
+ # ---------- modèle ----------
+ @property
+ def model(self):return MODELS[self.model_key]
+
+ def apply_model(self,key):
+  self.model_key=key;m=MODELS[key];self.decoder=m["decoder"]
+  self.subtitle.config(text=m["subtitle"]);self.footnote.config(text="   "+m["note"])
+  n=m["rpm_max"]//1000
+  self.rpm.set_scale(m["rpm_max"],[(k/n,str(k)) for k in range(0,n+1,2)])
+  self.speedg.set_scale(m["speed_max"],[(i/4,str(int(m["speed_max"]*i/4))) for i in range(5)])
+  for k in ("front","rear"):self.cards[k][1].hi=m["speed_max"];self.cards[k][1].dirty=True
+  for k in self.badge:
+   state,color=self.badge_state(k);self.badge[k].config(text=state,fg=color)
+  self.bitrate_cb.config(values=m["bitrates"]);self.bitrate_cb.current(0)
+  self.model_cb.current(list(MODELS).index(key))
+  self.clear_data()
+
+ def badge_state(self,key):
+  if self.decoder is None:return "NON DÉCODÉ",MUTED
+  if key in self.model["validated"]:return "VALIDÉ",GREEN
+  return "À VALIDER",YELLOW
+
+ def on_model(self,e=None):
+  key=list(MODELS)[self.model_cb.current()]
+  if self.live:self.disconnect()
+  self.pause();self.apply_model(key)
+  if self.frames:self.set_state(f"Modèle : {self.model['label']}",SUB)
 
  # ---------- style & widgets ----------
  def set_styles(self):
@@ -161,18 +207,9 @@ class App:
 
  def button(self,parent,text,command,color=TEXT,bg=CARD2,anchor="center",font=10):
   b=tk.Button(parent,text=text,command=command,bg=bg,fg=color,activebackground=HOVER,activeforeground=TEXT,
-              relief="flat",bd=0,highlightthickness=0,padx=10,pady=6,font=(FONT,font,"bold"),cursor="hand2",anchor=anchor)
+              relief="flat",bd=0,highlightthickness=0,padx=10,pady=7,font=(FONT,font,"bold"),cursor="hand2",anchor=anchor)
   b.bind("<Enter>",lambda e:b.config(bg=HOVER));b.bind("<Leave>",lambda e:b.config(bg=bg))
   return b
-
- def transport(self,parent,kind,cmd,color):
-  c=tk.Canvas(parent,width=62,height=40,bg=CARD2,highlightthickness=0,cursor="hand2")
-  if kind=="play":c.create_polygon(24,12,24,28,40,20,fill=color,outline="")
-  elif kind=="pause":
-   c.create_rectangle(23,12,28,28,fill=color,outline="");c.create_rectangle(34,12,39,28,fill=color,outline="")
-  else:c.create_rectangle(23,12,39,28,fill=color,outline="")
-  c.bind("<Button-1>",lambda e:cmd())
-  return c
 
  def section(self,parent,text):
   tk.Label(parent,text=text,fg=MUTED,bg=SIDE,font=(FONT,8,"bold")).pack(anchor="w",padx=20,pady=(14,4))
@@ -193,7 +230,7 @@ class App:
   foot=tk.Frame(self.root,bg=SIDE,highlightbackground=BORDER,highlightthickness=1);foot.pack(side="bottom",fill="x")
   self.fl["dot"]=make_dot(foot,MUTED,SIDE,10);self.fl["dot"].pack(side="left",padx=(16,8),pady=10)
   tk.Label(foot,textvariable=self.status,fg=SUB,bg=SIDE,font=(FONT,9,"bold")).pack(side="left")
-  tk.Label(foot,text="   Seule la poignée de gaz est validée · TPS1 / TPS2 non identifiés dans vos captures",fg=YELLOW,bg=SIDE,font=(FONT,9)).pack(side="left")
+  self.footnote=tk.Label(foot,text="",fg=YELLOW,bg=SIDE,font=(FONT,9));self.footnote.pack(side="left")
   self.fl["dur"]=self.stat(foot,"Durée","00:00")
   self.fl["ids"]=self.stat(foot,"ID actifs","0")
   self.fl["rate"]=self.stat(foot,"Trames/s","—")
@@ -215,6 +252,11 @@ class App:
   tk.Label(logo,text="RSV4",fg=RED,bg=SIDE,font=(FONT,30,"bold italic")).pack(anchor="w")
   tk.Label(logo,text="CAN STUDIO",fg=TEXT,bg=SIDE,font=(FONT,11,"bold")).pack(anchor="w")
 
+  self.section(side,"MOTO")
+  mc=tk.Frame(side,bg=SIDE);mc.pack(fill="x",padx=14,pady=2)
+  self.model_cb=ttk.Combobox(mc,values=[m["label"] for m in MODELS.values()],state="readonly",font=(FONT,9))
+  self.model_cb.pack(fill="x");self.model_cb.bind("<<ComboboxSelected>>",self.on_model)
+
   self.section(side,"NAVIGATION")
   self.nav_item(side,"dash","Tableau de bord")
   self.nav_item(side,"graph","Graphiques")
@@ -232,7 +274,9 @@ class App:
   field("Vitesse",lambda p:ttk.Combobox(p,textvariable=self.baud,values=["2000000","1000000","500000","250000"],width=13))
   field("Mode CAN",lambda p:self.ro_combo(p,["Silent (écoute)"]))
   field("Type trame",lambda p:self.ro_combo(p,["Standard 11 bits"]))
-  field("CAN bitrate",lambda p:self.ro_combo(p,["250 kbit/s"]))
+  row=tk.Frame(inner,bg=CARD);row.pack(fill="x",pady=2)
+  tk.Label(row,text="CAN bitrate",bg=CARD,fg=SUB,font=(FONT,9),anchor="w",width=12).pack(side="left")
+  self.bitrate_cb=ttk.Combobox(row,state="readonly",width=13);self.bitrate_cb.pack(side="right")
   st=tk.Frame(inner,bg=CARD);st.pack(fill="x",pady=(8,6))
   self.conn_dot=make_dot(st,MUTED,CARD,10);self.conn_dot.pack(side="left",padx=(2,6))
   self.conn_lbl=tk.Label(st,text="Déconnecté",bg=CARD,fg=SUB,font=(FONT,10,"bold"));self.conn_lbl.pack(side="left")
@@ -246,11 +290,11 @@ class App:
   self.button(in2,"Ouvrir un fichier .txt",self.open_file,TEXT,CARD2).pack(fill="x")
   tk.Label(in2,textvariable=self.file_name,bg=CARD,fg=SUB,font=(FONT,8),anchor="w",wraplength=190,justify="left").pack(fill="x",pady=(6,4))
   tr=tk.Frame(in2,bg=CARD);tr.pack(fill="x",pady=2)
-  self.transport(tr,"play",self.play,GREEN).pack(side="left",expand=True,fill="x",padx=2)
-  self.transport(tr,"pause",self.pause,YELLOW).pack(side="left",expand=True,fill="x",padx=2)
-  self.transport(tr,"stop",self.reset,SUB).pack(side="left",expand=True,fill="x",padx=2)
+  self.button(tr,"Lecture",self.play,GREEN,CARD2,font=9).pack(side="left",expand=True,fill="x",padx=2)
+  self.button(tr,"Pause",self.pause,YELLOW,CARD2,font=9).pack(side="left",expand=True,fill="x",padx=2)
+  self.button(tr,"Début",self.reset,SUB,CARD2,font=9).pack(side="left",expand=True,fill="x",padx=2)
   sp=tk.Frame(in2,bg=CARD);sp.pack(fill="x",pady=(8,0))
-  self.speed_lbl=tk.Label(sp,text="Vitesse x1.0",bg=CARD,fg=SUB,font=(FONT,9));self.speed_lbl.pack(side="left")
+  self.speed_lbl=tk.Label(sp,text="Vitesse x1",bg=CARD,fg=SUB,font=(FONT,9));self.speed_lbl.pack(side="left")
   slider=tk.Scale(in2,from_=0,to=len(SPEEDS)-1,resolution=1,orient="horizontal",showvalue=False,command=self.on_speed,
                   bg=CARD,troughcolor=CARD2,highlightthickness=0,activebackground=RED,bd=0,sliderlength=14,width=10)
   slider.set(SPEEDS.index(1)); slider.pack(fill="x")
@@ -268,7 +312,7 @@ class App:
   main=tk.Frame(self.root,bg=BG);main.pack(side="left",fill="both",expand=True)
   head=tk.Frame(main,bg=BG);head.pack(fill="x",padx=22,pady=(16,6))
   tk.Label(head,text="Diagnostic & Télémétrie CAN",fg=TEXT,bg=BG,font=(FONT,20,"bold")).pack(anchor="w")
-  tk.Label(head,text="Aprilia RSV4 Factory 2024",fg=SUB,bg=BG,font=(FONT,11)).pack(anchor="w")
+  self.subtitle=tk.Label(head,text="",fg=SUB,bg=BG,font=(FONT,11));self.subtitle.pack(anchor="w")
   self.area=tk.Frame(main,bg=BG);self.area.pack(fill="both",expand=True,padx=18,pady=(0,10))
   self.top=tk.Frame(self.area,bg=BG)
   self.mid=tk.Frame(self.area,bg=BG)
@@ -291,13 +335,13 @@ class App:
    lbl.config(bg=HOVER if on else SIDE,fg=TEXT if on else SUB)
 
  # ---------- tableau de bord ----------
- def mcard(self,parent,key,label,unit,color,lo,hi,validated,big=False):
+ def mcard(self,parent,key,label,unit,color,lo,hi):
   f=self.card(parent)
   tk.Label(f,text=label,fg=SUB,bg=CARD,font=(FONT,8,"bold"),anchor="w").pack(fill="x",padx=12,pady=(10,0))
   row=tk.Frame(f,bg=CARD);row.pack(anchor="w",padx=12,pady=(2,4))
-  val=tk.Label(row,text="—",fg=TEXT,bg=CARD,font=(FONT,30 if big else 18,"bold"));val.pack(side="left")
+  val=tk.Label(row,text="—",fg=TEXT,bg=CARD,font=(FONT,18,"bold"));val.pack(side="left")
   if unit:tk.Label(row,text=unit,fg=MUTED,bg=CARD,font=(FONT,10)).pack(side="left",padx=(4,0),pady=(8,0))
-  tk.Label(f,text="VALIDÉ" if validated else "À VALIDER",fg=GREEN if validated else YELLOW,bg=CARD,font=(FONT,7,"bold"),anchor="w").pack(fill="x",padx=12)
+  self.badge[key]=tk.Label(f,text="",fg=YELLOW,bg=CARD,font=(FONT,7,"bold"),anchor="w");self.badge[key].pack(fill="x",padx=12)
   bar=self.reg(Bar(f,color,lo,hi));bar.pack(fill="x",padx=12)
   sc=tk.Frame(f,bg=CARD);sc.pack(fill="x",padx=12,pady=(3,8))
   tk.Label(sc,text=str(lo),fg=MUTED,bg=CARD,font=(FONT,7)).pack(side="left")
@@ -312,7 +356,6 @@ class App:
   bar.set(num)
 
  def build_top(self,parent):
-  # colonne de gauche : grille 7 colonnes ; colonne de droite : statut système
   right=tk.Frame(parent,bg=BG,width=270);right.pack(side="right",fill="y",padx=(10,0));right.pack_propagate(False)
   left=tk.Frame(parent,bg=BG);left.pack(side="left",fill="both",expand=True)
   for c in range(7):left.columnconfigure(c,weight=1,uniform="c")
@@ -320,28 +363,27 @@ class App:
 
   g=self.card(left);g.grid(row=0,column=0,columnspan=2,rowspan=2,sticky="nsew",padx=4,pady=4)
   tk.Label(g,text="Régime moteur",fg=SUB,bg=CARD,font=(FONT,9,"bold")).pack(anchor="w",padx=14,pady=(10,0))
-  tk.Label(g,text="À VALIDER · 0x100",fg=YELLOW,bg=CARD,font=(FONT,7,"bold")).pack(anchor="w",padx=14)
-  self.rpm=self.reg(Gauge(g,16000,"tr/min",[(v/16,str(v)) for v in range(0,17,2)],
-                          lambda f:GREEN if f<.5 else (YELLOW if f<.8 else RED)))
+  self.badge["rpm"]=tk.Label(g,text="",fg=YELLOW,bg=CARD,font=(FONT,7,"bold"));self.badge["rpm"].pack(anchor="w",padx=14)
+  self.rpm=self.reg(Gauge(g,16000,"tr/min",[],lambda f:GREEN if f<.5 else (YELLOW if f<.8 else RED)))
   self.rpm.pack(fill="both",expand=True,padx=6,pady=(0,6))
 
   s=self.card(left);s.grid(row=0,column=2,columnspan=2,sticky="nsew",padx=4,pady=4)
   tk.Label(s,text="Vitesse moto",fg=SUB,bg=CARD,font=(FONT,9,"bold")).pack(anchor="w",padx=14,pady=(10,0))
-  tk.Label(s,text="À VALIDER · 0x100",fg=YELLOW,bg=CARD,font=(FONT,7,"bold")).pack(anchor="w",padx=14)
-  self.speedg=self.reg(Gauge(s,320,"km/h",[(i/4,str(80*i)) for i in range(5)],lambda f:CYAN))
+  self.badge["speed"]=tk.Label(s,text="",fg=YELLOW,bg=CARD,font=(FONT,7,"bold"));self.badge["speed"].pack(anchor="w",padx=14)
+  self.speedg=self.reg(Gauge(s,320,"km/h",[],lambda f:CYAN))
   self.speedg.pack(fill="both",expand=True,padx=6,pady=(0,6))
 
   gc=self.card(left);gc.grid(row=0,column=4,sticky="nsew",padx=4,pady=4)
   tk.Label(gc,text="Rapport engagé",fg=SUB,bg=CARD,font=(FONT,8,"bold"),anchor="w").pack(fill="x",padx=12,pady=(10,0))
   gt=tk.Frame(gc,bg=CARD);gt.pack(fill="x",padx=12,pady=(0,4))
   self.gear_val=tk.Label(gt,text="—",fg=TEXT,bg=CARD,font=(FONT,30,"bold"));self.gear_val.pack(side="left")
-  tk.Label(gt,text="À VALIDER",fg=YELLOW,bg=CARD,font=(FONT,7,"bold")).pack(side="left",anchor="s",padx=(8,0),pady=(0,10))
+  self.badge["gear"]=tk.Label(gt,text="",fg=YELLOW,bg=CARD,font=(FONT,7,"bold"));self.badge["gear"].pack(side="left",anchor="s",padx=(8,0),pady=(0,10))
   self.gear=self.reg(GearBox(gc,height=36));self.gear.pack(fill="x",padx=8,pady=(0,10))
 
   gz=self.card(left);gz.grid(row=0,column=5,columnspan=2,sticky="nsew",padx=4,pady=4)
   zt=tk.Frame(gz,bg=CARD);zt.pack(fill="x",padx=12,pady=(10,0))
   tk.Label(zt,text="Position gaz",fg=SUB,bg=CARD,font=(FONT,8,"bold")).pack(side="left")
-  tk.Label(zt,text="VALIDÉ · 0x601",fg=GREEN,bg=CARD,font=(FONT,7,"bold")).pack(side="right")
+  self.badge["throttle"]=tk.Label(zt,text="",fg=GREEN,bg=CARD,font=(FONT,7,"bold"));self.badge["throttle"].pack(side="right")
   self.throttle_val=tk.Label(gz,text="—",fg=TEXT,bg=CARD,font=(FONT,30,"bold"));self.throttle_val.pack(anchor="w",padx=12,pady=(0,2))
   self.gaz_bar=self.reg(Bar(gz,GREEN,0,100,height=10));self.gaz_bar.pack(fill="x",padx=12)
   sc=tk.Frame(gz,bg=CARD);sc.pack(fill="x",padx=12,pady=(2,0))
@@ -353,7 +395,7 @@ class App:
   small=[("temp","Temp. moteur","°C",ORANGE,50,150),("oil","Temp. huile","°C",YELLOW,50,150),
          ("battery","Tension batterie","V",LIME,10,16),("front","Roue AV","km/h",CYAN,0,300),("rear","Roue AR","km/h",CYAN,0,300)]
   for i,(key,label,unit,color,lo,hi) in enumerate(small):
-   self.mcard(left,key,label,unit,color,lo,hi,False).grid(row=1,column=2+i,sticky="nsew",padx=4,pady=4)
+   self.mcard(left,key,label,unit,color,lo,hi).grid(row=1,column=2+i,sticky="nsew",padx=4,pady=4)
 
   st=self.card(right);st.pack(fill="both",expand=True,padx=4,pady=4)
   tk.Label(st,text="Statut système",fg=TEXT,bg=CARD,font=(FONT,11,"bold")).pack(anchor="w",padx=16,pady=(14,8))
@@ -379,27 +421,32 @@ class App:
   self.chart=tk.Canvas(card,bg=CARD,highlightthickness=0)
   self.chart.pack(fill="both",expand=True,padx=10,pady=(4,10))
 
+ def scale_for(self,key):
+  m=self.model
+  return {"rpm":m["rpm_max"],"speed":m["speed_max"],"front":m["speed_max"],"rear":m["speed_max"],"thr":100,"temp":150}[key]
+
  def paint_chart(self):
   c=self.chart;c.delete("all");w=c.winfo_width();h=c.winfo_height()
   if w>200 and h>60:
    L,R,T,B=64,62,10,26;pw=w-L-R;ph=h-T-B
+   rmax=self.model["rpm_max"]
    for i in range(5):
     y=T+ph*i/4
     c.create_line(L,y,w-R,y,fill=BORDER)
-    c.create_text(L-8,y,text=f"{16000-4000*i:,}".replace(","," "),anchor="e",fill=MUTED,font=(FONT,8))
+    c.create_text(L-8,y,text=f"{rmax*(4-i)//4:,}".replace(","," "),anchor="e",fill=MUTED,font=(FONT,8))
     c.create_text(w-R+8,y,text=f"{100-25*i} %",anchor="w",fill=GREEN,font=(FONT,8))
    for i,label in enumerate([f"-{self.window}s",f"-{self.window//2}s","0s"]):
     c.create_text(L+pw*i/2,h-10,text=label,anchor=["w","center","e"][i],fill=MUTED,font=(FONT,8))
    pts=list(self.series)
    if len(pts)>1:
     t_end=pts[-1]["t"];start=max(0,t_end-self.window);span=max(1,t_end-start)
-    for label,key,color,maximum in SERIES:
+    for label,key,color,_ in SERIES:
      if not self.visible[key].get():continue
-     coords=[]
+     mx=self.scale_for(key);coords=[]
      for p in pts:
       v=p.get(key)
       if p["t"]<start or v is None:continue
-      coords.extend([L+pw*(p["t"]-start)/span, T+ph*(1-max(0,min(1,v/maximum)))])
+      coords.extend([L+pw*(p["t"]-start)/span, T+ph*(1-max(0,min(1,v/mx)))])
      if len(coords)>=4:c.create_line(*coords,fill=color,width=2)
   self.root.after(180,self.paint_chart)
 
@@ -412,11 +459,11 @@ class App:
   tk.Checkbutton(hdr,text="Filtrage activé (trames décodées seulement)",variable=self.filter_on,bg=CARD,fg=SUB,
                  selectcolor=CARD2,activebackground=CARD,font=(FONT,9),bd=0,highlightthickness=0).pack(side="right",padx=12)
   tw=tk.Frame(card,bg=CARD);tw.pack(fill="both",expand=True,padx=10,pady=(0,10))
-  cols=[("n","#",60,"e"),("time","Temps",100,"w"),("id","ID",80,"w"),("dlc","DLC",50,"center"),
-        ("data","Données (hex)",230,"w"),("freq","Fréq. (Hz)",90,"e"),("dec","Décodage / signaux",520,"w")]
+  cols=[("n","#",55,"e"),("time","Temps",95,"w"),("id","ID",75,"w"),("dlc","DLC",45,"center"),
+        ("hex","Hex",190,"w"),("dec","Décimal",190,"w"),("freq","Fréq. (Hz)",85,"e"),("txt","Décodage / signaux",440,"w")]
   self.table=ttk.Treeview(tw,columns=[c[0] for c in cols],show="headings",height=6)
   for key,label,width,anchor in cols:
-   self.table.heading(key,text=label,anchor=anchor);self.table.column(key,width=width,anchor=anchor,stretch=(key=="dec"))
+   self.table.heading(key,text=label,anchor=anchor);self.table.column(key,width=width,anchor=anchor,stretch=(key=="txt"))
   self.table.tag_configure("new",background="#174a36",foreground=TEXT)
   sb=ttk.Scrollbar(tw,orient="vertical",command=self.table.yview);self.table.configure(yscrollcommand=sb.set)
   self.table.pack(side="left",fill="both",expand=True);sb.pack(side="right",fill="y")
@@ -440,7 +487,7 @@ class App:
   if p:self.load(p)
 
  def clear_data(self):
-  self.count.clear();self.first_t.clear();self.last_t.clear();self.decode_txt.clear()
+  self.count.clear();self.first_t.clear();self.last_t.clear()
   self.series.clear();self.recent.clear();self.ingested=0;self.t_last=0
   self.sv={k:None for k in self.sv}
   self.clear_table()
@@ -472,10 +519,9 @@ class App:
   self.pause();self.idx=0;self.clear_data()
   if self.frames:self.set_state("Début de capture",SUB)
 
- # ---------- décodage (logique inchangée, seul l'affichage a été repensé) ----------
- def ingest(self,t,cid,data):
-  self.count[cid]+=1;self.ingested+=1;self.t_last=t;self.recent.append(t)
-  self.first_t.setdefault(cid,t);self.last_t[cid]=t
+ # ---------- décodage ----------
+ def decode_aprilia(self,t,cid,data):
+  """Décodages RSV4 (logique inchangée) : renvoie le texte affiché dans le moniteur."""
   sv=self.sv;dec="—"
   if cid==0x7F2 and len(data)>=5:
    # Définition AiM RSV4 EU5: TPS1 sBit=8, TPS2 sBit=24, 16 bits, facteur .119.
@@ -508,14 +554,21 @@ class App:
     sv["front"]=f;sv["rear"]=r
     self.show("front",f,text=f"{f:.1f}");self.show("rear",r,text=f"{r:.1f}")
     dec=f"Roue AV {f:.1f} km/h | Roue AR {r:.1f} km/h*"
+  return dec
+
+ def ingest(self,t,cid,data):
+  self.count[cid]+=1;self.ingested+=1;self.t_last=t;self.recent.append(t)
+  self.first_t.setdefault(cid,t);self.last_t[cid]=t
+  dec=self.decode_aprilia(t,cid,data) if self.decoder=="aprilia" else "—"
   n=self.count[cid];freq="—"
   if n>1 and self.last_t[cid]>self.first_t[cid]:freq=f"{(n-1)*1000/(self.last_t[cid]-self.first_t[cid]):.0f}"
-  if not (self.filter_on.get() and dec=="—"):
+  hide=self.filter_on.get() and self.decoder is not None and dec=="—"
+  if not hide:
    try:
     if self.last_row is not None:self.table.item(self.last_row,tags=())
    except tk.TclError:self.last_row=None
    self.last_row=self.table.insert("",0,values=(self.ingested,fmt_ms(t),f"0x{cid:03X}",len(data),
-                                                data.hex(" ").upper(),freq,dec),tags=("new",))
+                                                data.hex(" ").upper()," ".join(str(b) for b in data),freq,dec),tags=("new",))
    kids=self.table.get_children()
    if len(kids)>400:self.table.delete(kids[-1])
 
@@ -544,7 +597,7 @@ class App:
    self.set_srow("qual","—",MUTED)
   self.set_srow("gps","Non connecté",MUTED)
   self.set_srow("rec","Non disponible",MUTED)
-  self.set_srow("val","Seule la poignée",YELLOW)
+  self.set_srow("val",self.model["short"],YELLOW if self.decoder else MUTED)
 
  def tick(self):
   if self.playing and self.frames:
@@ -565,13 +618,14 @@ class App:
   self.root.after(40,self.tick)
 
  def settings(self):
-  win=tk.Toplevel(self.root);win.title("Paramètres");win.configure(bg=CARD);win.geometry("460x310");win.resizable(False,False)
+  win=tk.Toplevel(self.root);win.title("Paramètres");win.configure(bg=CARD);win.geometry("460x330");win.resizable(False,False)
   tk.Label(win,text="Paramètres",fg=TEXT,bg=CARD,font=(FONT,14,"bold")).pack(anchor="w",padx=24,pady=(18,6))
   for label,var in [("Port série",self.port),("Vitesse série (bauds)",self.baud)]:
    tk.Label(win,text=label,bg=CARD,fg=SUB,font=(FONT,9,"bold")).pack(anchor="w",padx=24,pady=(10,3))
    tk.Entry(win,textvariable=var,width=28,bg=CARD2,fg=TEXT,insertbackground=TEXT,relief="flat",highlightbackground=BORDER,highlightthickness=1).pack(anchor="w",padx=24,ipady=4)
   tk.Checkbutton(win,text="Afficher les décodages expérimentaux (non validés)",variable=self.experimental,
                  bg=CARD,fg=TEXT,selectcolor=CARD2,activebackground=CARD,activeforeground=TEXT).pack(anchor="w",padx=20,pady=(14,6))
+  tk.Label(win,text=f"Moto sélectionnée : {self.model['label']}",bg=CARD,fg=SUB,font=(FONT,9,"bold")).pack(anchor="w",padx=24,pady=(4,2))
   tk.Label(win,text="Connexion USB-CAN : réception uniquement.\nMode Silent à configurer avec le logiciel officiel.",
            bg=CARD,fg=YELLOW,justify="left",font=(FONT,9)).pack(anchor="w",padx=24)
 
@@ -586,7 +640,13 @@ class App:
 
  def connect(self):
   if serial is None:messagebox.showerror("Dépendance","pyserial manquant");return
-  if not messagebox.askokcancel("Sécurité CAN","Configurer l'adaptateur en mode Silent et CAN 250 kbit/s avec USBCAN, puis fermer USBCAN.\n\nCette application n'envoie aucune commande, et ne peut pas vérifier que le mode Silent reste actif.\n\nContinuer ?"):return
+  br=self.model["bitrate"]
+  if br is None:
+   msg=("Le débit CAN de cette moto n'est pas défini dans l'application.\n"
+        "Réglez le débit du véhicule dans USBCAN avant de continuer, puis fermer USBCAN.\n\n")
+  else:
+   msg=f"Configurer l'adaptateur en mode Silent et CAN {br} avec USBCAN, puis fermer USBCAN.\n\n"
+  if not messagebox.askokcancel("Sécurité CAN",msg+"Cette application n'envoie aucune commande, et ne peut pas vérifier que le mode Silent reste actif.\n\nContinuer ?"):return
   self.disconnect();self.stop_event=threading.Event();stop=self.stop_event;self.live=True
   self.clear_data();self.t0=int(time.monotonic()*1000)
   self.set_conn_ui(True,"Connecté")
