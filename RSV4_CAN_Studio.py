@@ -1,20 +1,19 @@
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
-import re, time, math, queue, threading, os, sys
+import re, time, math, queue, threading, os, sys, socket
 from collections import Counter, deque
 try: import serial
 except ImportError: serial=None
+from rsv4_signals import SIGNALS
 
 # Palette inspirée de la maquette : fond très sombre, cartes, accents par grandeur
 BG="#070d16"; SIDE="#0b1220"; CARD="#111a2a"; CARD2="#1c2739"; BORDER="#23314b"; HOVER="#1f2e47"
 TEXT="#eef3fb"; SUB="#9fb0c8"; MUTED="#5d7090"
 RED="#e52028"; GREEN="#2fe39a"; CYAN="#3cc0ff"; YELLOW="#ffb938"; ORANGE="#ff8a3d"; VIOLET="#a98bff"; PINK="#ff5fa2"; LIME="#a3e635"
+PALETTE=[CYAN,GREEN,YELLOW,ORANGE,VIOLET,PINK,LIME,RED,"#60a5fa","#f472b6","#34d399","#fbbf24"]
 FONT="Segoe UI"
 SPEEDS=[0.25,0.5,1,2,4,8]
-
-# (libellé, clé, couleur, échelle maximale) ; régime à gauche, gaz à droite, le reste normalisé
-SERIES=[("Régime moteur","rpm",RED,16000),("Vitesse","speed",CYAN,320),("Position gaz","thr",GREEN,100),
-        ("Temp. moteur","temp",ORANGE,150),("Roue AV","front",VIOLET,300),("Roue AR","rear",PINK,300)]
+TILE_W=186; TILE_COLS=5
 
 # Profils de moto. "decoder" : décodages CAN définis pour ce modèle (None = trames brutes seulement).
 # Les échelles (rpm_max, speed_max) sont des valeurs d'affichage ; à confirmer pour chaque moto.
@@ -32,8 +31,34 @@ MODELS={
          "note":"Aucun décodage CAN défini pour ce modèle · trames brutes uniquement, valeurs non interprétées"},
 }
 
+# Index de la définition : signaux par identifiant CAN et clés uniques (identifiant, nom)
+BY_CID={}
+for _s in SIGNALS: BY_CID.setdefault(_s[0],[]).append(_s)
+SIG_KEYS=list(dict.fromkeys((s[0],s[1]) for s in SIGNALS))
+
+# Groupes d'affichage des signaux sur la page « Bus en direct »
+GROUP_OF={0x100:"Moteur",0x114:"Moteur",0x601:"Gaz",0x7F2:"Gaz",0x7F6:"Gaz",0x260:"Roues",
+          0x102:"Freins & sécurité",0x261:"Freins & sécurité",0x104:"Modes & aides",0x230:"Modes & aides",
+          0x106:"Couple",0x108:"Commandes",0x300:"Commandes",0x174:"Centrale inertielle",
+          0x178:"Centrale inertielle",0x262:"Centrale inertielle",0x200:"Températures & électrique",
+          0x222:"Carburant & air",0x226:"Clignotants",0x220:"Divers",0x224:"Divers",0x228:"Divers",
+          0x382:"Non identifié"}
+GROUP_ORDER=["Moteur","Gaz","Roues","Freins & sécurité","Modes & aides","Couple","Centrale inertielle",
+             "Températures & électrique","Carburant & air","Clignotants","Commandes","Divers","Non identifié","Autres"]
+
+# Signaux décodés à la main (décodage de l'appli). Ils remplacent la définition pour ces trames.
+HAND_ALWAYS={(0x601,"Hand_Throttle"),(0x7F2,"RSV4_TPS1"),(0x7F2,"RSV4_TPS2")}
+HAND_EXPERIMENTAL={(0x100,"RPM"),(0x100,"Gear"),(0x100,"Bike_Speed"),(0x200,"Engine_Temp"),(0x200,"Oil_Temp"),
+                   (0x200,"Battery_Volt"),(0x260,"Speed_Front"),(0x260,"Speed_Rear")}
+DEFAULT_CURVES=[(0x100,"RPM"),(0x100,"Bike_Speed"),(0x601,"Hand_Throttle"),(0x200,"Engine_Temp"),
+                (0x260,"Speed_Front"),(0x260,"Speed_Rear")]
+
 # Exports USB-CAN: NUL between columns; frame ID 8-digit hex, DLC, bytes.
 LINE=re.compile(r"Receive\s+(\d{2}:\d{2}:\d{2}:\d{3}).*?(?:Standard|Extended)\s+frame\s+([0-9a-fA-F]{8})\s+([0-8])\s+((?:[0-9a-fA-F]{2}\s*){1,8})",re.I)
+
+# Trame Wi-Fi (ESP32) : 0xA5 0x5A | temps ms (4, LE) | identifiant (4, LE) | DLC (1) | 8 octets | XOR des octets 2 à 18
+WIFI_MAGIC=b"\xa5\x5a";WIFI_FRAME_LEN=20
+
 def load_capture(path):
  out=[]
  with open(path,"r",encoding="latin1",errors="replace") as f:
@@ -50,6 +75,28 @@ def load_capture(path):
   base=out[0][0]
   out=[((t-base)%86400000,c,d) for t,c,d in out]
  return out
+
+def extract_bits(data,sbit,blen):
+ """Lit blen bits à partir de sbit (bit de poids fort en premier, comme la définition AiM)."""
+ v=0
+ for k in range(blen):
+  pos=sbit+k;byte=pos//8
+  if byte>=len(data):return None
+  v=(v<<1)|((data[byte]>>(7-pos%8))&1)
+ return v
+
+def xor_sum(b):
+ x=0
+ for v in b:x^=v
+ return x
+
+def fmt_val(v):
+ if v is None:return "—"
+ if isinstance(v,int) or float(v).is_integer():return f"{int(round(v)):,}".replace(","," ")
+ return f"{v:.2f}".rstrip("0").rstrip(".")
+
+def disp_unit(u):
+ return {"C":"°C","gear":""}.get(u,u)
 
 def fmt_time(ms):
  s=max(0,int(ms/1000));return f"{s//60:02d}:{s%60:02d}"
@@ -137,21 +184,24 @@ class App:
   self.status=tk.StringVar(value="Prêt · ouvrez une capture")
   self.file_name=tk.StringVar(value="Aucun fichier")
   self.clock=tk.StringVar(value="00:00 / 00:00");self.progress=tk.DoubleVar(value=0)
-  self.port=tk.StringVar(value="COM7");self.baud=tk.StringVar(value="2000000");self.experimental=tk.BooleanVar(value=True)
-  self.filter_on=tk.BooleanVar(value=True)
-  self.visible={key:tk.BooleanVar(value=True) for _,key,_,_ in SERIES}
+  self.transport=tk.StringVar(value="USB-CAN (série)")
+  self.port=tk.StringVar(value="COM7");self.baud=tk.StringVar(value="2000000")
+  self.host=tk.StringVar(value="192.168.4.1");self.tcp_port=tk.StringVar(value="2323")
+  self.experimental=tk.BooleanVar(value=True);self.filter_on=tk.BooleanVar(value=True)
+  self.window=tk.IntVar(value=60)
+  self.curve_vars={k:tk.BooleanVar(value=k in DEFAULT_CURVES) for k in SIG_KEYS}
   self.count=Counter();self.first_t={};self.last_t={}
-  self.series=deque(maxlen=6000);self.window=60
-  self.recent=deque();self.ingested=0;self.t_last=0;self.t0=0;self.last_row=None
-  self.sv={"rpm":None,"speed":None,"thr":None,"temp":None,"front":None,"rear":None}
+  self.vals={};self.hist={};self.dirty=set();self.flash_until={};self.tiles={}
+  self.t_now=0;self.recent=deque();self.ingested=0;self.t_last=0;self.t0=0;self.last_row=None
   self.start_wall=0;self.start_frame=0;self.q=queue.Queue();self.live=False;self.stop_event=threading.Event()
   self.cards={};self.pages={};self.nav={};self.flushables=[];self.srow={};self.fl={};self.badge={}
+  self.decoder=None;self.model_key="rsv4"
   self.set_styles()
   self.build_footer()
   self.build_sidebar()
   self.build_main()
   self.apply_model("rsv4")
-  self.show_page("dash")
+  self.show_page("bus")
   self.set_conn_ui(False,"Déconnecté")
   self.set_state("Prêt · ouvrez une capture",MUTED)
   self.root.after(40,self.tick);self.root.after(180,self.paint_chart)
@@ -174,6 +224,8 @@ class App:
    state,color=self.badge_state(k);self.badge[k].config(text=state,fg=color)
   self.bitrate_cb.config(values=m["bitrates"]);self.bitrate_cb.current(0)
   self.model_cb.current(list(MODELS).index(key))
+  self.bus_note.config(text=("Décodage : définition can1.xml · valeurs à valider" if self.decoder
+                             else "Aucun décodage pour cette moto · voir « Trames CAN »"))
   self.clear_data()
 
  def badge_state(self,key):
@@ -225,6 +277,22 @@ class App:
   for w in (row,bar,lbl):w.bind("<Button-1>",go)
   self.nav[key]=(row,bar,lbl)
 
+ def scroll_area(self,parent,bg,width=None):
+  """Zone défilable verticalement : renvoie (conteneur à placer, cadre intérieur à remplir)."""
+  wrap=tk.Frame(parent,bg=bg)
+  canvas=tk.Canvas(wrap,bg=bg,highlightthickness=0,width=width or 300)
+  sb=ttk.Scrollbar(wrap,orient="vertical",command=canvas.yview)
+  canvas.configure(yscrollcommand=sb.set)
+  inner=tk.Frame(canvas,bg=bg)
+  win=canvas.create_window((0,0),window=inner,anchor="nw")
+  inner.bind("<Configure>",lambda e:canvas.configure(scrollregion=canvas.bbox("all")))
+  canvas.bind("<Configure>",lambda e:canvas.itemconfigure(win,width=e.width))
+  def wheel(e):canvas.yview_scroll(int(-e.delta/120),"units")
+  canvas.bind("<Enter>",lambda e:canvas.bind_all("<MouseWheel>",wheel))
+  canvas.bind("<Leave>",lambda e:canvas.unbind_all("<MouseWheel>"))
+  canvas.pack(side="left",fill="both",expand=True);sb.pack(side="right",fill="y")
+  return wrap,inner
+
  # ---------- structure ----------
  def build_footer(self):
   foot=tk.Frame(self.root,bg=SIDE,highlightbackground=BORDER,highlightthickness=1);foot.pack(side="bottom",fill="x")
@@ -258,31 +326,44 @@ class App:
   self.model_cb.pack(fill="x");self.model_cb.bind("<<ComboboxSelected>>",self.on_model)
 
   self.section(side,"NAVIGATION")
-  self.nav_item(side,"dash","Tableau de bord")
-  self.nav_item(side,"graph","Graphiques")
+  self.nav_item(side,"bus","Bus en direct")
+  self.nav_item(side,"graph","Analyse")
   self.nav_item(side,"frames","Trames CAN")
   self.nav_item(side,"settings","Paramètres")
 
   self.section(side,"CONNEXION CAN")
   card=self.card(side);card.pack(fill="x",padx=14,pady=2)
   inner=tk.Frame(card,bg=CARD);inner.pack(fill="x",padx=12,pady=8)
-  def field(label,widget):
-   row=tk.Frame(inner,bg=CARD);row.pack(fill="x",pady=2)
-   tk.Label(row,text=label,bg=CARD,fg=SUB,font=(FONT,9),anchor="w",width=12).pack(side="left")
-   widget(row).pack(side="right")
-  field("Port COM",lambda p:ttk.Combobox(p,textvariable=self.port,values=[f"COM{i}" for i in range(1,21)],width=13))
-  field("Vitesse",lambda p:ttk.Combobox(p,textvariable=self.baud,values=["2000000","1000000","500000","250000"],width=13))
-  field("Mode CAN",lambda p:self.ro_combo(p,["Silent (écoute)"]))
-  field("Type trame",lambda p:self.ro_combo(p,["Standard 11 bits"]))
-  row=tk.Frame(inner,bg=CARD);row.pack(fill="x",pady=2)
-  tk.Label(row,text="CAN bitrate",bg=CARD,fg=SUB,font=(FONT,9),anchor="w",width=12).pack(side="left")
-  self.bitrate_cb=ttk.Combobox(row,state="readonly",width=13);self.bitrate_cb.pack(side="right")
+  def row(label,widget):
+   r=tk.Frame(inner,bg=CARD)
+   tk.Label(r,text=label,bg=CARD,fg=SUB,font=(FONT,9),anchor="w",width=12).pack(side="left")
+   widget(r).pack(side="right")
+   return r
+  tr=tk.Frame(inner,bg=CARD);tr.pack(fill="x",pady=2)
+  tk.Label(tr,text="Source",bg=CARD,fg=SUB,font=(FONT,9),anchor="w",width=12).pack(side="left")
+  self.transport_cb=ttk.Combobox(tr,textvariable=self.transport,values=["USB-CAN (série)","Wi-Fi ESP32"],state="readonly",width=15)
+  self.transport_cb.pack(side="right");self.transport_cb.bind("<<ComboboxSelected>>",self.on_transport)
+  row("Mode CAN",lambda p:self.ro_combo(p,["Silent (écoute)"])).pack(fill="x",pady=2)
+  row("Type trame",lambda p:self.ro_combo(p,["Standard 11 bits"])).pack(fill="x",pady=2)
+  # Lignes propres au port série USB-CAN
+  r_port=row("Port COM",lambda p:ttk.Combobox(p,textvariable=self.port,values=[f"COM{i}" for i in range(1,21)],width=13))
+  r_baud=row("Vitesse",lambda p:ttk.Combobox(p,textvariable=self.baud,values=["2000000","1000000","500000","250000"],width=13))
+  r_br=tk.Frame(inner,bg=CARD)
+  tk.Label(r_br,text="CAN bitrate",bg=CARD,fg=SUB,font=(FONT,9),anchor="w",width=12).pack(side="left")
+  self.bitrate_cb=ttk.Combobox(r_br,state="readonly",width=13);self.bitrate_cb.pack(side="right")
+  self.serial_rows=[r_port,r_baud,r_br]
+  # Lignes propres à la connexion Wi-Fi vers l'ESP32
+  r_host=row("Adresse ESP32",lambda p:tk.Entry(p,textvariable=self.host,width=14,bg=CARD2,fg=TEXT,insertbackground=TEXT,relief="flat",highlightbackground=BORDER,highlightthickness=1))
+  r_tcp=row("Port TCP",lambda p:tk.Entry(p,textvariable=self.tcp_port,width=14,bg=CARD2,fg=TEXT,insertbackground=TEXT,relief="flat",highlightbackground=BORDER,highlightthickness=1))
+  self.wifi_rows=[r_host,r_tcp]
   st=tk.Frame(inner,bg=CARD);st.pack(fill="x",pady=(8,6))
+  self.conn_status=st
   self.conn_dot=make_dot(st,MUTED,CARD,10);self.conn_dot.pack(side="left",padx=(2,6))
   self.conn_lbl=tk.Label(st,text="Déconnecté",bg=CARD,fg=SUB,font=(FONT,10,"bold"));self.conn_lbl.pack(side="left")
   self.conn_btn=tk.Button(inner,text="Connecter",command=self.toggle_connect,bg=RED,fg="#ffffff",activebackground="#ff3b44",
                           activeforeground="#ffffff",relief="flat",bd=0,highlightthickness=0,font=(FONT,10,"bold"),cursor="hand2",pady=6)
   self.conn_btn.pack(fill="x")
+  self.on_transport()
 
   self.section(side,"FICHIER DE LECTURE")
   card2=self.card(side);card2.pack(fill="x",padx=14,pady=2)
@@ -302,6 +383,11 @@ class App:
   ttk.Progressbar(in2,variable=self.progress,maximum=100,style="Rsv.Horizontal.TProgressbar").pack(fill="x",pady=(2,2))
   tk.Label(in2,textvariable=self.clock,bg=CARD,fg=TEXT,font=(FONT,9,"bold")).pack(anchor="e")
 
+ def on_transport(self,e=None):
+  wifi=self.transport.get().startswith("Wi-Fi")
+  for r in self.serial_rows+self.wifi_rows:r.pack_forget()
+  for r in (self.wifi_rows if wifi else self.serial_rows):r.pack(fill="x",pady=2,before=self.conn_status)
+
  def ro_combo(self,parent,values):
   c=ttk.Combobox(parent,values=values,state="readonly",width=15);c.current(0);return c
 
@@ -314,27 +400,68 @@ class App:
   tk.Label(head,text="Diagnostic & Télémétrie CAN",fg=TEXT,bg=BG,font=(FONT,20,"bold")).pack(anchor="w")
   self.subtitle=tk.Label(head,text="",fg=SUB,bg=BG,font=(FONT,11));self.subtitle.pack(anchor="w")
   self.area=tk.Frame(main,bg=BG);self.area.pack(fill="both",expand=True,padx=18,pady=(0,10))
-  self.top=tk.Frame(self.area,bg=BG)
-  self.mid=tk.Frame(self.area,bg=BG)
-  self.bot=tk.Frame(self.area,bg=BG)
-  self.build_top(self.top)
-  self.build_graph(self.mid)
-  self.build_table(self.bot)
+  self.page_bus=tk.Frame(self.area,bg=BG)
+  self.page_graph=tk.Frame(self.area,bg=BG)
+  self.page_frames=tk.Frame(self.area,bg=BG)
+  self.pages={"bus":self.page_bus,"graph":self.page_graph,"frames":self.page_frames}
+  self.build_bus(self.page_bus)
+  self.build_graph(self.page_graph)
+  self.build_table(self.page_frames)
 
  def show_page(self,key):
-  for w in (self.top,self.mid,self.bot):w.pack_forget()
-  if key=="dash":
-   self.top.pack(fill="x")
-   self.bot.pack(side="bottom",fill="x",pady=(8,0))
-   self.mid.pack(fill="both",expand=True,pady=(0,0))
-  elif key=="graph":self.mid.pack(fill="both",expand=True)
-  elif key=="frames":self.bot.pack(fill="both",expand=True)
+  for p in self.pages.values():p.pack_forget()
+  self.pages[key].pack(fill="both",expand=True)
   for k,(row,bar,lbl) in self.nav.items():
    on=(k==key)
    row.config(bg=HOVER if on else SIDE);bar.config(bg=RED if on else SIDE)
    lbl.config(bg=HOVER if on else SIDE,fg=TEXT if on else SUB)
 
- # ---------- tableau de bord ----------
+ # ---------- page 1 : bus en direct ----------
+ def build_bus(self,parent):
+  top=tk.Frame(parent,bg=BG);top.pack(fill="x")
+  self.build_top(top)
+  head=tk.Frame(parent,bg=BG);head.pack(fill="x",pady=(10,2))
+  tk.Label(head,text="Tous les paramètres du bus",fg=TEXT,bg=BG,font=(FONT,13,"bold")).pack(side="left")
+  self.bus_note=tk.Label(head,text="",fg=SUB,bg=BG,font=(FONT,9));self.bus_note.pack(side="left",padx=12)
+  wrap,inner=self.scroll_area(parent,BG)
+  wrap.pack(fill="both",expand=True,pady=(2,0))
+  groups={}
+  for s in SIGNALS:groups.setdefault(GROUP_OF.get(s[0],"Autres"),[]).append(s)
+  for g in dict.fromkeys(GROUP_ORDER+list(groups)):
+   if g not in groups:continue
+   tk.Label(inner,text=g.upper(),fg=MUTED,bg=BG,font=(FONT,8,"bold"),anchor="w").pack(fill="x",pady=(12,2))
+   grid=tk.Frame(inner,bg=BG);grid.pack(fill="x")
+   for i,s in enumerate(groups[g]):
+    self.make_tile(grid,s).grid(row=i//TILE_COLS,column=i%TILE_COLS,padx=5,pady=5,sticky="nw")
+
+ def make_tile(self,parent,s):
+  cid,name,_,_,_,_,unit=s
+  f=tk.Frame(parent,bg=CARD,highlightbackground=BORDER,highlightthickness=1,width=TILE_W,height=96)
+  f.pack_propagate(False)
+  tk.Label(f,text=name.replace("_"," "),fg=SUB,bg=CARD,font=(FONT,8,"bold"),anchor="w").pack(fill="x",padx=10,pady=(8,0))
+  row=tk.Frame(f,bg=CARD);row.pack(anchor="w",padx=10)
+  vl=tk.Label(row,text="—",fg=TEXT,bg=CARD,font=(FONT,18,"bold"));vl.pack(side="left")
+  if unit:tk.Label(row,text=disp_unit(unit),fg=MUTED,bg=CARD,font=(FONT,9)).pack(side="left",padx=(5,0),pady=(9,0))
+  sl=tk.Label(f,text=f"0x{cid:03X}",fg=MUTED,bg=CARD,font=(FONT,7,"bold"),anchor="w")
+  sl.pack(side="bottom",fill="x",padx=10,pady=(0,6))
+  self.tiles[(cid,name)]=(f,vl,sl)
+  return f
+
+ def put(self,cid,name,val,t,src):
+  """Enregistre une valeur décodée : valeur courante, historique pour les courbes, mise à jour de la tuile."""
+  key=(cid,name);self.vals[key]=(val,src)
+  h=self.hist.get(key)
+  if h is None:h=self.hist[key]=deque(maxlen=8000)
+  h.append((t,val));self.dirty.add(key)
+
+ def refresh_tile(self,key):
+  f,vl,sl=self.tiles[key];val,src=self.vals[key]
+  vl.config(text=fmt_val(val))
+  if src=="def":sl.config(text=f"0x{key[0]:03X} · définition",fg=MUTED)
+  elif src=="valid":sl.config(text=f"0x{key[0]:03X} · validé",fg=GREEN)
+  else:sl.config(text=f"0x{key[0]:03X} · app · à valider",fg=YELLOW)
+  vl.config(fg=CYAN);self.flash_until[key]=time.monotonic()+.3
+
  def mcard(self,parent,key,label,unit,color,lo,hi):
   f=self.card(parent)
   tk.Label(f,text=label,fg=SUB,bg=CARD,font=(FONT,8,"bold"),anchor="w").pack(fill="x",padx=12,pady=(10,0))
@@ -410,44 +537,67 @@ class App:
  def set_srow(self,key,text,color):
   dot,v=self.srow[key];set_dot(dot,color);v.config(text=text)
 
- # ---------- graphique ----------
+ # ---------- page 2 : analyse (courbes) ----------
  def build_graph(self,parent):
-  card=self.card(parent);card.pack(fill="both",expand=True,padx=4,pady=4)
-  hdr=tk.Frame(card,bg=CARD);hdr.pack(fill="x",padx=14,pady=(10,2))
-  tk.Label(hdr,text="Graphiques temps réel",fg=TEXT,bg=CARD,font=(FONT,12,"bold")).pack(side="left")
-  for label,key,color,_ in SERIES:
-   tk.Checkbutton(hdr,text=label,variable=self.visible[key],bg=CARD,fg=color,selectcolor=CARD2,
-                  activebackground=CARD,activeforeground=color,font=(FONT,9,"bold"),bd=0,highlightthickness=0).pack(side="left",padx=6)
-  self.chart=tk.Canvas(card,bg=CARD,highlightthickness=0)
+  side=self.card(parent);side.pack(side="left",fill="y",padx=4,pady=4)
+  tk.Label(side,text="Signaux tracés",fg=TEXT,bg=CARD,font=(FONT,11,"bold")).pack(anchor="w",padx=12,pady=(10,4))
+  bt=tk.Frame(side,bg=CARD);bt.pack(fill="x",padx=10)
+  self.button(bt,"Défaut",lambda:self.set_curves(DEFAULT_CURVES),SUB,CARD2,font=9).pack(side="left",expand=True,fill="x",padx=2)
+  self.button(bt,"Aucun",lambda:self.set_curves([]),SUB,CARD2,font=9).pack(side="left",expand=True,fill="x",padx=2)
+  wrap,inner=self.scroll_area(side,CARD,width=250)
+  wrap.pack(fill="both",expand=True,padx=6,pady=6)
+  for i,key in enumerate(SIG_KEYS):
+   cid,name=key;color=PALETTE[i%len(PALETTE)]
+   tk.Checkbutton(inner,text=f"{name.replace('_',' ')}  ·  0x{cid:03X}",variable=self.curve_vars[key],bg=CARD,fg=color,
+                  selectcolor=CARD2,activebackground=CARD,activeforeground=color,font=(FONT,9),bd=0,highlightthickness=0,
+                  anchor="w").pack(fill="x",padx=4,pady=0)
+  main=self.card(parent);main.pack(fill="both",expand=True,padx=4,pady=4)
+  hdr=tk.Frame(main,bg=CARD);hdr.pack(fill="x",padx=14,pady=(10,2))
+  tk.Label(hdr,text="Analyse des courbes",fg=TEXT,bg=CARD,font=(FONT,12,"bold")).pack(side="left")
+  wc=ttk.Combobox(hdr,values=["30 s","60 s","120 s","300 s"],state="readonly",width=7)
+  wc.current(1);wc.pack(side="right")
+  wc.bind("<<ComboboxSelected>>",lambda e:self.window.set(int(wc.get().split()[0])))
+  tk.Label(hdr,text="Fenêtre",fg=SUB,bg=CARD,font=(FONT,9)).pack(side="right",padx=(0,6))
+  self.chart=tk.Canvas(main,bg=CARD,highlightthickness=0)
   self.chart.pack(fill="both",expand=True,padx=10,pady=(4,10))
 
- def scale_for(self,key):
-  m=self.model
-  return {"rpm":m["rpm_max"],"speed":m["speed_max"],"front":m["speed_max"],"rear":m["speed_max"],"thr":100,"temp":150}[key]
+ def set_curves(self,keys):
+  for k,v in self.curve_vars.items():v.set(k in keys)
 
  def paint_chart(self):
   c=self.chart;c.delete("all");w=c.winfo_width();h=c.winfo_height()
-  if w>200 and h>60:
-   L,R,T,B=64,62,10,26;pw=w-L-R;ph=h-T-B
-   rmax=self.model["rpm_max"]
+  if w>300 and h>120:
+   win=self.window.get();L,R,T,B=56,300,16,30;pw=w-L-R;ph=h-T-B
+   span=win*1000;start=self.t_now-span
    for i in range(5):
-    y=T+ph*i/4
-    c.create_line(L,y,w-R,y,fill=BORDER)
-    c.create_text(L-8,y,text=f"{rmax*(4-i)//4:,}".replace(","," "),anchor="e",fill=MUTED,font=(FONT,8))
-    c.create_text(w-R+8,y,text=f"{100-25*i} %",anchor="w",fill=GREEN,font=(FONT,8))
-   for i,label in enumerate([f"-{self.window}s",f"-{self.window//2}s","0s"]):
-    c.create_text(L+pw*i/2,h-10,text=label,anchor=["w","center","e"][i],fill=MUTED,font=(FONT,8))
-   pts=list(self.series)
-   if len(pts)>1:
-    t_end=pts[-1]["t"];start=max(0,t_end-self.window);span=max(1,t_end-start)
-    for label,key,color,_ in SERIES:
-     if not self.visible[key].get():continue
-     mx=self.scale_for(key);coords=[]
-     for p in pts:
-      v=p.get(key)
-      if p["t"]<start or v is None:continue
-      coords.extend([L+pw*(p["t"]-start)/span, T+ph*(1-max(0,min(1,v/mx)))])
-     if len(coords)>=4:c.create_line(*coords,fill=color,width=2)
+    y=T+ph*i/4;c.create_line(L,y,L+pw,y,fill=BORDER)
+   for frac,label,anc in [(0,f"-{win} s","w"),(.5,f"-{win//2} s","center"),(1,"maintenant","e")]:
+    c.create_text(L+pw*frac,h-12,text=label,fill=MUTED,font=(FONT,8),anchor=anc)
+   lx=L+pw+14;ly=T+4
+   c.create_text(lx,ly,text="Signal · min · max · actuel",anchor="nw",fill=SUB,font=(FONT,8,"bold"))
+   row=0
+   for i,key in enumerate(SIG_KEYS):
+    if not self.curve_vars[key].get():continue
+    color=PALETTE[i%len(PALETTE)];cid,name=key
+    pts=[]
+    for t,v in reversed(self.hist.get(key,())):
+     if t<start:break
+     pts.append((t,v))
+    pts.reverse()
+    y0=ly+26+row*38;row+=1
+    c.create_line(lx,y0+7,lx+18,y0+7,fill=color,width=3)
+    c.create_text(lx+26,y0,text=f"{name.replace('_',' ')} · 0x{cid:03X}",anchor="nw",fill=TEXT,font=(FONT,8,"bold"))
+    if len(pts)<2:
+     c.create_text(lx+26,y0+14,text="pas de donnée",anchor="nw",fill=MUTED,font=(FONT,8))
+     continue
+    vals=[v for _,v in pts];mn=min(vals);mx=max(vals);rng=mx-mn
+    coords=[]
+    for t,v in pts:
+     x=L+pw*(t-start)/span
+     y=T+ph/2 if rng==0 else T+ph*(1-(v-mn)/rng)
+     coords.extend((x,y))
+    c.create_line(*coords,fill=color,width=2)
+    c.create_text(lx+26,y0+14,text=f"min {fmt_val(mn)} · max {fmt_val(mx)} · {fmt_val(vals[-1])}",anchor="nw",fill=SUB,font=(FONT,8))
   self.root.after(180,self.paint_chart)
 
  # ---------- trames ----------
@@ -488,12 +638,13 @@ class App:
 
  def clear_data(self):
   self.count.clear();self.first_t.clear();self.last_t.clear()
-  self.series.clear();self.recent.clear();self.ingested=0;self.t_last=0
-  self.sv={k:None for k in self.sv}
+  self.recent.clear();self.ingested=0;self.t_last=0;self.t_now=0
+  self.vals.clear();self.hist.clear();self.dirty.clear();self.flash_until.clear()
   self.clear_table()
   for key in self.cards:self.show(key,None)
   self.gear.set(None);self.gear_val.config(text="—");self.rpm.set(None);self.speedg.set(None)
   self.tps_lbl.config(text="TPS1 —  ·  TPS2 —")
+  for key,(f,vl,sl) in self.tiles.items():vl.config(text="—",fg=TEXT)
 
  def load(self,path):
   try:frames=load_capture(path)
@@ -521,45 +672,67 @@ class App:
 
  # ---------- décodage ----------
  def decode_aprilia(self,t,cid,data):
-  """Décodages RSV4 (logique inchangée) : renvoie le texte affiché dans le moniteur."""
-  sv=self.sv;dec="—"
+  """Décodages faits à la main (poignée, TPS, et décodages expérimentaux). Renvoie le texte affiché dans le tableau."""
+  dec="—";exp=self.experimental.get()
   if cid==0x7F2 and len(data)>=5:
    # Définition AiM RSV4 EU5: TPS1 sBit=8, TPS2 sBit=24, 16 bits, facteur .119.
-   # Hypothèse d'ordre des octets little-endian à valider.
+   # Hypothèse d'ordre des octets little-endian à valider (la définition indique big-endian).
    a=int.from_bytes(data[1:3],'little')*.119;b=int.from_bytes(data[3:5],'little')*.119
    self.tps_lbl.config(text=f"TPS1 {a:.1f}*  ·  TPS2 {b:.1f}*")
+   self.put(cid,"RSV4_TPS1",a,t,"app");self.put(cid,"RSV4_TPS2",b,t,"app")
    dec=f"Papillon TPS1 {a:.1f} % | TPS2 {b:.1f} %  (hypothèse)"
   if cid==0x601 and data:
-   sv["thr"]=data[0];self.show("throttle",data[0],text=f"{data[0]}")
+   self.show("throttle",data[0],text=f"{data[0]}")
+   self.put(cid,"Hand_Throttle",data[0],t,"valid")
    dec=f"Position gaz : {data[0]} %"
-   self.series.append({"t":t/1000,**sv})
-  if self.experimental.get():
+  if exp:
    if cid==0x100 and len(data)>=5:
-    rpm=(data[3]<<8)|data[4];sv["rpm"]=rpm;self.rpm.set(rpm)
+    rpm=(data[3]<<8)|data[4];self.rpm.set(rpm);self.put(cid,"RPM",rpm,t,"app")
     parts=[f"Régime {rpm} tr/min*"]
     if len(data)>=2:
-     gear=data[0]&15;self.gear.set(gear);self.gear_val.config(text=str(gear));parts.append(f"Rapport {gear}*")
+     gear=data[0]&15;self.gear.set(gear);self.gear_val.config(text=str(gear))
+     self.put(cid,"Gear",gear,t,"app");parts.append(f"Rapport {gear}*")
      if len(data)>=3:
-      spd=round((((data[1]<<8)|data[2])&4095)*.25,1);sv["speed"]=spd;self.speedg.set(spd);parts.append(f"Vitesse {spd} km/h*")
+      spd=round((((data[1]<<8)|data[2])&4095)*.25,1);self.speedg.set(spd)
+      self.put(cid,"Bike_Speed",spd,t,"app");parts.append(f"Vitesse {spd} km/h*")
     dec=" | ".join(parts)
    if cid==0x200 and len(data)>=2:
-    tmp=data[0]-40;oil=data[1]-40;sv["temp"]=tmp
+    tmp=data[0]-40;oil=data[1]-40
     self.show("temp",tmp);self.show("oil",oil)
+    self.put(cid,"Engine_Temp",tmp,t,"app");self.put(cid,"Oil_Temp",oil,t,"app")
     parts=[f"Temp. moteur {tmp} °C*",f"Temp. huile {oil} °C*"]
     if len(data)>=6:
-     v=data[5]/10;self.show("battery",v,text=f"{v:.1f}");parts.append(f"Batterie {v:.1f} V*")
+     v=data[5]/10;self.show("battery",v,text=f"{v:.1f}");self.put(cid,"Battery_Volt",v,t,"app")
+     parts.append(f"Batterie {v:.1f} V*")
     dec=" | ".join(parts)
    if cid==0x260 and len(data)>=5:
     f=round(int.from_bytes(data[1:3],'big')*.01,1);r=round(int.from_bytes(data[3:5],'big')*.01,1)
-    sv["front"]=f;sv["rear"]=r
     self.show("front",f,text=f"{f:.1f}");self.show("rear",r,text=f"{r:.1f}")
+    self.put(cid,"Speed_Front",f,t,"app");self.put(cid,"Speed_Rear",r,t,"app")
     dec=f"Roue AV {f:.1f} km/h | Roue AR {r:.1f} km/h*"
   return dec
 
+ def decode_generic(self,t,cid,data):
+  """Tous les autres signaux de la définition can1.xml. Renvoie la liste des textes affichés."""
+  parts=[]
+  for _,name,sbit,blen,p0,p1,unit in BY_CID.get(cid,()):
+   if (cid,name) in HAND_ALWAYS or (self.experimental.get() and (cid,name) in HAND_EXPERIMENTAL):continue
+   raw=extract_bits(data,sbit,blen)
+   if raw is None:continue
+   val=p0+p1*raw
+   self.put(cid,name,val,t,"def")
+   parts.append(f"{name.replace('_',' ')} {fmt_val(val)}{(' '+disp_unit(unit)) if unit else ''}")
+  return parts
+
  def ingest(self,t,cid,data):
+  self.t_now=t
   self.count[cid]+=1;self.ingested+=1;self.t_last=t;self.recent.append(t)
   self.first_t.setdefault(cid,t);self.last_t[cid]=t
-  dec=self.decode_aprilia(t,cid,data) if self.decoder=="aprilia" else "—"
+  dec="—"
+  if self.decoder=="aprilia":
+   dec=self.decode_aprilia(t,cid,data)
+   parts=self.decode_generic(t,cid,data)
+   if parts:dec=" | ".join(parts) if dec=="—" else dec+" | "+" | ".join(parts)
   n=self.count[cid];freq="—"
   if n>1 and self.last_t[cid]>self.first_t[cid]:freq=f"{(n-1)*1000/(self.last_t[cid]-self.first_t[cid]):.0f}"
   hide=self.filter_on.get() and self.decoder is not None and dec=="—"
@@ -608,11 +781,20 @@ class App:
     self.ingest(*self.frames[self.idx]);self.idx+=1;batch+=1
    if self.idx>=len(self.frames):
     self.playing=False;self.set_state("Lecture terminée",CYAN)
-  for _ in range(100):
+  for _ in range(400):
    try:cid,data=self.q.get_nowait()
    except queue.Empty:break
-   if cid=="error":self.disconnect();messagebox.showerror("Connexion série",data)
+   if cid=="error":self.disconnect();messagebox.showerror("Connexion",data)
    else:self.ingest(int(time.monotonic()*1000),cid,data)
+  if self.dirty:
+   keys=list(self.dirty);self.dirty.clear()
+   for k in keys:
+    if k in self.tiles:self.refresh_tile(k)
+  now=time.monotonic()
+  for k,until in list(self.flash_until.items()):
+   if now>=until:
+    if k in self.tiles:self.tiles[k][1].config(fg=TEXT)
+    del self.flash_until[k]
   for w in self.flushables:w.flush()
   self.update_status()
   self.root.after(40,self.tick)
@@ -639,21 +821,38 @@ class App:
    self.set_conn_ui(False,"Déconnecté");self.set_state("Déconnecté",MUTED)
 
  def connect(self):
-  if serial is None:messagebox.showerror("Dépendance","pyserial manquant");return
-  br=self.model["bitrate"]
-  if br is None:
-   msg=("Le débit CAN de cette moto n'est pas défini dans l'application.\n"
-        "Réglez le débit du véhicule dans USBCAN avant de continuer, puis fermer USBCAN.\n\n")
+  wifi=self.transport.get().startswith("Wi-Fi")
+  if wifi:
+   try:tcp=int(self.tcp_port.get())
+   except ValueError:messagebox.showerror("Connexion Wi-Fi","Port TCP invalide.");return
+   host=self.host.get().strip();target=f"{host}:{tcp}"
+   msg=(f"Connexion Wi-Fi à l'ESP32 ({target}).\n"
+        "L'ESP32 doit être en écoute seule (listen-only), comme le mode Silent.\n\n")
   else:
-   msg=f"Configurer l'adaptateur en mode Silent et CAN {br} avec USBCAN, puis fermer USBCAN.\n\n"
+   if serial is None:messagebox.showerror("Dépendance","pyserial manquant");return
+   br=self.model["bitrate"]
+   if br is None:
+    msg=("Le débit CAN de cette moto n'est pas défini dans l'application.\n"
+         "Réglez le débit du véhicule dans USBCAN avant de continuer, puis fermer USBCAN.\n\n")
+   else:
+    msg=f"Configurer l'adaptateur en mode Silent et CAN {br} avec USBCAN, puis fermer USBCAN.\n\n"
   if not messagebox.askokcancel("Sécurité CAN",msg+"Cette application n'envoie aucune commande, et ne peut pas vérifier que le mode Silent reste actif.\n\nContinuer ?"):return
   self.disconnect();self.stop_event=threading.Event();stop=self.stop_event;self.live=True
   self.clear_data();self.t0=int(time.monotonic()*1000)
   self.set_conn_ui(True,"Connecté")
-  self.set_state(f"USB-CAN · écoute sur {self.port.get()}",GREEN)
+  if wifi:
+   self.set_state(f"Wi-Fi · ESP32 {target}",GREEN)
+   worker=self.make_wifi_worker(host,tcp,stop)
+  else:
+   self.set_state(f"USB-CAN · écoute sur {self.port.get()}",GREEN)
+   worker=self.make_serial_worker(self.port.get(),self.baud.get(),stop)
+  threading.Thread(target=worker,daemon=True).start()
+
+ def make_serial_worker(self,port_name,baud,stop):
+  q=self.q
   def worker():
    try:
-    with serial.Serial(self.port.get(),int(self.baud.get()),timeout=.2) as port:
+    with serial.Serial(port_name,int(baud),timeout=.2) as port:
      buf=bytearray()
      while not stop.is_set():
       buf.extend(port.read(512))
@@ -667,16 +866,41 @@ class App:
         if len(buf)<20:break
         p=bytes(buf[:20]);del buf[:20]
         if p[2]==1 and p[3] in (1,2) and p[4]==1 and p[9]<=8 and (sum(p[2:19])&255)==p[19]:
-         self.q.put((int.from_bytes(p[5:9],"little"),p[10:10+p[9]]))
+         q.put((int.from_bytes(p[5:9],"little"),p[10:10+p[9]]))
         continue
        if typ&0xc0!=0xc0 or (typ&15)>8:del buf[0];continue
        idlen=4 if typ&0x20 else 2;total=3+idlen+(typ&15)
        if len(buf)<total:break
        if buf[total-1]!=0x55:del buf[0];continue
        p=bytes(buf[:total]);del buf[:total]
-       if not typ&0x10:self.q.put((int.from_bytes(p[2:2+idlen],"little"),p[2+idlen:-1]))
-   except Exception as e:self.q.put(("error",str(e)))
-  threading.Thread(target=worker,daemon=True).start()
+       if not typ&0x10:q.put((int.from_bytes(p[2:2+idlen],"little"),p[2+idlen:-1]))
+   except Exception as e:q.put(("error",str(e)))
+  return worker
+
+ def make_wifi_worker(self,host,port,stop):
+  q=self.q
+  def worker():
+   try:
+    with socket.create_connection((host,port),timeout=3) as sock:
+     sock.settimeout(.3)
+     buf=bytearray()
+     while not stop.is_set():
+      try:chunk=sock.recv(4096)
+      except socket.timeout:continue
+      if not chunk:raise ConnectionError("l'ESP32 a fermé la connexion")
+      buf.extend(chunk)
+      while len(buf)>=WIFI_FRAME_LEN:
+       ix=buf.find(WIFI_MAGIC)
+       if ix<0:del buf[:-1];break
+       if ix>0:del buf[:ix]
+       if len(buf)<WIFI_FRAME_LEN:break
+       p=bytes(buf[:WIFI_FRAME_LEN])
+       if xor_sum(p[2:19])!=p[19]:del buf[:1];continue
+       del buf[:WIFI_FRAME_LEN]
+       cid=int.from_bytes(p[6:10],"little");dlc=min(p[10],8)
+       q.put((cid,p[11:11+dlc]))
+   except Exception as e:q.put(("error",str(e)))
+  return worker
 
  def run(self):self.root.mainloop()
 
