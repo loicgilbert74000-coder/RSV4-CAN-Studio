@@ -208,6 +208,7 @@ static void sendGps() {
 static bool canOk = false;                // contrôleur CAN démarré
 static uint32_t lastCanRx = 0;            // dernière trame CAN reçue (ms)
 static bool canSeen = false;              // au moins une trame reçue depuis le démarrage
+static uint32_t canTotal = 0;                              // trames CAN reçues depuis le démarrage
 static uint16_t canCount = 0;                              // trames CAN reçues pendant la seconde en cours
 
 static int8_t wifiRssi(uint8_t* stations) {
@@ -297,6 +298,62 @@ static void updateLeds(uint32_t now) {
   ledSet(1, LED_RED_PIN, red);
 }
 
+// ---------- rapport d'état sur le port série ----------
+static const char* wifiQuality(int rssi) {
+  return rssi >= -60 ? "bon" : rssi >= -70 ? "correct" : rssi >= -80 ? "faible" : "très faible";
+}
+
+static void printReport(uint32_t now) {
+  static uint32_t lastTotal = 0, lastTime = 0;
+  uint32_t dt = now - lastTime ? now - lastTime : 1;
+  uint32_t rate = (canTotal - lastTotal) * 1000UL / dt;
+  lastTotal = canTotal; lastTime = now;
+  Serial.printf("----- État à %lus -----\n", (unsigned long)(now / 1000));
+  // Wi-Fi
+  uint8_t stations;
+  int8_t rssi = wifiRssi(&stations);
+  Serial.printf("Wi-Fi  : réseau %s · appareils=%u", AP_SSID, stations);
+  if (rssi != 127) Serial.printf(" · signal=%d dBm (%s)", rssi, wifiQuality(rssi));
+  Serial.printf(" · application=%s\n", (client && client.connected()) ? "connectée" : "non connectée");
+  // CAN
+  if (!CAN_ENABLED) {
+    Serial.println("CAN    : désactivé dans la configuration");
+  } else {
+    twai_status_info_t st = {};
+    bool ok = twai_get_status_info(&st) == ESP_OK;
+    const char* etat = !ok ? "inconnu" : st.state == TWAI_STATE_BUS_OFF ? "BUS-OFF" : st.state == TWAI_STATE_STOPPED ? "ARRÊTÉ" : "en marche";
+    Serial.printf("CAN    : contrôleur %s · trames/s=%lu · total=%lu · erreurs_rx=%u · perdues=%u · %s\n", etat,
+                  (unsigned long)rate, (unsigned long)canTotal, (unsigned)st.rx_error_counter, (unsigned)st.rx_missed_count,
+                  (canSeen && now - lastCanRx < 3000) ? "bus actif" : "aucune trame (bus non raccordé ?)");
+  }
+  // GPS
+#if GPS_ENABLED
+  const char* module = (lastNmeaMs && now - lastNmeaMs < 2000) ? "détecté"
+                       : (lastGpsByteMs && now - lastGpsByteMs < 2000) ? "données illisibles (débit ?)" : "aucune donnée";
+  Serial.printf("GPS    : module %s · débit=%lu · octets=%lu · phrases=%lu · position=%s · satellites=%u\n", module,
+                (unsigned long)GPS_BAUDS[gpsBaudIdx], (unsigned long)gpsBytes, (unsigned long)gpsSentences,
+                gps.valid ? "valide" : "non", gps.sats);
+  if (gps.valid) Serial.printf("         lat=%.6f lon=%.6f vitesse=%.1f km/h\n", gps.lat, gps.lon, gps.speedKmh);
+#else
+  Serial.println("GPS    : désactivé dans la configuration");
+#endif
+  // entrées / potentiomètres
+  Serial.print("Entrées: ");
+  bool any = false;
+  for (int i = 0; i < DIG_COUNT; i++) if (digOk[i]) { Serial.printf("E%d=%d ", i + 1, digitalRead(DIG_PIN[i])); any = true; }
+  if (!any) Serial.print("aucune active");
+  Serial.println();
+  Serial.print("Analog.: ");
+  any = false;
+  for (int j = 0; j < ANA_COUNT; j++) if (anaOk[j]) {
+    int v = analogRead(ANA_PIN[j]);
+    Serial.printf("ADC%d=%d (%d%%) ", j + 1, v, v * 100 / 4095);
+    any = true;
+  }
+  if (!any) Serial.print("aucune active");
+  Serial.println();
+}
+
 // ---------- CAN ----------
 static void setupCan() {
   if (!CAN_ENABLED) { Serial.println("Bus CAN désactivé dans la configuration"); return; }
@@ -345,7 +402,7 @@ void loop() {
 
   twai_message_t msg;
   while (CAN_ENABLED && twai_receive(&msg, 0) == ESP_OK) {
-    lastCanRx = millis(); canSeen = true; canCount++;
+    lastCanRx = millis(); canSeen = true; canCount++; canTotal++;
     if (msg.extd || msg.rtr) continue;                    // trames standard uniquement
     sendFrame(msg.identifier, msg.data, msg.data_length_code);
   }
@@ -383,17 +440,15 @@ void loop() {
 
 #if CAN_STATS_PERIOD_MS > 0
   static uint32_t lastStats = 0;
-  if (now - lastStats >= CAN_STATS_PERIOD_MS) {
-    lastStats = now;
-    twai_status_info_t st = {};
-    if (CAN_ENABLED && twai_get_status_info(&st) != ESP_OK) st = {};
-    Serial.printf("CAN: file=%u perdues=%u erreurs_rx=%u client=%s appareils_wifi=%d\n", (unsigned)st.msgs_to_rx,
-                  (unsigned)st.rx_missed_count, (unsigned)st.rx_error_counter, client.connected() ? "oui" : "non",
-                  WiFi.softAPgetStationNum());
-#if GPS_ENABLED
-    Serial.printf("GPS: octets=%lu phrases=%lu débit=%lu position=%s satellites=%u\n", (unsigned long)gpsBytes,
-                  (unsigned long)gpsSentences, (unsigned long)GPS_BAUDS[gpsBaudIdx], gps.valid ? "oui" : "non", gps.sats);
+  if (now - lastStats >= CAN_STATS_PERIOD_MS) { lastStats = now; printReport(now); }
 #endif
+
+  // Messages d'évènement : connexion / déconnexion de l'application
+  static bool wasLinked = false;
+  bool linked = client && client.connected();
+  if (linked != wasLinked) {
+    wasLinked = linked;
+    if (linked) Serial.printf("[%lus] Application connectée (%s)\n", (unsigned long)(now / 1000), client.remoteIP().toString().c_str());
+    else Serial.printf("[%lus] Application déconnectée\n", (unsigned long)(now / 1000));
   }
-#endif
 }

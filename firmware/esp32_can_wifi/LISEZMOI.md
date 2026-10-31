@@ -35,3 +35,6 @@ Signal Wi-Fi : Bon ≥ −60 dBm · Correct −60 à −70 · Faible −70 à �
 ## GPS : détection du débit
 Si le module GPS n'envoie rien de lisible, le firmware essaie tout seul 9600, 38400, 115200 et 4800 bauds (le débit du réglage est essayé en premier) et garde celui qui donne des phrases NMEA. Le moniteur série indique « GPS : phrases lisibles à … bauds » et, toutes les 5 s, le nombre d'octets et de phrases reçus.
 Dans l'application : « Données illisibles · débit ? » = le module envoie mais le débit ne correspond pas (rare avec la détection) ; « Aucune donnée du module » = rien n'arrive (alimentation ou fil TX → GPIO16).
+
+## Moniteur série : rapport d'état
+Toutes les 5 s (réglable par `CAN_STATS_PERIOD_MS`), le moniteur série (115200 bauds) affiche l'état de chaque périphérique : Wi-Fi (appareils, signal en dBm), CAN (contrôleur, trames par seconde, erreurs), GPS (module détecté ou non, débit, octets, phrases, position, satellites), entrées et potentiomètres de suspension. La connexion et la déconnexion de l'application sont signalées au moment où elles se produisent.
