@@ -28,15 +28,29 @@
 #include "driver/twai.h"
 #include "rsv4_config.h"
 
+#ifndef CAN_STATS_PERIOD_MS
+#define CAN_STATS_PERIOD_MS 5000   // 0 : pas de statistiques sur le port série
+#endif
+
 WiFiServer server(TCP_PORT);
 WiFiClient client;
 HardwareSerial gpsSerial(2);
 
+// Les trames sont regroupées dans un tampon et envoyées en un seul paquet TCP à la fin de chaque tour de boucle.
+static uint8_t txBuf[1400];
+static size_t txLen = 0;
+
+static void flushTx() {
+  if (txLen && client && client.connected()) client.write(txBuf, txLen);
+  txLen = 0;
+}
+
 // ---------- envoi de trames ----------
 static void sendFrame(uint32_t id, const uint8_t* d, uint8_t dlc) {
-  if (!client || !client.connected()) return;
-  uint8_t p[20];
-  memset(p, 0, sizeof(p));
+  if (!client || !client.connected()) { txLen = 0; return; }
+  if (txLen + 20 > sizeof(txBuf)) flushTx();
+  uint8_t* p = txBuf + txLen;
+  memset(p, 0, 20);
   p[0] = 0xA5; p[1] = 0x5A;
   uint32_t t = millis();
   memcpy(p + 2, &t, 4);
@@ -47,7 +61,7 @@ static void sendFrame(uint32_t id, const uint8_t* d, uint8_t dlc) {
   uint8_t x = 0;
   for (int i = 2; i < 19; i++) x ^= p[i];
   p[19] = x;
-  client.write(p, sizeof(p));
+  txLen += 20;
 }
 
 // ---------- GPS (NMEA RMC et GGA) ----------
@@ -146,6 +160,7 @@ static void setupCan() {
   twai_timing_config_t timing = TWAI_TIMING_CONFIG_250KBITS();
 #endif
   twai_general_config_t general = TWAI_GENERAL_CONFIG_DEFAULT((gpio_num_t)CAN_TX_PIN, (gpio_num_t)CAN_RX_PIN, TWAI_MODE_LISTEN_ONLY);
+  general.rx_queue_len = 64;                                // évite de perdre des trames entre deux tours de boucle
   twai_filter_config_t filter = TWAI_FILTER_CONFIG_ACCEPT_ALL();
   if (twai_driver_install(&general, &timing, &filter) != ESP_OK || twai_start() != ESP_OK) {
     Serial.println("Erreur : contrôleur CAN non démarré");
@@ -157,6 +172,7 @@ void setup() {
   WiFi.mode(WIFI_AP);
   WiFi.softAP(AP_SSID, AP_PASS, AP_CHANNEL);
   server.begin();
+  Serial.println("TrackLab Electronics - relais CAN/GPS/E-S v2.1");
   Serial.print("Wi-Fi "); Serial.print(AP_SSID); Serial.print(" prêt, adresse "); Serial.println(WiFi.softAPIP());
   setupCan();
   setupIo();
@@ -168,8 +184,17 @@ void setup() {
 void loop() {
   // Une seule connexion à la fois : on accepte un nouveau client si le précédent est parti.
   if (!client || !client.connected()) {
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
+    WiFiClient incoming = server.accept();
+#else
     WiFiClient incoming = server.available();
-    if (incoming) { client.stop(); client = incoming; }
+#endif
+    if (incoming) {
+      client.stop();
+      client = incoming;
+      client.setNoDelay(true);                              // latence minimale
+      txLen = 0;
+    }
   }
 
   twai_message_t msg;
@@ -182,10 +207,26 @@ void loop() {
   pollGps();
 #endif
 
-  static uint32_t lastGps = 0, lastIo = 0;
+#if GPS_ENABLED
+  static uint32_t lastGps = 0;
+#endif
+  static uint32_t lastIo = 0;
   uint32_t now = millis();
 #if GPS_ENABLED
   if (now - lastGps >= 200) { lastGps = now; sendGps(); }
 #endif
   if (now - lastIo >= 100) { lastIo = now; sendIo(); }
+
+  flushTx();
+
+#if CAN_STATS_PERIOD_MS > 0
+  static uint32_t lastStats = 0;
+  if (now - lastStats >= CAN_STATS_PERIOD_MS) {
+    lastStats = now;
+    twai_status_info_t st;
+    if (twai_get_status_info(&st) == ESP_OK)
+      Serial.printf("CAN: file=%u perdues=%u erreurs_rx=%u client=%s\n", (unsigned)st.msgs_to_rx,
+                    (unsigned)st.rx_missed_count, (unsigned)st.rx_error_counter, client.connected() ? "oui" : "non");
+  }
+#endif
 }
