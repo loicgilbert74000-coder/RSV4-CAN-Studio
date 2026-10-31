@@ -14,6 +14,10 @@ Relais CAN (écoute seule) + GPS + entrées/sorties vers l'application, par Wi-F
 - Trame émise : 20 octets `A5 5A | t(4) | id(4) | dlc | 8 données | XOR`.
 - Broches par défaut : CAN TX=GPIO5, RX=GPIO4 ; GPS RX=GPIO16 ; voir `docs/raccordement_esp32.md`.
 
+## Potentiomètres et voyants
+- ADC1 (GPIO32) = suspension avant, ADC2 (GPIO34) = suspension arrière, activés par défaut (0–3,3 V).
+- LED : verte GPIO21 (liaison), rouge GPIO22 (défaut CAN), bleue GPIO17 (activité CAN) ; broches modifiables dans la page Paramétrage ESP32.
+
 ## Remarques
 - Contrôleur CAN en **écoute seule** : le boîtier n'émet jamais sur le bus.
 - Débit GPS : beaucoup de modules NEO-M8N sortent d'usine à 9600 bauds ; la config par défaut est 115200 → régler `GPS_BAUD`.

@@ -11,8 +11,15 @@ DIG_DEFAULT = [
     (18, "Entrée 7", False),
     (19, "Entrée 8", False),
 ]
-ANA_DEFAULT = [(32, "ADC 1", False), (34, "ADC 2", False), (35, "ADC 3", False)]
+ANA_DEFAULT = [(32, "Suspension avant", True), (34, "Suspension arrière", True), (35, "ADC 3", False)]
+# Voyants à côté du tableau de bord : (broche, couleur)
+LED_DEFAULT = {"green": 21, "red": 22, "blue": 17}
 OUT_DEFAULT = [(2, "Sortie 1", "Bas", False), (23, "Sortie 2", "Bas", False)]
+
+
+def leds_of(cfg):
+    """Broches des voyants vert / rouge / bleu (valeurs par défaut si l'ancien fichier n'en contient pas)."""
+    return {**LED_DEFAULT, **cfg.get("leds", {})}
 
 
 def c_str(s):
@@ -37,6 +44,7 @@ def validate_cfg(cfg):
         for e in cfg[grp]:
             if e["enabled"]:
                 pins.append(e["pin"])
+    pins += list(leds_of(cfg).values())
     for p in pins:
         if not 0 <= p <= 39:
             raise ValueError(f"Broche {p} hors plage (0 à 39).")
@@ -48,6 +56,7 @@ def make_header(cfg):
     """Fichier rsv4_config.h lu par le firmware ESP32 à la compilation."""
     w, c, g = (cfg["wifi"], cfg["can"], cfg["gps"])
     dig, ana, out = (cfg["digital_inputs"], cfg["analog_inputs"], cfg["outputs"])
+    leds = leds_of(cfg)
     def arr(vals, ctype):
         return "{" + ", ".join((str(v) for v in vals)) + "}"
     lines = [
@@ -73,5 +82,8 @@ def make_header(cfg):
         f"static const int OUT_PIN[OUT_COUNT] = {arr([e['pin'] for e in out], 'int')};",
         f"static const bool OUT_ON[OUT_COUNT] = {arr([1 if e['enabled'] else 0 for e in out], 'bool')};",
         f"static const bool OUT_HIGH[OUT_COUNT] = {arr([1 if e['level'] == 'Haut' else 0 for e in out], 'bool')};",
+        f"#define LED_GREEN_PIN {int(leds['green'])}",
+        f"#define LED_RED_PIN {int(leds['red'])}",
+        f"#define LED_BLUE_PIN {int(leds['blue'])}",
     ]
     return "\n".join(lines) + "\n"

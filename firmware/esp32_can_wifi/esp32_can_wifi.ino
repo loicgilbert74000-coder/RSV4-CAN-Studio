@@ -21,12 +21,29 @@
  *   0x7F0 : latitude et longitude, int32 chacune en 1e-7 degré (LE). Envoyée seulement si le fix est valide.
  *   0x7F8 : vitesse GPS (uint16, km/h x 100), cap (uint16, degrés x 100), satellites (uint8), qualité du fix (uint8).
  *   0x7F9 : octet 0 = entrées numériques (bit n = entrée n+1) ; octets 1-2, 3-4, 5-6 = ADC 1, 2, 3 (uint16, 0 à 4095).
+ *           Par défaut : ADC 1 = potentiomètre de suspension avant, ADC 2 = suspension arrière (0 à 3,3 V).
+ *
+ * Voyants (LED_GREEN_PIN / LED_RED_PIN / LED_BLUE_PIN, résistance de 330 ohms en série) :
+ *   verte  : clignote lentement = Wi-Fi prêt, pas de PC connecté ; fixe = application connectée.
+ *   bleue  : bref éclat à chaque trame CAN reçue (activité du bus).
+ *   rouge  : fixe = contrôleur CAN en défaut (non démarré, bus-off) ; clignote = aucune trame CAN depuis 3 s.
+ *   Au démarrage : les trois voyants s'allument l'un après l'autre (test).
  */
 #include <WiFi.h>
 #include <string.h>
 #include <math.h>
 #include "driver/twai.h"
 #include "rsv4_config.h"
+
+#ifndef LED_GREEN_PIN
+#define LED_GREEN_PIN 21
+#endif
+#ifndef LED_RED_PIN
+#define LED_RED_PIN 22
+#endif
+#ifndef LED_BLUE_PIN
+#define LED_BLUE_PIN 17
+#endif
 
 #ifndef CAN_STATS_PERIOD_MS
 #define CAN_STATS_PERIOD_MS 5000   // 0 : pas de statistiques sur le port série
@@ -152,6 +169,28 @@ static void sendIo() {
   sendFrame(0x7F9, d, 7);
 }
 
+// ---------- voyants ----------
+static bool canOk = false;                // contrôleur CAN démarré
+static uint32_t lastCanRx = 0;            // dernière trame CAN reçue (ms)
+static bool canSeen = false;              // au moins une trame reçue depuis le démarrage
+
+static void setupLeds() {
+  const int pins[3] = {LED_GREEN_PIN, LED_RED_PIN, LED_BLUE_PIN};
+  for (int i = 0; i < 3; i++) { pinMode(pins[i], OUTPUT); digitalWrite(pins[i], LOW); }
+  for (int i = 0; i < 3; i++) {           // test : chaque voyant s'allume brièvement
+    digitalWrite(pins[i], HIGH); delay(250); digitalWrite(pins[i], LOW);
+  }
+}
+
+static void updateLeds(uint32_t now) {
+  bool linked = client && client.connected();
+  digitalWrite(LED_GREEN_PIN, linked ? HIGH : ((now / 500) % 2 ? HIGH : LOW));
+  digitalWrite(LED_BLUE_PIN, (canSeen && now - lastCanRx < 40) ? HIGH : LOW);
+  bool silent = canOk && canSeen && now - lastCanRx > 3000;
+  bool red = !canOk || (silent && ((now / 250) % 2));
+  digitalWrite(LED_RED_PIN, red ? HIGH : LOW);
+}
+
 // ---------- CAN ----------
 static void setupCan() {
 #if CAN_BITRATE_KBPS == 500
@@ -162,9 +201,8 @@ static void setupCan() {
   twai_general_config_t general = TWAI_GENERAL_CONFIG_DEFAULT((gpio_num_t)CAN_TX_PIN, (gpio_num_t)CAN_RX_PIN, TWAI_MODE_LISTEN_ONLY);
   general.rx_queue_len = 64;                                // évite de perdre des trames entre deux tours de boucle
   twai_filter_config_t filter = TWAI_FILTER_CONFIG_ACCEPT_ALL();
-  if (twai_driver_install(&general, &timing, &filter) != ESP_OK || twai_start() != ESP_OK) {
-    Serial.println("Erreur : contrôleur CAN non démarré");
-  }
+  canOk = twai_driver_install(&general, &timing, &filter) == ESP_OK && twai_start() == ESP_OK;
+  if (!canOk) Serial.println("Erreur : contrôleur CAN non démarré");
 }
 
 void setup() {
@@ -174,6 +212,7 @@ void setup() {
   server.begin();
   Serial.println("TrackLab Electronics - relais CAN/GPS/E-S v2.1");
   Serial.print("Wi-Fi "); Serial.print(AP_SSID); Serial.print(" prêt, adresse "); Serial.println(WiFi.softAPIP());
+  setupLeds();
   setupCan();
   setupIo();
 #if GPS_ENABLED
@@ -199,6 +238,7 @@ void loop() {
 
   twai_message_t msg;
   while (twai_receive(&msg, 0) == ESP_OK) {
+    lastCanRx = millis(); canSeen = true;
     if (msg.extd || msg.rtr) continue;                    // trames standard uniquement
     sendFrame(msg.identifier, msg.data, msg.data_length_code);
   }
@@ -218,6 +258,19 @@ void loop() {
   if (now - lastIo >= 100) { lastIo = now; sendIo(); }
 
   flushTx();
+  updateLeds(now);
+
+  // Surveillance du contrôleur CAN (une fois par seconde) : reprise automatique après un bus-off.
+  static uint32_t lastCheck = 0;
+  if (now - lastCheck >= 1000) {
+    lastCheck = now;
+    twai_status_info_t st;
+    if (twai_get_status_info(&st) == ESP_OK) {
+      if (st.state == TWAI_STATE_BUS_OFF) { canOk = false; twai_initiate_recovery(); }
+      else if (st.state == TWAI_STATE_STOPPED) { canOk = false; twai_start(); }
+      else canOk = true;
+    }
+  }
 
 #if CAN_STATS_PERIOD_MS > 0
   static uint32_t lastStats = 0;

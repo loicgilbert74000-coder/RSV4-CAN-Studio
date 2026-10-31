@@ -16,6 +16,8 @@ Schéma : `schema_raccordement.svg` (aussi `.png` et `.pdf`).
 | D3 | PESD2CAN (option) |
 | R1/R2 | 10 kΩ / 2,7 kΩ par entrée 12 V (+100 nF, Zener 3,3 V option) |
 | R3/R4 | 10 kΩ / 20 kΩ par entrée analogique 0–5 V (+100 nF) |
+| P (×2) | Potentiomètre linéaire 10 kΩ de débattement (fourche, amortisseur), alimenté en +3,3 V ; R3 1 kΩ + 100 nF sur chaque curseur |
+| LED (×3) | Verte et rouge : 330 Ω ; bleue : 47 Ω (LED haute luminosité) |
 | Q1 | MOSFET canal N niveau logique (IRLZ44N), R5 1 kΩ, R6 100 kΩ, D 1N4007 |
 
 ## Broches (réglage par défaut)
@@ -24,11 +26,24 @@ Schéma : `schema_raccordement.svg` (aussi `.png` et `.pdf`).
 | CAN TXD / RXD | 5 / 4 |
 | GPS (TX du module) | 16 |
 | ENT1–8 | 13, 14, 27, 26, 25, 33, 18, 19 |
-| ADC1–3 | 32, 34, 35 |
+| ADC1 = suspension avant | 32 |
+| ADC2 = suspension arrière | 34 |
+| ADC3 (libre) | 35 |
 | SORTIE1–2 | 2, 23 |
+| LED verte / rouge / bleue | 21 / 22 / 17 |
 
 ## Précautions
 - Pas de terminaison 120 Ω ; masse commune ; fusible près de la batterie.
 - Brochage de la prise CAN de la moto : à vérifier dans le manuel d'atelier.
 - Strapping : GPIO2 (sortie) ne doit pas être tiré haut au démarrage ; GPIO5 est aussi une broche de strapping.
 - Firmware non testé sur matériel.
+
+## Potentiomètres de suspension
+Chaque potentiomètre : une extrémité au +3,3 V, l'autre à la masse, curseur → 1 kΩ → GPIO (avec 100 nF vers la masse).
+L'application affiche les valeurs brutes (0–4095) « Suspension avant / arrière » et le débattement en % (« Débattement avant / arrière »).
+
+## Voyants (LED)
+- Verte : clignote = Wi-Fi prêt sans PC ; fixe = application connectée.
+- Bleue : éclat à chaque trame CAN reçue.
+- Rouge : fixe = contrôleur CAN en défaut ; clignote = aucune trame CAN depuis 3 s.
+- Test au démarrage : les trois s'allument à tour de rôle.

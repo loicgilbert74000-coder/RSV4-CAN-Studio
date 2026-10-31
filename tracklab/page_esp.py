@@ -5,7 +5,7 @@ import os
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from .espconfig import ANA_DEFAULT, DIG_DEFAULT, OUT_DEFAULT, make_header, validate_cfg
+from .espconfig import ANA_DEFAULT, DIG_DEFAULT, LED_DEFAULT, OUT_DEFAULT, make_header, validate_cfg
 from .theme import BG, BORDER, CARD, CARD2, CYAN, FONT, GREEN, MUTED, SUB, TEXT
 
 
@@ -34,6 +34,8 @@ class EspMixin:
             sv(f"ana{i}_pin", pin)
             sv(f"ana{i}_name", name)
             bv(f"ana{i}_on", on)
+        for color, pin in LED_DEFAULT.items():
+            sv(f"led_{color}", pin)
         for i, (pin, name, level, on) in enumerate(OUT_DEFAULT):
             sv(f"out{i}_pin", pin)
             sv(f"out{i}_name", name)
@@ -63,6 +65,7 @@ class EspMixin:
                     "pin": i(f"ana{n}_pin"), "name": v[f"ana{n}_name"].get(), "enabled": v[f"ana{n}_on"].get()
                 } for n in range(3)
             ],
+            "leds": {color: i(f"led_{color}") for color in LED_DEFAULT},
             "outputs": [
                 {
                     "pin": i(f"out{n}_pin"),
@@ -94,6 +97,8 @@ class EspMixin:
             v[f"ana{n}_pin"].set(e["pin"])
             v[f"ana{n}_name"].set(e["name"])
             v[f"ana{n}_on"].set(bool(e["enabled"]))
+        for color, pin in {**LED_DEFAULT, **cfg.get("leds", {})}.items():
+            v[f"led_{color}"].set(pin)
         for n, e in enumerate(cfg["outputs"]):
             v[f"out{n}_pin"].set(e["pin"])
             v[f"out{n}_name"].set(e["name"])
@@ -245,6 +250,12 @@ class EspMixin:
                 bd=0,
                 highlightthickness=0,
             ).pack(side="left", padx=12)
+        c = self.esp_card(right, "Voyants du tableau de bord (LED)")
+        for color, label in (("green", "Verte · liaison"), ("red", "Rouge · défaut CAN"), ("blue", "Bleue · activité CAN")):
+            r = tk.Frame(c, bg=CARD)
+            r.pack(fill="x", pady=1)
+            tk.Label(r, text=label, bg=CARD, fg=SUB, font=(FONT, 9), width=22, anchor="w").pack(side="left")
+            self.io_entry(r, f"led_{color}", 6)
         tk.Label(
             right,
             text="Les broches et réglages sont appliqués au firmware par « Générer rsv4_config.h » puis recompilation du firmware.\nLes entrées/sorties sont lues par le firmware ; les sorties ne sont pas pilotées depuis l'application.",

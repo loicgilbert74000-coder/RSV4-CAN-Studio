@@ -121,6 +121,8 @@ class DecodingMixin:
             adc = [int.from_bytes(data[1 + 2 * j:3 + 2 * j], "little") for j in range(3)]
             for j in range(3):
                 self.put(cid, f"ADC {j + 1}", adc[j], t, "esp")
+            for j, nom in enumerate(("Débattement avant", "Débattement arrière")):
+                self.put(cid, nom, round(adc[j] * 100 / 4095, 1), t, "esp")
             return f"E/S {mask:08b} · ADC {adc[0]} / {adc[1]} / {adc[2]}"
         return None
 

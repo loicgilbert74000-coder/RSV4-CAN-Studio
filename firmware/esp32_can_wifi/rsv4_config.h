@@ -15,8 +15,11 @@ static const int DIG_PIN[DIG_COUNT] = {13, 14, 27, 26, 25, 33, 18, 19};
 static const bool DIG_ON[DIG_COUNT] = {0, 0, 0, 0, 0, 0, 0, 0};
 #define ANA_COUNT 3
 static const int ANA_PIN[ANA_COUNT] = {32, 34, 35};
-static const bool ANA_ON[ANA_COUNT] = {0, 0, 0};
+static const bool ANA_ON[ANA_COUNT] = {1, 1, 0};
 #define OUT_COUNT 2
 static const int OUT_PIN[OUT_COUNT] = {2, 23};
 static const bool OUT_ON[OUT_COUNT] = {0, 0};
 static const bool OUT_HIGH[OUT_COUNT] = {0, 0};
+#define LED_GREEN_PIN 21
+#define LED_RED_PIN 22
+#define LED_BLUE_PIN 17
