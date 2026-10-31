@@ -17,6 +17,19 @@ LED_DEFAULT = {"green": 21, "red": 22, "blue": 17}
 OUT_DEFAULT = [(2, "Sortie 1", "Bas", False), (23, "Sortie 2", "Bas", False)]
 
 
+# Broches proposées selon la carte (les broches d'un ESP32 classique ne conviennent pas à un ESP32-S3)
+BOARDS = {
+    "ESP32 classique (DevKit 38 broches)": {
+        "can": (5, 4), "gps": 16, "dig": [13, 14, 27, 26, 25, 33, 18, 19],
+        "ana": [32, 34, 35], "out": [2, 23], "leds": {"green": 21, "red": 22, "blue": 17},
+    },
+    "ESP32-S3 (DevKitC-1)": {
+        "can": (5, 4), "gps": 16, "dig": [7, 8, 9, 10, 11, 12, 13, 14],
+        "ana": [1, 2, 6], "out": [15, 38], "leds": {"green": 21, "red": 18, "blue": 17},
+    },
+}
+
+
 def leds_of(cfg):
     """Broches des voyants vert / rouge / bleu (valeurs par défaut si l'ancien fichier n'en contient pas)."""
     return {**LED_DEFAULT, **cfg.get("leds", {})}

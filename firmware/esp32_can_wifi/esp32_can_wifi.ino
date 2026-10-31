@@ -35,6 +35,22 @@
 #include "driver/twai.h"
 #include "rsv4_config.h"
 
+// Une broche inexistante ou réservée (mémoire flash, PSRAM) fait planter la carte : on l'ignore et on le signale.
+static bool pinOk(int p) {
+  if (p < 0 || !GPIO_IS_VALID_GPIO(p)) return false;
+#if CONFIG_IDF_TARGET_ESP32S3
+  if (p >= 26 && p <= 37) return false;                     // flash et PSRAM
+#elif CONFIG_IDF_TARGET_ESP32
+  if (p >= 6 && p <= 11) return false;                      // flash
+#endif
+  return true;
+}
+static bool checkPin(const char* what, int p) {
+  if (pinOk(p)) return true;
+  Serial.printf("Attention : broche %d inutilisable (%s), ignorée\n", p, what);
+  return false;
+}
+
 #ifndef LED_GREEN_PIN
 #define LED_GREEN_PIN 21
 #endif
@@ -148,10 +164,19 @@ static void sendGps() {
 #endif
 
 // ---------- entrées / sorties ----------
+static bool digOk[DIG_COUNT], anaOk[ANA_COUNT], outOk[OUT_COUNT];
+
 static void setupIo() {
-  for (int i = 0; i < DIG_COUNT; i++) if (DIG_ON[i]) pinMode(DIG_PIN[i], INPUT);
-  for (int j = 0; j < ANA_COUNT; j++) if (ANA_ON[j]) pinMode(ANA_PIN[j], INPUT);
-  for (int k = 0; k < OUT_COUNT; k++) if (OUT_ON[k]) {
+  for (int i = 0; i < DIG_COUNT; i++) {
+    digOk[i] = DIG_ON[i] && checkPin("entrée", DIG_PIN[i]);
+    if (digOk[i]) pinMode(DIG_PIN[i], INPUT);
+  }
+  for (int j = 0; j < ANA_COUNT; j++) {
+    anaOk[j] = ANA_ON[j] && checkPin("analogique", ANA_PIN[j]);
+    if (anaOk[j]) pinMode(ANA_PIN[j], INPUT);
+  }
+  for (int k = 0; k < OUT_COUNT; k++) outOk[k] = OUT_ON[k] && checkPin("sortie", OUT_PIN[k]);
+  for (int k = 0; k < OUT_COUNT; k++) if (outOk[k]) {
     pinMode(OUT_PIN[k], OUTPUT);
     digitalWrite(OUT_PIN[k], OUT_HIGH[k] ? HIGH : LOW);
   }
@@ -161,9 +186,9 @@ static void sendIo() {
   uint8_t d[7];
   memset(d, 0, sizeof(d));
   for (int i = 0; i < DIG_COUNT && i < 8; i++)
-    if (DIG_ON[i] && digitalRead(DIG_PIN[i])) d[0] |= (uint8_t)(1 << i);
+    if (digOk[i] && digitalRead(DIG_PIN[i])) d[0] |= (uint8_t)(1 << i);
   for (int j = 0; j < ANA_COUNT && j < 3; j++) {
-    uint16_t v = ANA_ON[j] ? (uint16_t)analogRead(ANA_PIN[j]) : 0;
+    uint16_t v = anaOk[j] ? (uint16_t)analogRead(ANA_PIN[j]) : 0;
     memcpy(d + 1 + 2 * j, &v, 2);
   }
   sendFrame(0x7F9, d, 7);
@@ -174,21 +199,27 @@ static bool canOk = false;                // contrôleur CAN démarré
 static uint32_t lastCanRx = 0;            // dernière trame CAN reçue (ms)
 static bool canSeen = false;              // au moins une trame reçue depuis le démarrage
 
+static bool ledOk[3];
+static void ledSet(int i, int pin, bool on) { if (ledOk[i]) digitalWrite(pin, on ? HIGH : LOW); }
+
 static void setupLeds() {
   const int pins[3] = {LED_GREEN_PIN, LED_RED_PIN, LED_BLUE_PIN};
-  for (int i = 0; i < 3; i++) { pinMode(pins[i], OUTPUT); digitalWrite(pins[i], LOW); }
+  for (int i = 0; i < 3; i++) {
+    ledOk[i] = checkPin("LED", pins[i]);
+    if (ledOk[i]) { pinMode(pins[i], OUTPUT); digitalWrite(pins[i], LOW); }
+  }
   for (int i = 0; i < 3; i++) {           // test : chaque voyant s'allume brièvement
-    digitalWrite(pins[i], HIGH); delay(250); digitalWrite(pins[i], LOW);
+    ledSet(i, pins[i], true); delay(250); ledSet(i, pins[i], false);
   }
 }
 
 static void updateLeds(uint32_t now) {
   bool linked = client && client.connected();
-  digitalWrite(LED_GREEN_PIN, linked ? HIGH : ((now / 500) % 2 ? HIGH : LOW));
-  digitalWrite(LED_BLUE_PIN, (canSeen && now - lastCanRx < 40) ? HIGH : LOW);
+  ledSet(0, LED_GREEN_PIN, linked || ((now / 500) % 2));
+  ledSet(2, LED_BLUE_PIN, canSeen && now - lastCanRx < 40);
   bool silent = canOk && canSeen && now - lastCanRx > 3000;
   bool red = !canOk || (silent && ((now / 250) % 2));
-  digitalWrite(LED_RED_PIN, red ? HIGH : LOW);
+  ledSet(1, LED_RED_PIN, red);
 }
 
 // ---------- CAN ----------

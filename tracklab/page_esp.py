@@ -5,7 +5,7 @@ import os
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from .espconfig import ANA_DEFAULT, DIG_DEFAULT, LED_DEFAULT, OUT_DEFAULT, make_header, validate_cfg
+from .espconfig import BOARDS, ANA_DEFAULT, DIG_DEFAULT, LED_DEFAULT, OUT_DEFAULT, make_header, validate_cfg
 from .theme import BG, BORDER, CARD, CARD2, CYAN, FONT, GREEN, MUTED, SUB, TEXT
 
 
@@ -41,6 +41,21 @@ class EspMixin:
             sv(f"out{i}_name", name)
             sv(f"out{i}_level", level)
             bv(f"out{i}_on", on)
+
+    def apply_board(self, name):
+        """Remplit toutes les broches avec celles de la carte choisie."""
+        b, v = BOARDS[name], self.cv
+        v["can_tx"].set(b["can"][0])
+        v["can_rx"].set(b["can"][1])
+        v["gps_rx"].set(b["gps"])
+        for n, pin in enumerate(b["dig"]):
+            v[f"dig{n}_pin"].set(pin)
+        for n, pin in enumerate(b["ana"]):
+            v[f"ana{n}_pin"].set(pin)
+        for n, pin in enumerate(b["out"]):
+            v[f"out{n}_pin"].set(pin)
+        for color, pin in b["leds"].items():
+            v[f"led_{color}"].set(pin)
 
     def cfg_from_vars(self):
         """Construit la configuration ESP32 à partir des champs ; lève ValueError si un champ est invalide."""
@@ -177,6 +192,14 @@ class EspMixin:
         left.pack(side="left", fill="y", anchor="n")
         right = tk.Frame(inner, bg=BG)
         right.pack(side="left", fill="both", expand=True, anchor="n")
+        c = self.esp_card(left, "Carte")
+        self.board_var = tk.StringVar(value=list(BOARDS)[0])
+        r = tk.Frame(c, bg=CARD)
+        r.pack(fill="x", pady=2)
+        tk.Label(r, text="Modèle (applique les broches adaptées)", bg=CARD, fg=SUB, font=(FONT, 9), anchor="w", width=38).pack(side="left")
+        box = ttk.Combobox(r, textvariable=self.board_var, values=list(BOARDS), state="readonly", width=34)
+        box.pack(side="left")
+        box.bind("<<ComboboxSelected>>", lambda e: self.apply_board(self.board_var.get()))
         c = self.esp_card(left, "Réseau Wi-Fi (point d'accès de l'ESP32)")
         self.efield(c, "Nom du réseau (SSID)", "ssid", 22)
         self.efield(c, "Mot de passe (8 caractères min.)", "password", 22)

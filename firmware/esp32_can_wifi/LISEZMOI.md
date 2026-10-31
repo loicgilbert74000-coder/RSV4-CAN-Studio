@@ -22,3 +22,8 @@ Relais CAN (écoute seule) + GPS + entrées/sorties vers l'application, par Wi-F
 - Contrôleur CAN en **écoute seule** : le boîtier n'émet jamais sur le bus.
 - Débit GPS : beaucoup de modules NEO-M8N sortent d'usine à 9600 bauds ; la config par défaut est 115200 → régler `GPS_BAUD`.
 - **Non testé sur matériel** : valider d'abord sur table.
+
+## Carte ESP32-S3
+Les broches par défaut sont celles d'un ESP32 classique. Avec une ESP32-S3 (carte « ESP32S3 Dev Module »), utiliser `rsv4_config_ESP32-S3.h` : le copier dans le dossier du firmware sous le nom `rsv4_config.h`.
+Broches S3 : CAN TX 5 / RX 4, GPS RX 16, potentiomètres GPIO1 (avant) et GPIO2 (arrière), LED verte 21 / rouge 18 / bleue 17.
+Le firmware ignore (et signale sur le port série) toute broche inexistante ou réservée (flash, PSRAM).
