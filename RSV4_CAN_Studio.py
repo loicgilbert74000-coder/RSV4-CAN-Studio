@@ -149,6 +149,119 @@ def nice_ticks(lo,hi,n):
   out.append(round(v,10));i+=1
  return out
 
+# Noms des signaux en français (la définition AiM les donne en anglais)
+NOMS_FR={'ABS': 'ABS',
+ 'ABS_Lamp_St': 'Voyant ABS',
+ 'ABS_Level_St': 'Niveau ABS (état)',
+ 'AEB': 'AEB (frein moteur auto)',
+ 'AEM': 'AEM',
+ 'ALC': 'ALC (aide au départ)',
+ 'ALC_Enabled': 'ALC activé',
+ 'ALC_Level': 'Niveau ALC',
+ 'APRC_Lamp_Status': 'Voyant APRC',
+ 'ATC': 'ATC (antipatinage)',
+ 'ATC_Level': 'Niveau ATC',
+ 'AWC': 'AWC (anti-wheeling)',
+ 'AWC_Level': 'Niveau AWC',
+ 'AWC_selector': 'Sélecteur AWC',
+ 'Air_Temp': "Température d'air",
+ 'Battery_Volt': 'Tension batterie',
+ 'Bike_Speed': 'Vitesse moto',
+ 'Brake_Front_Sw': 'Frein avant (contacteur)',
+ 'Brake_Press': 'Pression de frein',
+ 'Brake_Press_Rest': 'Pression de frein (repos)',
+ 'Brake_Rear_Sw_': 'Frein arrière (contacteur)',
+ 'CME_User_Norm': 'Couple demandé (norme)',
+ 'Clutch_Sw': "Contacteur d'embrayage",
+ 'Cmels_Trq': 'Couple CMELS',
+ 'Cplsdwderat_Trq': 'Couple limité (déclassement)',
+ 'Dir_Conn_Buttons': 'Boutons de commodo',
+ 'ECU_Alarm': 'Alarme calculateur',
+ 'Engine_Brake': 'Frein moteur',
+ 'Engine_Map': 'Cartographie moteur',
+ 'Engine_Temp': 'Température moteur',
+ 'Fast_Eng_Trq': 'Couple moteur rapide',
+ 'Fuel_Cons': 'Consommation',
+ 'Fuel_Level': 'Niveau de carburant',
+ 'Fuel_Low': 'Réserve de carburant',
+ 'Fuel_Res_St': 'État de la réserve',
+ 'Gear': 'Rapport engagé',
+ 'Hand_Throttle': 'Poignée de gaz',
+ 'HiBeam': 'Feux de route',
+ 'Joystick': 'Manette',
+ 'Joystick_Pushed': 'Manette enfoncée',
+ 'LatAcc_2': 'Accélération latérale 2',
+ 'LatAcc_2_Status': 'État accél. latérale 2',
+ 'Lat_Acc': 'Accélération latérale',
+ 'Lean_Angle_2': "Angle d'inclinaison 2",
+ 'Lean_Angle_2_Sts': "État angle d'inclinaison 2",
+ 'Left_Dir': 'Clignotant gauche',
+ 'Level_ABS': 'Niveau ABS',
+ 'Lon_Acc': 'Accélération longitudinale',
+ 'LongAcc_2': 'Accélération longitudinale 2',
+ 'LongAcc_2_Status': 'État accél. longitudinale 2',
+ 'MIL': 'Voyant défaut moteur',
+ 'Max_Eng_Trq': 'Couple moteur maxi',
+ 'Odometer': 'Compteur kilométrique',
+ 'Oil_Press_High': "Pression d'huile haute",
+ 'Oil_Temp': "Température d'huile",
+ 'Pit_Enabled': 'Limiteur pit activé',
+ 'Pit_Speed': 'Vitesse limiteur pit',
+ 'Pitch_Angle': 'Angle de tangage',
+ 'Pitch_Rate_2': 'Vitesse de tangage 2',
+ 'Pitch_Rate_2Stat': 'État vitesse de tangage 2',
+ 'QS_Ready': 'Quickshifter prêt',
+ 'RPM': 'Régime moteur',
+ 'RSV4_Advance': "Avance à l'allumage",
+ 'RSV4_Baro': 'Pression barométrique',
+ 'RSV4_Cntlostsync': 'Compteur de perte de synchro',
+ 'RSV4_MAP1': "Pression d'admission 1",
+ 'RSV4_MAP1_Target': "Pression d'admission 1 (cible)",
+ 'RSV4_MAP2': "Pression d'admission 2",
+ 'RSV4_MAP2_Target': "Pression d'admission 2 (cible)",
+ 'RSV4_PFANGCOR_1': "Correction d'angle 1",
+ 'RSV4_PFANGCOR_2': "Correction d'angle 2",
+ 'RSV4_SEL_MAP': 'Cartographie sélectionnée',
+ 'RSV4_Sistfas': 'Système de phasage',
+ 'RSV4_THRT_HAND': 'Gaz poignée (RSV4)',
+ 'RSV4_TPS1': 'Capteur papillon TPS1',
+ 'RSV4_TPS2': 'Capteur papillon TPS2',
+ 'RSV4_Tipover': 'Détection de chute',
+ 'Riding_Mode': 'Mode de conduite',
+ 'Right_Dir': 'Clignotant droit',
+ 'RollRateStat': 'État vitesse de roulis',
+ 'Roll_Angle': 'Angle de roulis',
+ 'Roll_Angle_001': 'Angle de roulis (2)',
+ 'Roll_Rate': 'Vitesse de roulis',
+ 'Roll_Rate2_Statu': 'État vitesse de roulis 2',
+ 'Roll_Rate_2': 'Vitesse de roulis 2',
+ 'Sensor_2_Sts': 'État capteur 2',
+ 'SideStand_Sw': 'Béquille latérale',
+ 'Speed_Front': 'Vitesse roue avant',
+ 'Speed_Rear': 'Vitesse roue arrière',
+ 'TC_Slip_Lp': 'Voyant patinage TC',
+ 'TC_menu_set_butt': 'Bouton réglage TC',
+ 'TInj_Prog1': "Temps d'injection",
+ 'TPS': 'Papillon (TPS)',
+ 'TPS2': 'Papillon 2 (TPS2)',
+ 'Tipover_Sw': 'Contacteur de chute',
+ 'Torque_Red': 'Réduction de couple',
+ 'TracDiag': 'Diagnostic traction',
+ 'Urg_serv': 'Entretien urgent',
+ 'V4MP_Speed': 'Vitesse V4MP',
+ 'VertAcc_2': 'Accélération verticale 2',
+ 'VertAcc_2_Status': 'État accél. verticale 2',
+ 'Yaw_Rate': 'Vitesse de lacet',
+ 'Yaw_Rate_2': 'Vitesse de lacet 2',
+ 'Yaw_Rate_2Status': 'État vitesse de lacet 2'}
+
+def fr(name):
+ """Nom affiché d'un signal, en français."""
+ if name in NOMS_FR:return NOMS_FR[name]
+ m=re.match(r"^(?:SRC_)?([0-9A-Fa-f]{2,3})([BWN])(\d+)$",name)
+ if m:return "Inconnu · "+{"B":"octet","W":"mot","N":"quartet"}[m.group(2)]+" "+m.group(3)
+ return name.replace("_"," ")
+
 def make_dot(parent,color,bg,size=10):
  c=tk.Canvas(parent,width=size,height=size,bg=bg,highlightthickness=0)
  c.create_oval(1,1,size-1,size-1,fill=color,outline="",tags="d")
@@ -181,7 +294,7 @@ def make_header(cfg):
  def arr(vals,ctype):
   return "{"+", ".join(str(v) for v in vals)+"}"
  lines=[
-  "// Fichier généré par RSV4 CAN Studio (Paramétrage ESP32). Ne pas modifier à la main.",
+  "// Fichier généré par TrackLab Electronics (Paramétrage ESP32). Ne pas modifier à la main.",
   "#pragma once",
   f"#define AP_SSID {c_str(w['ssid'])}",
   f"#define AP_PASS {c_str(w['password'])}",
@@ -303,7 +416,7 @@ class SeekBar(tk.Canvas):
 
 class App:
  def __init__(self):
-  self.root=tk.Tk();self.root.title("RSV4 CAN Studio · Diagnostic & Télémétrie CAN")
+  self.root=tk.Tk();self.root.title("TrackLab Electronics · Diagnostic & Télémétrie CAN")
   self.root.geometry("1536x960");self.root.minsize(1280,860);self.root.configure(bg=BG)
   self.frames=[];self.idx=0;self.playing=False;self.speed=tk.DoubleVar(value=1.0)
   self.status=tk.StringVar(value="Prêt · ouvrez une capture")
@@ -380,8 +493,10 @@ class App:
   s.configure("Treeview.Heading",background=CARD2,foreground=SUB,relief="flat",font=(FONT,8,"bold"),padding=5)
   s.map("Treeview",background=[("selected",HOVER)],foreground=[("selected",TEXT)])
   s.map("Treeview.Heading",background=[("active",HOVER)])
-  s.configure("Vertical.TScrollbar",background=CARD2,troughcolor=CARD,bordercolor=CARD,arrowcolor=SUB,lightcolor=CARD2,darkcolor=CARD2)
-  s.configure("Horizontal.TScrollbar",background=CARD2,troughcolor=CARD,bordercolor=CARD,arrowcolor=SUB,lightcolor=CARD2,darkcolor=CARD2)
+  s.configure("Vertical.TScrollbar",background="#45567a",troughcolor=BG,bordercolor=BG,arrowcolor=TEXT,lightcolor="#45567a",darkcolor="#45567a",gripcount=0,arrowsize=15)
+  s.map("Vertical.TScrollbar",background=[("active","#6a80ad")])
+  s.configure("Horizontal.TScrollbar",background="#45567a",troughcolor=BG,bordercolor=BG,arrowcolor=TEXT,lightcolor="#45567a",darkcolor="#45567a",gripcount=0,arrowsize=15)
+  s.map("Horizontal.TScrollbar",background=[("active","#6a80ad")])
   s.configure("TCombobox",fieldbackground=CARD2,background=CARD2,foreground=TEXT,arrowcolor=SUB,bordercolor=BORDER,lightcolor=CARD2,darkcolor=CARD2,padding=3)
   s.map("TCombobox",fieldbackground=[("readonly",CARD2)],foreground=[("readonly",TEXT)],selectbackground=[("readonly",CARD2)],selectforeground=[("readonly",TEXT)])
   s.configure("Rsv.Horizontal.TProgressbar",troughcolor=CARD2,background=RED,bordercolor=CARD2,lightcolor=RED,darkcolor=RED,thickness=5)
@@ -459,8 +574,8 @@ class App:
   tk.Button(side,text="«",command=self.toggle_side,bg=SIDE,fg=SUB,activebackground=HOVER,activeforeground=TEXT,relief="flat",bd=0,
             highlightthickness=0,font=(FONT,13,"bold"),cursor="hand2").place(relx=1.0,x=-8,y=10,anchor="ne")
   logo=tk.Frame(side,bg=SIDE);logo.pack(fill="x",padx=20,pady=(20,6))
-  tk.Label(logo,text="RSV4",fg=RED,bg=SIDE,font=(FONT,30,"bold italic")).pack(anchor="w")
-  tk.Label(logo,text="CAN STUDIO",fg=TEXT,bg=SIDE,font=(FONT,11,"bold")).pack(anchor="w")
+  tk.Label(logo,text="TrackLab",fg=RED,bg=SIDE,font=(FONT,24,"bold italic")).pack(anchor="w")
+  tk.Label(logo,text="ELECTRONICS",fg=TEXT,bg=SIDE,font=(FONT,11,"bold")).pack(anchor="w")
 
   self.section(side,"MOTO")
   mc=tk.Frame(side,bg=SIDE);mc.pack(fill="x",padx=14,pady=2)
@@ -601,7 +716,7 @@ class App:
   cid,name,_,_,_,_,unit=s
   f=tk.Frame(parent,bg=CARD,highlightbackground=BORDER,highlightthickness=1,width=TILE_W,height=96)
   f.pack_propagate(False)
-  nl=tk.Label(f,text=name.replace("_"," "),fg=SUB,bg=CARD,font=(FONT,8,"bold"),anchor="w");nl.pack(fill="x",padx=10,pady=(8,0))
+  nl=tk.Label(f,text=fr(name),fg=SUB,bg=CARD,font=(FONT,8,"bold"),anchor="w");nl.pack(fill="x",padx=10,pady=(8,0))
   row=tk.Frame(f,bg=CARD);row.pack(anchor="w",padx=10)
   vl=tk.Label(row,text="—",fg=TEXT,bg=CARD,font=(FONT,18,"bold"));vl.pack(side="left")
   if unit:tk.Label(row,text=disp_unit(unit),fg=MUTED,bg=CARD,font=(FONT,9)).pack(side="left",padx=(5,0),pady=(9,0))
@@ -709,11 +824,11 @@ class App:
   self.map=tk.Canvas(mapc,bg=CARD,height=210,highlightthickness=0);self.map.pack(fill="x",padx=6,pady=6)
   selc=self.card(left);selc.pack(fill="both",expand=True)
   tk.Label(selc,text="Signaux tracés · cliquer pour ajouter",fg=SUB,bg=CARD,font=(FONT,9,"bold")).pack(anchor="w",padx=10,pady=(8,4))
-  wrap,inner=self.scroll_area(selc,CARD)
+  wrap,inner=self.scroll_area(selc,CARD,width=190)
   wrap.pack(fill="both",expand=True,padx=6,pady=(0,6))
   for key in CURVE_KEYS:
    cid,name=key
-   b=tk.Button(inner,text=f"{name.replace('_',' ')}  ·  0x{cid:03X}",anchor="w",relief="flat",bd=0,highlightthickness=0,
+   b=tk.Button(inner,text=f"{fr(name)}  ·  0x{cid:03X}",anchor="w",relief="flat",bd=0,highlightthickness=0,
                font=(FONT,9,"bold"),padx=8,pady=3,cursor="hand2",command=lambda k=key:self.toggle_curve(k))
    b.pack(fill="x",padx=2,pady=1)
    self.curve_btns[key]=b
@@ -795,10 +910,10 @@ class App:
  # ---- gestion de la fenêtre temporelle (ascenseur horizontal)
  def data_start(self):
   ts=[self.hist[k][0][0] for k in self.sel if k in self.hist and self.hist[k]]
-  return min(ts) if ts else 0
+  return min(ts+[0]) if ts else 0
 
  def on_hscroll(self,*a):
-  span=self.window.get()*1000;tmax=self.t_now;t0=self.data_start()
+  span=self.window.get()*1000;tmax=self.t_now+span/2;t0=self.data_start()
   if tmax-t0<=span:return
   cur=self.view_end if self.view_end is not None else tmax
   if a[0]=="moveto":end=t0+float(a[1])*(tmax-t0)+span
@@ -819,9 +934,10 @@ class App:
   return lo,hi,[round(lo+i*step,10) for i in range(n+1)]
 
  def tlabel(self,sec,step):
+  sg="-" if sec<-1e-9 else "";sec=abs(sec)
   if step<1:
-   m=int(sec//60);return f"{m:02d}:{sec-60*m:04.1f}"
-  sec=int(round(sec));return f"{sec//60:02d}:{sec%60:02d}"
+   m=int(sec//60);return f"{sg}{m:02d}:{sec-60*m:04.1f}"
+  sec=int(round(sec));return f"{sg}{sec//60:02d}:{sec%60:02d}"
 
  def draw_chart(self):
   c=self.chart;ta=self.taxis;c.delete("all");ta.delete("all")
@@ -829,11 +945,11 @@ class App:
   w=c.winfo_width();h=c.winfo_height()
   if w<=300 or h<=100:return
   win=self.window.get();span=win*1000;tmax=self.t_now
-  end=self.view_end if self.view_end is not None else tmax;start=end-span
+  half=span/2;end=self.view_end if self.view_end is not None else tmax+half;start=end-span
   sel=[k for k in CURVE_KEYS if k in self.sel]
   L,R,T=70,250,10;pw=w-L-R
   # ascenseur horizontal
-  t0=self.data_start();tot=tmax-t0
+  t0=self.data_start();tot=tmax+half-t0
   if tot>span:self.chart_hsb.set(max(0,(start-t0)/tot),min(1,(end-t0)/tot))
   else:self.chart_hsb.set(0,1)
   # axe du temps (fixe, sous la zone de courbes)
@@ -845,6 +961,8 @@ class App:
    x=L+pw*(sec*1000-start)/span;xs.append(x)
    ta.create_line(x,0,x,5,fill=SUB)
    ta.create_text(x,7,text=self.tlabel(sec,tstep),fill=SUB,font=(FONT,8),anchor="n")
+  if start<=tmax<=end:
+   xn=L+pw*(tmax-start)/span;ta.create_line(xn,0,xn,8,fill=GREEN,width=2)
   ta.create_text(L+pw+16,7,text=("◂ historique" if self.view_end is not None else "en direct"),fill=YELLOW if self.view_end is not None else GREEN,font=(FONT,8,"bold"),anchor="nw")
 
   def window_pts(key):
@@ -861,8 +979,10 @@ class App:
    for tt,v in pts:co.extend((L+pw*(tt-start)/span,ymap(v)))
    if len(co)>=4:c.create_line(*co,fill=color,width=2)
   def unit_of(key):return disp_unit(UNIT_OF.get(key,""))
+  xnow=L+pw*(tmax-start)/span
   def vgrid(y0,y1):
    for x in xs:c.create_line(x,y0,x,y1,fill=BORDER,dash=(2,5))
+   if start<=tmax<=end:c.create_line(xnow,y0,xnow,y1,fill=GREEN,dash=(4,3))
 
   if not sel:
    c.configure(scrollregion=(0,0,w,h))
@@ -902,7 +1022,7 @@ class App:
     if key==ref:c.create_rectangle(lx-6,y0-4,w-6,y0+42,outline=color)
     self.legend_hits.append((lx-6,y0-4,w-6,y0+42,key))
     c.create_line(lx,y0+7,lx+18,y0+7,fill=color,width=3)
-    c.create_text(lx+26,y0,text=f"{name.replace('_',' ')} · 0x{cid:03X}",anchor="nw",fill=TEXT,font=(FONT,8,"bold"))
+    c.create_text(lx+26,y0,text=f"{fr(name)} · 0x{cid:03X}",anchor="nw",fill=TEXT,font=(FONT,8,"bold"))
     if key in data:
      _p,mn,mx,cur=data[key]
      c.create_text(lx+26,y0+14,text=f"{fmt_val(mn)} … {fmt_val(mx)} {unit_of(key)}",anchor="nw",fill=SUB,font=(FONT,8))
@@ -921,7 +1041,7 @@ class App:
    c.create_rectangle(L,y0,L+pw,y1,outline=BORDER,fill=BG)
    vgrid(y0,y1)
    lx=L+pw+16
-   c.create_text(lx,y0+2,text=f"{name.replace('_',' ')} · 0x{cid:03X}",anchor="nw",fill=color,font=(FONT,9,"bold"))
+   c.create_text(lx,y0+2,text=f"{fr(name)} · 0x{cid:03X}",anchor="nw",fill=color,font=(FONT,9,"bold"))
    pts=window_pts(key)
    if len(pts)<2:
     c.create_text(L+pw/2,(y0+y1)/2,text="pas de donnée",fill=MUTED,font=(FONT,8))
@@ -1346,7 +1466,7 @@ class App:
    if raw is None:continue
    val=p0+p1*raw
    self.put(cid,name,val,t,"def")
-   parts.append(f"{name.replace('_',' ')} {fmt_val(val)}{(' '+disp_unit(unit)) if unit else ''}")
+   parts.append(f"{fr(name)} {fmt_val(val)}{(' '+disp_unit(unit)) if unit else ''}")
   return parts
 
  def decode_virtual(self,t,cid,data):

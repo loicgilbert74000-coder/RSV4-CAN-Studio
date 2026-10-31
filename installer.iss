@@ -1,14 +1,14 @@
-#define MyAppName "RSV4 CAN Studio"
+#define MyAppName "TrackLab Electronics"
 #define MyAppVersion "0.5"
-#define MyAppExeName "RSV4_CAN_Studio.exe"
+#define MyAppExeName "TrackLab_Electronics.exe"
 [Setup]
 AppId={{DA30B624-91CE-40A6-B6D4-0D7AAB1729B0}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
-DefaultDirName={autopf}\RSV4 CAN Studio
+DefaultDirName={autopf}\TrackLab Electronics
 DefaultGroupName={#MyAppName}
 OutputDir=installer
-OutputBaseFilename=RSV4_CAN_Studio_Setup
+OutputBaseFilename=TrackLab_Electronics_Setup
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
@@ -25,4 +25,4 @@ Source: "dist\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "Lancer RSV4 CAN Studio"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppExeName}"; Description: "Lancer TrackLab Electronics"; Flags: nowait postinstall skipifsilent

@@ -1,8 +1,8 @@
 /*
- * RSV4 CAN Studio — relais CAN / GPS / E-S -> Wi-Fi pour ESP32
+ * TrackLab Electronics — relais CAN / GPS / E-S -> Wi-Fi pour ESP32
  * NON TESTÉ sur matériel : à valider avant emploi sur la moto.
  *
- * Paramétrage : fichier rsv4_config.h, généré par RSV4 CAN Studio (onglet « Paramétrage ESP32 »).
+ * Paramétrage : fichier rsv4_config.h, généré par TrackLab Electronics (onglet « Paramétrage ESP32 »).
  *
  * Fonctionnement :
  *   - L'ESP32 crée son propre réseau Wi-Fi (point d'accès, SSID = AP_SSID).

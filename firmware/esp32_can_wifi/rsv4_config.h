@@ -1,4 +1,4 @@
-// Fichier généré par RSV4 CAN Studio (Paramétrage ESP32). Ne pas modifier à la main.
+// Fichier généré par TrackLab Electronics (Paramétrage ESP32). Ne pas modifier à la main.
 #pragma once
 #define AP_SSID "RSV4-CAN"
 #define AP_PASS "rsv4-can-2026"
