@@ -1,6 +1,6 @@
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
-import re, time, math, queue, threading, os, sys, socket, json
+import re, time, math, queue, threading, os, sys, socket, json, bisect
 from collections import Counter, deque
 try: import serial
 except ImportError: serial=None
@@ -14,8 +14,9 @@ PALETTE=[CYAN,GREEN,YELLOW,ORANGE,VIOLET,PINK,LIME,RED,"#60a5fa","#f472b6","#34d
 FONT="Segoe UI"
 SPEEDS={"x0.25":0.25,"x0.5":0.5,"x1":1,"x2":2,"x4":4,"x8":8}
 TILE_W=186; TILE_COLS=5
-BANDS=[70,110,160,240]          # hauteurs des bandes en mode empilé (px)
-WINDOWS=[30,60,120,300]         # fenêtres temporelles des courbes (s)
+BAND_MIN=56;BAND_MAX=700        # hauteur mini et maxi d'une bande en mode empilé (px)
+WINDOWS=[10,30,60,120,300,600]  # fenêtres temporelles des courbes (s)
+SEEK_BACK=20000                 # trames rejouées avant l'instant visé quand on clique dans la barre de progression
 
 # Profils de moto. "decoder" : décodages CAN définis pour ce modèle (None = trames brutes seulement).
 MODELS={
@@ -44,6 +45,7 @@ BY_CID={}
 for _s in SIGNALS: BY_CID.setdefault(_s[0],[]).append(_s)
 CURVE_KEYS=list(dict.fromkeys((s[0],s[1]) for s in TILE_DEFS))
 CURVE_INDEX={k:i for i,k in enumerate(CURVE_KEYS)}
+UNIT_OF={(s[0],s[1]):s[6] for s in TILE_DEFS}
 
 # Groupes d'affichage sur la page Télémétrie
 GROUP_OF={0x100:"Moteur",0x114:"Moteur",0x601:"Gaz",0x7F2:"Gaz",0x7F6:"Gaz",0x260:"Roues",
@@ -117,6 +119,35 @@ def fmt_time(ms):
  s=max(0,int(ms/1000));return f"{s//60:02d}:{s%60:02d}"
 def fmt_ms(ms):
  ms=max(0,int(ms));return f"{ms//60000:02d}:{(ms//1000)%60:02d}.{ms%1000:03d}"
+
+def parse_ids(text):
+ """Filtre d'identifiants en hexadécimal : '100, 200-20F'. Renvoie (liste de bornes ou None, valide)."""
+ text=text.strip()
+ if not text:return None,True
+ out=[];ok=True
+ for tok in re.split(r"[,;\s]+",text):
+  if not tok:continue
+  tok=tok.lower().replace("0x","")
+  try:
+   if "-" in tok:
+    a,b=tok.split("-",1);a=int(a,16);b=int(b,16);out.append((min(a,b),max(a,b)))
+   else:
+    v=int(tok,16);out.append((v,v))
+  except ValueError:ok=False
+ return (out or None),ok
+
+def nice_ticks(lo,hi,n):
+ """Graduations « rondes » entre lo et hi (environ n)."""
+ if hi<=lo:return [lo]
+ raw=(hi-lo)/max(1,n)
+ mag=10**math.floor(math.log10(raw))
+ step=next(m*mag for m in (1,2,2.5,5,10) if m*mag>=raw)
+ first=math.ceil(lo/step-1e-9);out=[];i=0
+ while True:
+  v=(first+i)*step
+  if v>hi+step*1e-9:break
+  out.append(round(v,10));i+=1
+ return out
 
 def make_dot(parent,color,bg,size=10):
  c=tk.Canvas(parent,width=size,height=size,bg=bg,highlightthickness=0)
@@ -242,6 +273,34 @@ class GearBox(tk.Canvas):
    self.create_rectangle(x0,3,x1,h-3,fill=RED if on else CARD2,outline="")
    self.create_text((x0+x1)/2,h/2,text=label,fill=TEXT if on else MUTED,font=(FONT,10,"bold"))
 
+class SeekBar(tk.Canvas):
+ """Barre de progression cliquable : un clic ou un glissement choisit l'instant de lecture."""
+ def __init__(self,parent,on_seek,on_drag=None,width=300,height=22):
+  super().__init__(parent,width=width,height=height,bg=CARD,highlightthickness=0,cursor="hand2")
+  self.frac=0;self.on_seek=on_seek;self.on_drag=on_drag;self.dragging=False
+  self.bind("<Configure>",lambda e:self.render())
+  self.bind("<ButtonPress-1>",self.press);self.bind("<B1-Motion>",self.move);self.bind("<ButtonRelease-1>",self.release)
+ def set(self,frac):
+  if not self.dragging:self.frac=max(0,min(1,frac));self.render()
+ def _f(self,e):
+  return max(0,min(1,(e.x-8)/max(1,self.winfo_width()-16)))
+ def press(self,e):
+  self.dragging=True;self.frac=self._f(e);self.render()
+  if self.on_drag:self.on_drag(self.frac)
+ def move(self,e):
+  if self.dragging:
+   self.frac=self._f(e);self.render()
+   if self.on_drag:self.on_drag(self.frac)
+ def release(self,e):
+  if self.dragging:
+   self.dragging=False;self.frac=self._f(e);self.render();self.on_seek(self.frac)
+ def render(self):
+  self.delete("all");w=max(40,self.winfo_width());h=max(10,self.winfo_height());cy=h/2
+  x0=8;x1=w-8;xf=x0+(x1-x0)*self.frac
+  self.create_rectangle(x0,cy-3,x1,cy+3,fill=CARD2,outline="")
+  self.create_rectangle(x0,cy-3,xf,cy+3,fill=RED,outline="")
+  self.create_oval(xf-7,cy-7,xf+7,cy+7,fill=TEXT,outline=RED,width=2)
+
 class App:
  def __init__(self):
   self.root=tk.Tk();self.root.title("RSV4 CAN Studio · Diagnostic & Télémétrie CAN")
@@ -254,7 +313,7 @@ class App:
   self.port=tk.StringVar(value="COM7");self.baud=tk.StringVar(value="2000000")
   self.host=tk.StringVar(value="192.168.4.1");self.tcp_port=tk.StringVar(value="2323")
   self.experimental=tk.BooleanVar(value=True);self.filter_on=tk.BooleanVar(value=True)
-  self.window=tk.IntVar(value=60);self.stack=tk.BooleanVar(value=False);self.band_idx=1
+  self.window=tk.IntVar(value=60);self.stack=tk.BooleanVar(value=False)
   self.sel=set(DEFAULT_CURVES);self.curve_btns={}
   self.count=Counter();self.first_t={};self.last_t={}
   self.vals={};self.hist={};self.dirty=set();self.flash_until={};self.tiles={}
@@ -263,6 +322,13 @@ class App:
   self.start_wall=0;self.start_frame=0;self.q=queue.Queue();self.live=False;self.stop_event=threading.Event()
   self.cards={};self.pages={};self.nav={};self.flushables=[];self.srow={};self.fl={};self.badge={}
   self.decoder=None;self.model_key="rsv4"
+  self.rows=deque(maxlen=8000);self.matched=0;self.bulk=False
+  self.f_show=tk.StringVar();self.f_hide=tk.StringVar();self.f_text=tk.StringVar()
+  self.id_show=None;self.id_hide=None;self.ftext="";self._fid=None;self.count_text=""
+  self.frame_times=[];self.seek_target=None;self.seek_resume=False
+  self.view_end=None;self.ref_key=None;self.band_h={};self.grips=[];self.layout=[];self.legend_hits=[];self.drag=None
+  self.default_band=120;self.current_page="tele"
+  self.side_collapsed=False;self.auto_collapsed=False
   self.cv={};self.build_esp_vars()
   self.set_styles()
   self.build_footer()
@@ -315,6 +381,7 @@ class App:
   s.map("Treeview",background=[("selected",HOVER)],foreground=[("selected",TEXT)])
   s.map("Treeview.Heading",background=[("active",HOVER)])
   s.configure("Vertical.TScrollbar",background=CARD2,troughcolor=CARD,bordercolor=CARD,arrowcolor=SUB,lightcolor=CARD2,darkcolor=CARD2)
+  s.configure("Horizontal.TScrollbar",background=CARD2,troughcolor=CARD,bordercolor=CARD,arrowcolor=SUB,lightcolor=CARD2,darkcolor=CARD2)
   s.configure("TCombobox",fieldbackground=CARD2,background=CARD2,foreground=TEXT,arrowcolor=SUB,bordercolor=BORDER,lightcolor=CARD2,darkcolor=CARD2,padding=3)
   s.map("TCombobox",fieldbackground=[("readonly",CARD2)],foreground=[("readonly",TEXT)],selectbackground=[("readonly",CARD2)],selectforeground=[("readonly",TEXT)])
   s.configure("Rsv.Horizontal.TProgressbar",troughcolor=CARD2,background=RED,bordercolor=CARD2,lightcolor=RED,darkcolor=RED,thickness=5)
@@ -384,6 +451,13 @@ class App:
  def build_sidebar(self):
   side=tk.Frame(self.root,bg=SIDE,width=250,highlightbackground=BORDER,highlightthickness=1)
   side.pack(side="left",fill="y");side.pack_propagate(False)
+  self.side=side
+  strip=tk.Frame(self.root,bg=SIDE,width=36,highlightbackground=BORDER,highlightthickness=1);strip.pack_propagate(False)
+  tk.Button(strip,text="»",command=self.toggle_side,bg=SIDE,fg=TEXT,activebackground=HOVER,activeforeground=TEXT,relief="flat",bd=0,
+            highlightthickness=0,font=(FONT,14,"bold"),cursor="hand2").pack(pady=(12,0),fill="x")
+  self.side_strip=strip
+  tk.Button(side,text="«",command=self.toggle_side,bg=SIDE,fg=SUB,activebackground=HOVER,activeforeground=TEXT,relief="flat",bd=0,
+            highlightthickness=0,font=(FONT,13,"bold"),cursor="hand2").place(relx=1.0,x=-8,y=10,anchor="ne")
   logo=tk.Frame(side,bg=SIDE);logo.pack(fill="x",padx=20,pady=(20,6))
   tk.Label(logo,text="RSV4",fg=RED,bg=SIDE,font=(FONT,30,"bold italic")).pack(anchor="w")
   tk.Label(logo,text="CAN STUDIO",fg=TEXT,bg=SIDE,font=(FONT,11,"bold")).pack(anchor="w")
@@ -443,7 +517,13 @@ class App:
 
  def build_main(self):
   main=tk.Frame(self.root,bg=BG);main.pack(side="left",fill="both",expand=True)
+  self.main=main
   head=tk.Frame(main,bg=BG);head.pack(fill="x",padx=22,pady=(14,4))
+  tabs=tk.Frame(head,bg=BG);tabs.pack(side="right")
+  self.tabs={}
+  for key,label in [("tele","Télémétrie"),("graph","Courbes"),("frames","Trames CAN"),("esp","ESP32")]:
+   b=tk.Button(tabs,text=label,command=lambda k=key:self.show_page(k),relief="flat",bd=0,highlightthickness=0,
+               padx=12,pady=6,font=(FONT,9,"bold"),cursor="hand2");b.pack(side="left",padx=2);self.tabs[key]=b
   tk.Label(head,text="Diagnostic & Télémétrie CAN",fg=TEXT,bg=BG,font=(FONT,18,"bold")).pack(side="left")
   self.subtitle=tk.Label(head,text="",fg=SUB,bg=BG,font=(FONT,11));self.subtitle.pack(side="left",padx=(14,0),pady=(6,0))
   self.build_playbar(main)
@@ -470,16 +550,34 @@ class App:
   cb.bind("<<ComboboxSelected>>",lambda e:self.speed.set(SPEEDS[cb.get()]))
   tk.Label(inner,textvariable=self.file_name,bg=CARD,fg=SUB,font=(FONT,9),anchor="w").pack(side="left",padx=(14,0))
   tk.Label(inner,textvariable=self.clock,bg=CARD,fg=TEXT,font=(FONT,9,"bold")).pack(side="right",padx=(8,0))
-  ttk.Progressbar(inner,variable=self.progress,maximum=100,style="Rsv.Horizontal.TProgressbar",length=260).pack(side="right",padx=8)
-  tk.Label(inner,text="Progression",bg=CARD,fg=MUTED,font=(FONT,8)).pack(side="right")
+  self.seekbar=SeekBar(inner,on_seek=self.seek,on_drag=self.on_seek_drag,width=360);self.seekbar.pack(side="right",padx=8)
 
  def show_page(self,key):
   for p in self.pages.values():p.pack_forget()
   self.pages[key].pack(fill="both",expand=True)
+  self.current_page=key
   for k,(row,bar,lbl) in self.nav.items():
    on=(k==key)
    row.config(bg=HOVER if on else SIDE);bar.config(bg=RED if on else SIDE)
    lbl.config(bg=HOVER if on else SIDE,fg=TEXT if on else SUB)
+  for k,b in self.tabs.items():
+   b.config(bg=RED if k==key else CARD2,fg="#ffffff" if k==key else SUB,activebackground=HOVER,activeforeground=TEXT)
+  if key=="graph":self.collapse_side(auto=True)
+  elif self.auto_collapsed:self.expand_side()
+
+ def collapse_side(self,auto=False):
+  if self.side_collapsed:return
+  self.side.pack_forget();self.side_strip.pack(side="left",fill="y",before=self.main)
+  self.side_collapsed=True;self.auto_collapsed=auto
+
+ def expand_side(self):
+  if not self.side_collapsed:return
+  self.side_strip.pack_forget();self.side.pack(side="left",fill="y",before=self.main)
+  self.side_collapsed=False;self.auto_collapsed=False
+
+ def toggle_side(self):
+  if self.side_collapsed:self.expand_side()
+  else:self.collapse_side(auto=False)
 
  # ---------- page Télémétrie ----------
  def build_tele(self,parent):
@@ -516,7 +614,7 @@ class App:
   """Enregistre une valeur : valeur courante, historique pour les courbes, mise à jour de la tuile."""
   key=(cid,name);self.vals[key]=(val,src)
   h=self.hist.get(key)
-  if h is None:h=self.hist[key]=deque(maxlen=12000)
+  if h is None:h=self.hist[key]=deque(maxlen=20000)
   h.append((t,val));self.dirty.add(key)
 
  def refresh_tile(self,key):
@@ -604,10 +702,11 @@ class App:
   dot,v=self.srow[key];set_dot(dot,color);v.config(text=text)
 
  # ---------- page Courbes ----------
+
  def build_graph(self,parent):
-  left=tk.Frame(parent,bg=BG,width=290);left.pack(side="left",fill="y",padx=(0,6));left.pack_propagate(False)
+  left=tk.Frame(parent,bg=BG,width=260);left.pack(side="left",fill="y",padx=(0,6));left.pack_propagate(False)
   mapc=self.card(left);mapc.pack(fill="x",pady=(0,6))
-  self.map=tk.Canvas(mapc,bg=CARD,height=230,highlightthickness=0);self.map.pack(fill="x",padx=6,pady=6)
+  self.map=tk.Canvas(mapc,bg=CARD,height=210,highlightthickness=0);self.map.pack(fill="x",padx=6,pady=6)
   selc=self.card(left);selc.pack(fill="both",expand=True)
   tk.Label(selc,text="Signaux tracés · cliquer pour ajouter",fg=SUB,bg=CARD,font=(FONT,9,"bold")).pack(anchor="w",padx=10,pady=(8,4))
   wrap,inner=self.scroll_area(selc,CARD)
@@ -621,25 +720,33 @@ class App:
   self.refresh_curve_buttons()
 
   right=self.card(parent);right.pack(side="left",fill="both",expand=True)
-  bar=tk.Frame(right,bg=CARD);bar.pack(fill="x",padx=12,pady=(10,6))
+  bar=tk.Frame(right,bg=CARD);bar.pack(fill="x",padx=12,pady=(8,4))
   tk.Label(bar,text="Courbes",fg=TEXT,bg=CARD,font=(FONT,12,"bold")).pack(side="left",padx=(0,14))
   self.btn_ov=self.button(bar,"Superposées",lambda:self.set_stack(False),SUB,CARD2,font=9);self.btn_ov.pack(side="left",padx=2)
   self.btn_st=self.button(bar,"Empilées",lambda:self.set_stack(True),SUB,CARD2,font=9);self.btn_st.pack(side="left",padx=2)
-  self.btn_band=self.button(bar,"",self.cycle_band,SUB,CARD2,font=9);self.btn_band.pack(side="left",padx=(10,2))
+  self.hint=tk.Label(bar,text="",fg=MUTED,bg=CARD,font=(FONT,8));self.hint.pack(side="left",padx=12)
   wc=ttk.Combobox(bar,values=[f"{w} s" for w in WINDOWS],state="readonly",width=7)
   wc.set(f"{self.window.get()} s");wc.pack(side="right")
-  wc.bind("<<ComboboxSelected>>",lambda e:self.window.set(int(wc.get().split()[0])))
-  tk.Label(bar,text="Fenêtre",fg=SUB,bg=CARD,font=(FONT,9)).pack(side="right",padx=(0,6))
+  wc.bind("<<ComboboxSelected>>",lambda e:(self.window.set(int(wc.get().split()[0])),self.draw_chart()))
+  tk.Label(bar,text="Fenêtre",fg=SUB,bg=CARD,font=(FONT,9)).pack(side="right",padx=(10,6))
+  self.button(bar,"Suivre le direct ▸▸",self.follow,GREEN,CARD2,font=9).pack(side="right",padx=6)
   cw=tk.Frame(right,bg=CARD);cw.pack(fill="both",expand=True,padx=6,pady=(0,6))
+  cw.rowconfigure(0,weight=1);cw.columnconfigure(0,weight=1)
   self.chart=tk.Canvas(cw,bg=CARD,highlightthickness=0)
   self.chart_sb=ttk.Scrollbar(cw,orient="vertical",command=self.chart.yview)
   self.chart.configure(yscrollcommand=self.chart_sb.set)
-  self.chart.pack(side="left",fill="both",expand=True)
+  self.chart.grid(row=0,column=0,sticky="nsew");self.chart_sb.grid(row=0,column=1,sticky="ns")
+  self.taxis=tk.Canvas(cw,bg=CARD,height=26,highlightthickness=0);self.taxis.grid(row=1,column=0,sticky="ew")
+  self.chart_hsb=ttk.Scrollbar(cw,orient="horizontal",command=self.on_hscroll);self.chart_hsb.grid(row=2,column=0,sticky="ew")
   def wheel(e):self.chart.yview_scroll(int(-e.delta/120),"units")
-  self.chart.bind("<Enter>",lambda e:self.chart.bind_all("<MouseWheel>",wheel))
-  self.chart.bind("<Leave>",lambda e:self.chart.unbind_all("<MouseWheel>"))
+  def hwheel(e):self.on_hscroll("scroll",str(int(-e.delta/120)),"units")
+  def enter(e):self.chart.bind_all("<MouseWheel>",wheel);self.chart.bind_all("<Shift-MouseWheel>",hwheel)
+  def leave(e):self.chart.unbind_all("<MouseWheel>");self.chart.unbind_all("<Shift-MouseWheel>")
+  self.chart.bind("<Enter>",enter);self.chart.bind("<Leave>",leave)
+  self.chart.bind("<ButtonPress-1>",self.chart_press);self.chart.bind("<B1-Motion>",self.chart_drag)
+  self.chart.bind("<ButtonRelease-1>",self.chart_release);self.chart.bind("<Motion>",self.chart_motion)
+  self.chart.bind("<Configure>",lambda e:self.draw_chart())
   self.refresh_mode_buttons()
-
  def toggle_curve(self,key):
   if key in self.sel:self.sel.discard(key)
   else:self.sel.add(key)
@@ -651,17 +758,16 @@ class App:
    b.config(bg=color if on else CARD2,fg=BG if on else SUB,activebackground=color if on else HOVER,activeforeground=BG if on else TEXT)
 
  def set_stack(self,stacked):
-  self.stack.set(stacked);self.refresh_mode_buttons()
+  self.stack.set(stacked);self.refresh_mode_buttons();self.chart.yview_moveto(0);self.draw_chart()
 
- def cycle_band(self):
-  self.band_idx=(self.band_idx+1)%len(BANDS);self.refresh_mode_buttons()
+ def follow(self):
+  self.view_end=None;self.draw_chart()
 
  def refresh_mode_buttons(self):
   for b,on in ((self.btn_ov,not self.stack.get()),(self.btn_st,self.stack.get())):
    b.config(bg=CYAN if on else CARD2,fg=BG if on else SUB)
-  stacked=self.stack.get()
-  self.btn_band.config(text=f"Hauteur : {BANDS[self.band_idx]} px",state="normal" if stacked else "disabled",
-                       fg=SUB if stacked else MUTED)
+  self.hint.config(text="Glisser les séparateurs entre fenêtres pour régler leur hauteur" if self.stack.get()
+                   else "Cliquer un signal de la légende pour en faire l'axe de gauche")
 
  def paint_map(self):
   c=self.map;c.delete("all");w=c.winfo_width();h=c.winfo_height()
@@ -686,63 +792,197 @@ class App:
     x,y=xy(*pts[-1]);c.create_oval(x-5,y-5,x+5,y+5,fill=GREEN,outline="")
   self.root.after(400,self.paint_map)
 
- def paint_chart(self):
-  c=self.chart;c.delete("all");w=c.winfo_width();h=c.winfo_height()
-  if w>300 and h>120:
-   win=self.window.get();span=win*1000;start=self.t_now-span
-   sel=[k for k in CURVE_KEYS if k in self.sel]
-   L,R,T,B=64,280,14,30;pw=w-L-R
-   def recent(key):
-    pts=[]
-    for t,v in reversed(self.hist.get(key,())):
-     if t<start:break
-     pts.append((t,v))
-    pts.reverse();return pts
-   if not self.stack.get():
-    ph=h-T-B
-    c.configure(scrollregion=(0,0,w,h))
-    for i in range(5):
-     y=T+ph*i/4;c.create_line(L,y,L+pw,y,fill=BORDER)
-    for frac,label,anc in [(0,f"-{win} s","w"),(.5,f"-{win//2} s","center"),(1,"maintenant","e")]:
-     c.create_text(L+pw*frac,h-12,text=label,fill=MUTED,font=(FONT,8),anchor=anc)
-    c.create_text(L+pw+14,T+2,text="Signal · min · max · actuel",anchor="nw",fill=SUB,font=(FONT,8,"bold"))
-    c.create_text(L+8,T+2,text="Courbes superposées · chacune normalisée sur son étendue",anchor="nw",fill=MUTED,font=(FONT,8))
-    for i,key in enumerate(sel):
-     color=PALETTE[CURVE_INDEX[key]%len(PALETTE)];cid,name=key
-     pts=recent(key);y0=T+26+i*40
-     c.create_line(L+pw+14,y0+7,L+pw+32,y0+7,fill=color,width=3)
-     c.create_text(L+pw+40,y0,text=f"{name.replace('_',' ')} · 0x{cid:03X}",anchor="nw",fill=TEXT,font=(FONT,8,"bold"))
-     if len(pts)<2:
-      c.create_text(L+pw+40,y0+14,text="pas de donnée",anchor="nw",fill=MUTED,font=(FONT,8));continue
-     vals=[v for _,v in pts];mn=min(vals);mx=max(vals);rng=mx-mn
-     coords=[]
-     for t,v in pts:
-      coords.extend((L+pw*(t-start)/span, T+ph/2 if rng==0 else T+ph*(1-(v-mn)/rng)))
-     c.create_line(*coords,fill=color,width=2)
-     c.create_text(L+pw+40,y0+14,text=f"min {fmt_val(mn)} · max {fmt_val(mx)} · {fmt_val(vals[-1])}",anchor="nw",fill=SUB,font=(FONT,8))
+ # ---- gestion de la fenêtre temporelle (ascenseur horizontal)
+ def data_start(self):
+  ts=[self.hist[k][0][0] for k in self.sel if k in self.hist and self.hist[k]]
+  return min(ts) if ts else 0
+
+ def on_hscroll(self,*a):
+  span=self.window.get()*1000;tmax=self.t_now;t0=self.data_start()
+  if tmax-t0<=span:return
+  cur=self.view_end if self.view_end is not None else tmax
+  if a[0]=="moveto":end=t0+float(a[1])*(tmax-t0)+span
+  else:
+   step=span*(0.9 if a[2]=="pages" else 0.1);end=cur+int(a[1])*step
+  end=min(tmax,max(t0+span,end))
+  self.view_end=None if end>=tmax-1 else end
+  self.draw_chart()
+
+ def axis_for(self,mn,mx):
+  """Bornes « rondes » et graduations pour un signal."""
+  if mx-mn<1e-9:mn-=1;mx+=1
+  tks=nice_ticks(mn,mx,4)
+  step=(tks[1]-tks[0]) if len(tks)>1 else (mx-mn)
+  lo=math.floor(mn/step+1e-9)*step;hi=math.ceil(mx/step-1e-9)*step
+  if hi<=lo:hi=lo+step
+  n=int(round((hi-lo)/step))
+  return lo,hi,[round(lo+i*step,10) for i in range(n+1)]
+
+ def tlabel(self,sec,step):
+  if step<1:
+   m=int(sec//60);return f"{m:02d}:{sec-60*m:04.1f}"
+  sec=int(round(sec));return f"{sec//60:02d}:{sec%60:02d}"
+
+ def draw_chart(self):
+  c=self.chart;ta=self.taxis;c.delete("all");ta.delete("all")
+  self.grips=[];self.legend_hits=[]
+  w=c.winfo_width();h=c.winfo_height()
+  if w<=300 or h<=100:return
+  win=self.window.get();span=win*1000;tmax=self.t_now
+  end=self.view_end if self.view_end is not None else tmax;start=end-span
+  sel=[k for k in CURVE_KEYS if k in self.sel]
+  L,R,T=70,250,10;pw=w-L-R
+  # ascenseur horizontal
+  t0=self.data_start();tot=tmax-t0
+  if tot>span:self.chart_hsb.set(max(0,(start-t0)/tot),min(1,(end-t0)/tot))
+  else:self.chart_hsb.set(0,1)
+  # axe du temps (fixe, sous la zone de courbes)
+  ticks=nice_ticks(start/1000,end/1000,max(2,pw//110))
+  tstep=(ticks[1]-ticks[0]) if len(ticks)>1 else 1
+  xs=[]
+  ta.create_line(L,0,L+pw,0,fill=BORDER)
+  for sec in ticks:
+   x=L+pw*(sec*1000-start)/span;xs.append(x)
+   ta.create_line(x,0,x,5,fill=SUB)
+   ta.create_text(x,7,text=self.tlabel(sec,tstep),fill=SUB,font=(FONT,8),anchor="n")
+  ta.create_text(L+pw+16,7,text=("◂ historique" if self.view_end is not None else "en direct"),fill=YELLOW if self.view_end is not None else GREEN,font=(FONT,8,"bold"),anchor="nw")
+
+  def window_pts(key):
+   pts=[]
+   for tt,v in reversed(self.hist.get(key,())):
+    if tt>end:continue
+    if tt<start:break
+    pts.append((tt,v))
+   pts.reverse()
+   st=len(pts)//(2*max(pw,1))+1
+   return pts[::st] if st>1 else pts
+  def poly(pts,ymap,color):
+   co=[]
+   for tt,v in pts:co.extend((L+pw*(tt-start)/span,ymap(v)))
+   if len(co)>=4:c.create_line(*co,fill=color,width=2)
+  def unit_of(key):return disp_unit(UNIT_OF.get(key,""))
+  def vgrid(y0,y1):
+   for x in xs:c.create_line(x,y0,x,y1,fill=BORDER,dash=(2,5))
+
+  if not sel:
+   c.configure(scrollregion=(0,0,w,h))
+   c.create_text(L+pw/2,h/2,text="Choisissez des signaux dans la liste de gauche",fill=MUTED,font=(FONT,11))
+   return
+
+  if not self.stack.get():
+   total=max(h,T+34+len(sel)*48+10);c.configure(scrollregion=(0,0,w,total))
+   ph=max(80,h-T-10)
+   data={}
+   for key in sel:
+    pts=window_pts(key)
+    if len(pts)>=2:
+     vals=[v for _,v in pts];data[key]=(pts,min(vals),max(vals),vals[-1])
+   ref=self.ref_key if self.ref_key in sel else next((k for k in sel if k in data and data[k][2]>data[k][1]),sel[0]);self.ref_key=ref
+   rcol=PALETTE[CURVE_INDEX[ref]%len(PALETTE)]
+   c.create_rectangle(L,T,L+pw,T+ph,outline=BORDER)
+   if ref in data:
+    lo,hi,tks=self.axis_for(data[ref][1],data[ref][2])
+    for v in tks:
+     y=T+ph*(1-(v-lo)/(hi-lo));c.create_line(L,y,L+pw,y,fill=BORDER)
+     c.create_text(L-8,y,text=fmt_val(v),fill=rcol,font=(FONT,8),anchor="e")
+    u=unit_of(ref)
+    if u:c.create_text(L-8,T-1,text=u,fill=rcol,font=(FONT,8,"bold"),anchor="se")
    else:
-    H=BANDS[self.band_idx];total=max(h,T+len(sel)*H+B)
-    c.configure(scrollregion=(0,0,w,total))
-    for i,key in enumerate(sel):
-     color=PALETTE[CURVE_INDEX[key]%len(PALETTE)];cid,name=key
-     y0=T+i*H;y1=y0+H
-     c.create_rectangle(L,y0+3,L+pw,y1-3,outline=BORDER,fill=BG)
-     c.create_text(L+8,y0+8,text=f"{name.replace('_',' ')} · 0x{cid:03X}",anchor="nw",fill=color,font=(FONT,9,"bold"))
-     pts=recent(key)
-     if len(pts)<2:
-      c.create_text(L+pw+14,y0+8,text="pas de donnée",anchor="nw",fill=MUTED,font=(FONT,8));continue
-     vals=[v for _,v in pts];mn=min(vals);mx=max(vals);rng=mx-mn
-     top=y0+24;bot=y1-10;coords=[]
-     for t,v in pts:
-      coords.extend((L+pw*(t-start)/span, (top+bot)/2 if rng==0 else bot-(bot-top)*(v-mn)/rng))
-     c.create_line(*coords,fill=color,width=2)
-     c.create_text(L+pw+14,y0+8,text=f"min {fmt_val(mn)}",anchor="nw",fill=SUB,font=(FONT,8))
-     c.create_text(L+pw+14,y0+22,text=f"max {fmt_val(mx)}",anchor="nw",fill=SUB,font=(FONT,8))
-     c.create_text(L+pw+14,y0+36,text=f"actuel {fmt_val(vals[-1])}",anchor="nw",fill=TEXT,font=(FONT,8,"bold"))
-    yb=total-12
-    for frac,label,anc in [(0,f"-{win} s","w"),(.5,f"-{win//2} s","center"),(1,"maintenant","e")]:
-     c.create_text(L+pw*frac,yb,text=label,fill=MUTED,font=(FONT,8),anchor=anc)
-  self.root.after(180,self.paint_chart)
+    for i in range(1,4):
+     y=T+ph*i/4;c.create_line(L,y,L+pw,y,fill=BORDER)
+   vgrid(T,T+ph)
+   for key in sel:
+    if key not in data:continue
+    pts,mn,mx,_=data[key];lo,hi,_t=self.axis_for(mn,mx)
+    poly(pts,lambda v,lo=lo,hi=hi:T+ph*(1-(v-lo)/(hi-lo)),PALETTE[CURVE_INDEX[key]%len(PALETTE)])
+   lx=L+pw+16
+   c.create_text(lx,T,text="Signal · min · max · actuel",anchor="nw",fill=SUB,font=(FONT,8,"bold"))
+   for i,key in enumerate(sel):
+    color=PALETTE[CURVE_INDEX[key]%len(PALETTE)];cid,name=key;y0=T+22+i*48
+    if key==ref:c.create_rectangle(lx-6,y0-4,w-6,y0+42,outline=color)
+    self.legend_hits.append((lx-6,y0-4,w-6,y0+42,key))
+    c.create_line(lx,y0+7,lx+18,y0+7,fill=color,width=3)
+    c.create_text(lx+26,y0,text=f"{name.replace('_',' ')} · 0x{cid:03X}",anchor="nw",fill=TEXT,font=(FONT,8,"bold"))
+    if key in data:
+     _p,mn,mx,cur=data[key]
+     c.create_text(lx+26,y0+14,text=f"{fmt_val(mn)} … {fmt_val(mx)} {unit_of(key)}",anchor="nw",fill=SUB,font=(FONT,8))
+     c.create_text(lx+26,y0+27,text=f"actuel {fmt_val(cur)}"+("   ◂ axe de gauche" if key==ref else ""),anchor="nw",fill=color if key==ref else TEXT,font=(FONT,8,"bold"))
+    else:
+     c.create_text(lx+26,y0+14,text="pas de donnée",anchor="nw",fill=MUTED,font=(FONT,8))
+   return
+
+  # ---- empilées
+  dflt=int(max(90,min(400,(h-T-8)/len(sel))))
+  for key in sel:self.band_h.setdefault(key,dflt)
+  total=max(h,T+sum(self.band_h[k] for k in sel)+8);c.configure(scrollregion=(0,0,w,total))
+  y=T
+  for i,key in enumerate(sel):
+   bh=self.band_h[key];y0=y;y1=y+bh-8;color=PALETTE[CURVE_INDEX[key]%len(PALETTE)];cid,name=key
+   c.create_rectangle(L,y0,L+pw,y1,outline=BORDER,fill=BG)
+   vgrid(y0,y1)
+   lx=L+pw+16
+   c.create_text(lx,y0+2,text=f"{name.replace('_',' ')} · 0x{cid:03X}",anchor="nw",fill=color,font=(FONT,9,"bold"))
+   pts=window_pts(key)
+   if len(pts)<2:
+    c.create_text(L+pw/2,(y0+y1)/2,text="pas de donnée",fill=MUTED,font=(FONT,8))
+   else:
+    vals=[v for _,v in pts];mn=min(vals);mx=max(vals)
+    lo,hi,tks=self.axis_for(mn,mx);top=y0+6;bot=y1-6
+    ym=lambda v,lo=lo,hi=hi,top=top,bot=bot:bot-(bot-top)*(v-lo)/(hi-lo)
+    for v in tks:
+     yy=ym(v);c.create_line(L,yy,L+pw,yy,fill=BORDER)
+     c.create_text(L-8,yy,text=fmt_val(v),fill=SUB,font=(FONT,8),anchor="e")
+    poly(pts,ym,color)
+    c.create_text(lx,y0+17,text=f"{fmt_val(mn)} … {fmt_val(mx)} {unit_of(key)}",anchor="nw",fill=SUB,font=(FONT,8))
+    c.create_text(lx,y0+30,text=f"actuel {fmt_val(vals[-1])}",anchor="nw",fill=TEXT,font=(FONT,8,"bold"))
+   gy=y1+4;self.grips.append((i,gy))
+   active=self.drag is not None and self.drag[0]==i
+   c.create_rectangle(L,gy-3,L+pw,gy+3,fill=CYAN if active else CARD2,outline="")
+   cx=L+pw/2;c.create_line(cx-16,gy,cx+16,gy,fill=BG if active else SUB,width=2)
+   y+=bh
+
+ def paint_chart(self):
+  try:
+   if self.current_page=="graph":self.draw_chart()
+  finally:
+   self.root.after(180,self.paint_chart)
+
+ # ---- souris sur le graphique : séparateurs et légende
+ def grip_at(self,e):
+  if not self.stack.get():return None
+  y=self.chart.canvasy(e.y)
+  for i,gy in self.grips:
+   if abs(y-gy)<=6:return i
+  return None
+
+ def chart_motion(self,e):
+  self.chart.config(cursor="sb_v_double_arrow" if self.grip_at(e) is not None else "")
+
+ def chart_press(self,e):
+  i=self.grip_at(e)
+  if i is not None:
+   self.drag=(i,self.chart.canvasy(e.y),dict(self.band_h));return
+  x=self.chart.canvasx(e.x);y=self.chart.canvasy(e.y)
+  for x0,y0,x1,y1,key in self.legend_hits:
+   if x0<=x<=x1 and y0<=y<=y1:
+    self.ref_key=key;self.draw_chart();return
+
+ def chart_drag(self,e):
+  if not self.drag:return
+  i,y0,start=self.drag;dy=self.chart.canvasy(e.y)-y0
+  sel=[k for k in CURVE_KEYS if k in self.sel]
+  if i>=len(sel):return
+  k=sel[i];hh=start[k]
+  if i<len(sel)-1:
+   k2=sel[i+1];h2=start[k2]
+   dy=max(BAND_MIN-hh,h2-BAND_MAX,min(h2-BAND_MIN,BAND_MAX-hh,dy))
+   self.band_h[k]=int(hh+dy);self.band_h[k2]=int(h2-dy)
+  else:
+   self.band_h[k]=int(max(BAND_MIN,min(BAND_MAX,hh+dy)))
+  self.draw_chart()
+
+ def chart_release(self,e):
+  self.drag=None;self.draw_chart()
 
  # ---------- page Paramétrage ESP32 ----------
  def build_esp_vars(self):
@@ -904,8 +1144,22 @@ class App:
   hdr=tk.Frame(card,bg=CARD);hdr.pack(fill="x",padx=14,pady=(10,4))
   tk.Label(hdr,text="Trames CAN en direct",fg=TEXT,bg=CARD,font=(FONT,12,"bold")).pack(side="left")
   self.button(hdr,"Vider",self.clear_table,SUB,CARD2,font=9).pack(side="right")
-  tk.Checkbutton(hdr,text="Filtrage activé (trames décodées seulement)",variable=self.filter_on,bg=CARD,fg=SUB,
+  tk.Checkbutton(hdr,text="Trames décodées seulement",variable=self.filter_on,command=self.rebuild_table,bg=CARD,fg=SUB,
                  selectcolor=CARD2,activebackground=CARD,font=(FONT,9),bd=0,highlightthickness=0).pack(side="right",padx=12)
+  fl=tk.Frame(card,bg=CARD);fl.pack(fill="x",padx=14,pady=(0,6))
+  def field(label,var,width):
+   tk.Label(fl,text=label,fg=SUB,bg=CARD,font=(FONT,9)).pack(side="left",padx=(0,4))
+   e=tk.Entry(fl,textvariable=var,width=width,bg=CARD2,fg=TEXT,insertbackground=TEXT,relief="flat",highlightthickness=1,
+              highlightbackground=BORDER,highlightcolor=CYAN,font=(FONT,9))
+   e.pack(side="left",padx=(0,14),ipady=3);return e
+  self.e_show=field("Afficher les ID (hex)",self.f_show,18)
+  self.e_hide=field("Masquer les ID",self.f_hide,18)
+  self.e_text=field("Contient",self.f_text,18)
+  self.button(fl,"Réinitialiser",self.reset_filters,SUB,CARD2,font=9).pack(side="left")
+  self.count_lbl=tk.Label(fl,text="",fg=SUB,bg=CARD,font=(FONT,9));self.count_lbl.pack(side="right")
+  tk.Label(card,text="ID en hexadécimal, séparés par des virgules, plages avec un tiret : 100, 2A0-2FF.   « Contient » cherche dans l'ID, les octets et le décodage.",
+           fg=MUTED,bg=CARD,font=(FONT,8),anchor="w").pack(fill="x",padx=14,pady=(0,6))
+  for v in (self.f_show,self.f_hide,self.f_text):v.trace_add("write",lambda *a:self.schedule_filter())
   tw=tk.Frame(card,bg=CARD);tw.pack(fill="both",expand=True,padx=10,pady=(0,10))
   cols=[("n","#",55,"e"),("time","Temps",95,"w"),("id","ID",75,"w"),("dlc","DLC",45,"center"),
         ("hex","Hex",190,"w"),("dec","Décimal",190,"w"),("freq","Fréq. (Hz)",85,"e"),("txt","Décodage / signaux",440,"w")]
@@ -916,9 +1170,51 @@ class App:
   sb=ttk.Scrollbar(tw,orient="vertical",command=self.table.yview);self.table.configure(yscrollcommand=sb.set)
   self.table.pack(side="left",fill="both",expand=True);sb.pack(side="right",fill="y")
 
+ # filtrage : les trames récentes sont gardées en mémoire (self.rows), le tableau n'en montre que 400 qui correspondent
+ def schedule_filter(self):
+  if self._fid:
+   try:self.root.after_cancel(self._fid)
+   except Exception:pass
+  self._fid=self.root.after(250,self.on_filter_change)
+
+ def on_filter_change(self):
+  self._fid=None
+  self.id_show,ok1=parse_ids(self.f_show.get());self.id_hide,ok2=parse_ids(self.f_hide.get())
+  self.ftext=self.f_text.get().strip().lower()
+  self.e_show.config(fg=TEXT if ok1 else RED);self.e_hide.config(fg=TEXT if ok2 else RED)
+  self.rebuild_table()
+
+ def reset_filters(self):
+  self.f_show.set("");self.f_hide.set("");self.f_text.set("");self.filter_on.set(False)
+  self.on_filter_change()
+
+ def row_match(self,row):
+  cid=row[2]
+  if self.id_show and not any(a<=cid<=b for a,b in self.id_show):return False
+  if self.id_hide and any(a<=cid<=b for a,b in self.id_hide):return False
+  if self.filter_on.get() and self.decoder is not None and row[7]=="—":return False
+  if self.ftext and self.ftext not in f"{cid:03x} 0x{cid:03x} {row[4]} {row[7]}".lower():return False
+  return True
+
+ def table_insert(self,row,where=0):
+  vals=(row[0],row[1],f"0x{row[2]:03X}",row[3],row[4],row[5],row[6],row[7])
+  return self.table.insert("",where,values=vals,tags=("new",) if where==0 else ())
+
+ def rebuild_table(self):
+  for it in self.table.get_children():self.table.delete(it)
+  shown=0;self.matched=0
+  for row in reversed(self.rows):
+   if self.row_match(row):
+    self.matched+=1
+    if shown<400:self.table_insert(row,"end");shown+=1
+  self.last_row=None;self.refresh_count()
+
+ def refresh_count(self):
+  self.count_lbl.config(text=f"{self.matched} trames correspondent · {len(self.rows)} en mémoire")
+
  def clear_table(self):
   for row in self.table.get_children():self.table.delete(row)
-  self.last_row=None
+  self.rows.clear();self.matched=0;self.last_row=None;self.refresh_count()
 
  # ---------- état ----------
  def set_state(self,text,color):
@@ -937,7 +1233,7 @@ class App:
  def clear_data(self):
   self.count.clear();self.first_t.clear();self.last_t.clear()
   self.recent.clear();self.ingested=0;self.t_last=0;self.t_now=0
-  self.vals.clear();self.hist.clear();self.dirty.clear();self.flash_until.clear();self.track.clear()
+  self.vals.clear();self.hist.clear();self.dirty.clear();self.flash_until.clear();self.track.clear();self.view_end=None
   self.clear_table()
   for key in self.cards:self.show(key,None)
   self.gear.set(None);self.gear_val.config(text="—");self.rpm.set(None);self.speedg.set(None)
@@ -947,7 +1243,7 @@ class App:
  def load(self,path):
   try:frames=load_capture(path)
   except Exception as exc:messagebox.showerror("Erreur de lecture",str(exc));return
-  self.pause();self.frames=frames;self.idx=0;self.clear_data()
+  self.pause();self.frames=frames;self.frame_times=[f[0] for f in frames];self.idx=0;self.clear_data()
   self.file_name.set(os.path.basename(path))
   if not frames:
    self.set_state("0 trame · format non reconnu",RED)
@@ -963,6 +1259,37 @@ class App:
  def pause(self):
   was=self.playing;self.playing=False
   if was and self.frames and self.idx<len(self.frames):self.set_state("En pause",YELLOW)
+
+ def on_seek_drag(self,frac):
+  if self.frames:
+   total=self.frames[-1][0];self.clock.set(f"{fmt_time(frac*total)} / {fmt_time(total)}")
+
+ def seek(self,frac):
+  """Saute à un instant de la capture : on rejoue les trames qui précèdent pour reconstituer les valeurs et les courbes."""
+  if not self.frames:return
+  was=self.playing;self.playing=False
+  total=self.frames[-1][0]
+  target=bisect.bisect_right(self.frame_times,frac*total)
+  target=max(0,min(len(self.frames),target))
+  begin=max(0,target-SEEK_BACK)
+  self.clear_data()
+  for fr in self.frames[:begin]:                         # le tracé du circuit est reconstitué sur toute la partie sautée
+   if fr[1]==0x7F0 and len(fr[2])>=8:
+    la=int.from_bytes(fr[2][0:4],'little',signed=True)/1e7;lo=int.from_bytes(fr[2][4:8],'little',signed=True)/1e7
+    if la or lo:self.track.append((la,lo))
+  self.bulk=True
+  try:
+   for i in range(begin,target):self.ingest(*self.frames[i])
+  finally:
+   self.bulk=False
+  self.idx=target;self.ingested=target
+  self.rebuild_table()
+  if target>0:self.t_now=self.frames[target-1][0]
+  if was and target<len(self.frames):
+   self.start_wall=time.monotonic();self.start_frame=self.frames[target][0];self.playing=True
+   self.set_state("Lecture en cours",GREEN)
+  else:
+   self.set_state(f"En pause · {fmt_time(self.t_now)}",YELLOW)
 
  def reset(self):
   self.pause();self.idx=0;self.clear_data()
@@ -1055,13 +1382,14 @@ class App:
   if v:dec=v if dec=="—" else dec+" | "+v
   n=self.count[cid];freq="—"
   if n>1 and self.last_t[cid]>self.first_t[cid]:freq=f"{(n-1)*1000/(self.last_t[cid]-self.first_t[cid]):.0f}"
-  hide=self.filter_on.get() and self.decoder is not None and dec=="—"
-  if not hide:
+  row=(self.ingested,fmt_ms(t),cid,len(data),data.hex(" ").upper()," ".join(str(b) for b in data),freq,dec)
+  self.rows.append(row)
+  if not self.bulk and self.row_match(row):
+   self.matched+=1
    try:
     if self.last_row is not None:self.table.item(self.last_row,tags=())
    except tk.TclError:self.last_row=None
-   self.last_row=self.table.insert("",0,values=(self.ingested,fmt_ms(t),f"0x{cid:03X}",len(data),
-                                                data.hex(" ").upper()," ".join(str(b) for b in data),freq,dec),tags=("new",))
+   self.last_row=self.table_insert(row,0)
    kids=self.table.get_children()
    if len(kids)>400:self.table.delete(kids[-1])
 
@@ -1072,10 +1400,11 @@ class App:
   rate=len(self.recent) if (self.live or self.frames) else 0
   if self.frames:
    total=self.frames[-1][0];cur=self.frames[self.idx-1][0] if self.idx>0 else 0
-   self.progress.set(100*self.idx/len(self.frames));self.clock.set(f"{fmt_time(cur)} / {fmt_time(total)}")
+   self.progress.set(100*self.idx/len(self.frames));self.seekbar.set(cur/total if total else 0);self.clock.set(f"{fmt_time(cur)} / {fmt_time(total)}")
    dur=cur
   else:dur=(now-self.t0) if self.live else 0
   self.fl["dur"].config(text=fmt_time(dur))
+  if self.current_page=="frames":self.refresh_count()
   self.fl["ids"].config(text=str(len(self.count)))
   self.fl["rate"].config(text=str(rate) if rate else "—")
   self.fl["frames"].config(text=f"{self.ingested:,}".replace(","," "))
