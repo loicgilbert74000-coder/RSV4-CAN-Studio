@@ -16,14 +16,14 @@ python TrackLab_Electronics.py
 | Fichier | Rôle |
 |---|---|
 | `TrackLab_Electronics.py` | point d'entrée |
-| `tracklab/app.py` | fenêtre principale, menu, barre de lecture, boucle d'affichage |
+| `tracklab/app.py` | fenêtre principale, barre du haut (logo, moto, pages, connexion), barre de lecture, boucle d'affichage |
 | `tracklab/page_telemetry.py` | page Télémétrie (jauges et tuiles) |
 | `tracklab/page_graph.py` | page Courbes (axes, empilement, séparateurs, ascenseurs) |
 | `tracklab/page_frames.py` | page Trames CAN et filtres |
 | `tracklab/page_esp.py` | paramétrage de l'ESP32 |
 | `tracklab/player.py` | chargement, lecture, saut dans une capture |
 | `tracklab/decoding.py` | décodage des trames |
-| `tracklab/connection.py` | liaison série USB-CAN et Wi-Fi |
+| `tracklab/connection.py` | fenêtre de connexion, liaison série USB-CAN et Wi-Fi |
 | `tracklab/widgets.py` | widgets dessinés sur Canvas (jauges, tuiles, listes, icônes) |
 | `tracklab/config.py`, `theme.py`, `names.py`, `util.py`, `protocol.py`, `espconfig.py` | constantes, couleurs, noms français des signaux, outils, formats de trames, configuration ESP32 |
 | `tracklab/signals.py` | signaux générés depuis la définition AiM (`can1.xml`) |

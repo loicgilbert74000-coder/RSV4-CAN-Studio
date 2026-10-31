@@ -103,13 +103,11 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
         self.drag = None
         self.default_band = 120
         self.current_page = "tele"
-        self.side_collapsed = False
-        self.auto_collapsed = False
+        self._conn_win = None
         self.cv = {}
         self.build_esp_vars()
         self.set_styles()
         self.build_footer()
-        self.build_sidebar()
         self.build_main()
         self.apply_model("rsv4")
         self.show_page("tele")
@@ -128,7 +126,6 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
         self.model_key = key
         m = MODELS[key]
         self.decoder = m["decoder"]
-        self.subtitle.config(text=m["subtitle"])
         self.footnote.config(text="   " + m["note"])
         n = m["rpm_max"] // 1000
         self.rpm.set_scale(m["rpm_max"], [(k / n, str(k)) for k in range(0, n + 1, 2)])
@@ -139,8 +136,6 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
         for k in self.badge:
             state, color = self.badge_state(k)
             self.badge[k].config(text=state, fg=color)
-        self.bitrate_cb.config(values=m["bitrates"])
-        self.bitrate_cb.current(0)
         self.model_cb.current(list(MODELS).index(key))
         self.bus_note.config(
             text="Décodage : définition can1.xml · valeurs à valider" if self.decoder else "Aucun décodage pour cette moto · voir « Trames CAN »"
@@ -263,39 +258,6 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
         b.bind("<Leave>", lambda e: b.config(bg=bg))
         return b
 
-    def section(self, parent, text):
-        tk.Label(
-            parent, text=text, fg=MUTED, bg=SIDE, font=(FONT, 8, "bold")
-        ).pack(anchor="w", padx=20, pady=(14, 4))
-
-    def nav_item(self, parent, key, label):
-        row = tk.Frame(parent, bg=SIDE, cursor="hand2")
-        row.pack(fill="x", padx=10, pady=1)
-        bar = tk.Frame(row, bg=SIDE, width=4)
-        bar.pack(side="left", fill="y")
-        ico = NavIcon(row, key, SIDE)
-        ico.pack(side="left", padx=(12, 0))
-        lbl = tk.Label(
-            row,
-            text=label,
-            bg=SIDE,
-            fg=TEXT,
-            font=(FONT, 11, "bold"),
-            anchor="w",
-            padx=4,
-            pady=9,
-            cursor="hand2",
-        )
-        lbl.pack(side="left", fill="x", expand=True)
-        def go(e=None, k=key):
-            if k == "settings":
-                self.settings()
-            else:
-                self.show_page(k)
-        for w in (row, bar, ico, lbl):
-            w.bind("<Button-1>", go)
-        self.nav[key] = (row, bar, lbl, ico)
-
     def scroll_area(self, parent, bg, width=None):
         """Zone défilable verticalement : renvoie (conteneur à placer, cadre intérieur à remplir)."""
         wrap = tk.Frame(parent, bg=bg)
@@ -342,188 +304,11 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
         lbl.pack(anchor="e")
         return lbl
 
-    def build_sidebar(self):
-        side = tk.Frame(self.root, bg=SIDE, width=250, highlightbackground=BORDER, highlightthickness=1)
-        side.pack(side="left", fill="y")
-        side.pack_propagate(False)
-        self.side = side
-        strip = tk.Frame(self.root, bg=SIDE, width=36, highlightbackground=BORDER, highlightthickness=1)
-        strip.pack_propagate(False)
-        tk.Button(
-            strip,
-            text="»",
-            command=self.toggle_side,
-            bg=SIDE,
-            fg=TEXT,
-            activebackground=HOVER,
-            activeforeground=TEXT,
-            relief="flat",
-            bd=0,
-            highlightthickness=0,
-            font=(FONT, 14, "bold"),
-            cursor="hand2",
-        ).pack(pady=(12, 0), fill="x")
-        self.side_strip = strip
-        tk.Button(
-            side,
-            text="«",
-            command=self.toggle_side,
-            bg=SIDE,
-            fg=SUB,
-            activebackground=HOVER,
-            activeforeground=TEXT,
-            relief="flat",
-            bd=0,
-            highlightthickness=0,
-            font=(FONT, 13, "bold"),
-            cursor="hand2",
-        ).place(relx=1.0, x=-8, y=10, anchor="ne")
-        logo = tk.Frame(side, bg=SIDE)
-        logo.pack(fill="x", padx=20, pady=(20, 6))
-        tk.Label(logo, text="TrackLab", fg=RED, bg=SIDE, font=(FONT, 24, "bold italic")).pack(anchor="w")
-        tk.Label(logo, text="ELECTRONICS", fg=TEXT, bg=SIDE, font=(FONT, 11, "bold")).pack(anchor="w")
-
-        self.section(side, "MOTO")
-        mc = tk.Frame(side, bg=SIDE)
-        mc.pack(fill="x", padx=14, pady=2)
-        self.model_cb = ttk.Combobox(
-            mc, values=[m["label"] for m in MODELS.values()], state="readonly", font=(FONT, 9)
-        )
-        self.model_cb.pack(fill="x")
-        self.model_cb.bind("<<ComboboxSelected>>", self.on_model)
-
-        self.section(side, "NAVIGATION")
-        self.nav_item(side, "tele", "Télémétrie")
-        self.nav_item(side, "graph", "Courbes")
-        self.nav_item(side, "frames", "Trames CAN")
-        self.nav_item(side, "esp", "Paramétrage ESP32")
-        self.nav_item(side, "settings", "Paramètres")
-
-        self.section(side, "CONNEXION")
-        card = self.card(side)
-        card.pack(fill="x", padx=14, pady=2)
-        inner = tk.Frame(card, bg=CARD)
-        inner.pack(fill="x", padx=12, pady=8)
-        def row(label, widget):
-            r = tk.Frame(inner, bg=CARD)
-            tk.Label(r, text=label, bg=CARD, fg=SUB, font=(FONT, 9), anchor="w", width=12).pack(side="left")
-            widget(r).pack(side="right")
-            return r
-        tr = tk.Frame(inner, bg=CARD)
-        tr.pack(fill="x", pady=2)
-        tk.Label(tr, text="Source", bg=CARD, fg=SUB, font=(FONT, 9), anchor="w", width=12).pack(side="left")
-        self.transport_cb = ttk.Combobox(
-            tr,
-            textvariable=self.transport,
-            values=["USB-CAN (série)", "Wi-Fi ESP32"],
-            state="readonly",
-            width=15,
-        )
-        self.transport_cb.pack(side="right")
-        self.transport_cb.bind("<<ComboboxSelected>>", self.on_transport)
-        row("Mode CAN", lambda p: self.ro_combo(p, ["Silent (écoute)"])).pack(fill="x", pady=2)
-        row("Type trame", lambda p: self.ro_combo(p, ["Standard 11 bits"])).pack(fill="x", pady=2)
-        r_port = row(
-            "Port COM",
-            lambda p: ttk.Combobox(
-                p, textvariable=self.port, values=[f"COM{i}" for i in range(1, 21)], width=13
-            ),
-        )
-        r_baud = row(
-            "Vitesse",
-            lambda p: ttk.Combobox(
-                p, textvariable=self.baud, values=["2000000", "1000000", "500000", "250000"], width=13
-            ),
-        )
-        r_br = tk.Frame(inner, bg=CARD)
-        tk.Label(
-            r_br, text="CAN bitrate", bg=CARD, fg=SUB, font=(FONT, 9), anchor="w", width=12
-        ).pack(side="left")
-        self.bitrate_cb = ttk.Combobox(r_br, state="readonly", width=13)
-        self.bitrate_cb.pack(side="right")
-        self.serial_rows = [r_port, r_baud, r_br]
-        entry = lambda p, var: tk.Entry(
-            p,
-            textvariable=var,
-            width=14,
-            bg=CARD2,
-            fg=TEXT,
-            insertbackground=TEXT,
-            relief="flat",
-            highlightbackground=BORDER,
-            highlightthickness=1,
-        )
-        r_host = row("Adresse ESP32", lambda p: entry(p, self.host))
-        r_tcp = row("Port TCP", lambda p: entry(p, self.tcp_port))
-        self.wifi_rows = [r_host, r_tcp]
-        st = tk.Frame(inner, bg=CARD)
-        st.pack(fill="x", pady=(8, 6))
-        self.conn_status = st
-        self.conn_dot = make_dot(st, MUTED, CARD, 10)
-        self.conn_dot.pack(side="left", padx=(2, 6))
-        self.conn_lbl = tk.Label(st, text="Déconnecté", bg=CARD, fg=SUB, font=(FONT, 10, "bold"))
-        self.conn_lbl.pack(side="left")
-        self.conn_btn = tk.Button(
-            inner,
-            text="Connecter",
-            command=self.toggle_connect,
-            bg=RED,
-            fg="#ffffff",
-            activebackground="#ff3b44",
-            activeforeground="#ffffff",
-            relief="flat",
-            bd=0,
-            highlightthickness=0,
-            font=(FONT, 10, "bold"),
-            cursor="hand2",
-            pady=6,
-        )
-        self.conn_btn.pack(fill="x")
-        self.on_transport()
-
-    def on_transport(self, e=None):
-        wifi = self.transport.get().startswith("Wi-Fi")
-        for r in self.serial_rows + self.wifi_rows:
-            r.pack_forget()
-        for r in self.wifi_rows if wifi else self.serial_rows:
-            r.pack(fill="x", pady=2, before=self.conn_status)
-
-    def ro_combo(self, parent, values):
-        c = ttk.Combobox(parent, values=values, state="readonly", width=15)
-        c.current(0)
-        return c
-
     def build_main(self):
         main = tk.Frame(self.root, bg=BG)
         main.pack(side="left", fill="both", expand=True)
         self.main = main
-        head = tk.Frame(main, bg=BG)
-        head.pack(fill="x", padx=22, pady=(14, 4))
-        tabs = tk.Frame(head, bg=BG)
-        tabs.pack(side="right")
-        self.tabs = {}
-        for key, label in [
-            ("tele", "Télémétrie"), ("graph", "Courbes"), ("frames", "Trames CAN"), ("esp", "ESP32")
-        ]:
-            b = tk.Button(
-                tabs,
-                text=label,
-                command=lambda k=key: self.show_page(k),
-                relief="flat",
-                bd=0,
-                highlightthickness=0,
-                padx=12,
-                pady=6,
-                font=(FONT, 9, "bold"),
-                cursor="hand2",
-            )
-            b.pack(side="left", padx=2)
-            self.tabs[key] = b
-        tk.Label(
-            head, text="Diagnostic & Télémétrie CAN", fg=TEXT, bg=BG, font=(FONT, 18, "bold")
-        ).pack(side="left")
-        self.subtitle = tk.Label(head, text="", fg=SUB, bg=BG, font=(FONT, 11))
-        self.subtitle.pack(side="left", padx=(14, 0), pady=(6, 0))
+        self.build_header(main)
         self.build_playbar(main)
         self.area = tk.Frame(main, bg=BG)
         self.area.pack(fill="both", expand=True, padx=18, pady=(0, 10))
@@ -570,66 +355,81 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
 
     def show_page(self, key):
         self.current_page = key
-        # la barre latérale change AVANT d'afficher la page, et la mise en page est calculée page cachée
-        if key == "graph":
-            self.collapse_side(auto=True)
-        elif self.auto_collapsed:
-            self.expand_side()
-        self.root.update_idletasks()
         for name, page in self.pages.items():  # une page masquée n'est plus mise en page à chaque redimensionnement
             if name == key:
                 page.grid()
             else:
                 page.grid_remove()
-        for k, (row, bar, lbl, ico) in self.nav.items():
-            on = k == key
-            row.config(bg=HOVER if on else SIDE)
-            bar.config(bg=RED if on else SIDE)
-            lbl.config(bg=HOVER if on else SIDE, fg=TEXT if on else SUB)
-            ico.paint(HOVER if on else SIDE, RED if on else SUB)
-        for k, b in self.tabs.items():
-            b.config(
-                bg=RED if k == key else CARD2,
-                fg="#ffffff" if k == key else SUB,
-                activebackground=HOVER,
-                activeforeground=TEXT,
-            )
+        for name, (row, underline, label, icon) in self.nav.items():
+            on = name == key
+            bg = HOVER if on else SIDE
+            row.config(bg=bg)
+            underline.config(bg=RED if on else SIDE)
+            label.config(bg=bg, fg=TEXT if on else SUB)
+            icon.paint(bg, RED if on else SUB)
+        self._map_state = None
 
-    def collapse_side(self, auto=False):
-        if self.side_collapsed:
-            return
-        self.side.pack_forget()
-        self.side_strip.pack(side="left", fill="y", before=self.main)
-        self.side_collapsed = True
-        self.auto_collapsed = auto
+    def build_header(self, parent):
+        """Barre du haut : logo, choix de la moto, pages, état de la connexion, paramètres."""
+        bar = tk.Frame(parent, bg=SIDE, highlightbackground=BORDER, highlightthickness=1)
+        bar.pack(fill="x")
+        inner = tk.Frame(bar, bg=SIDE)
+        inner.pack(fill="x", padx=18, pady=6)
 
-    def expand_side(self):
-        if not self.side_collapsed:
-            return
-        self.side_strip.pack_forget()
-        self.side.pack(side="left", fill="y", before=self.main)
-        self.side_collapsed = False
-        self.auto_collapsed = False
+        logo = tk.Frame(inner, bg=SIDE)
+        logo.pack(side="left")
+        tk.Label(logo, text="TrackLab", fg=RED, bg=SIDE, font=(FONT, 18, "bold italic")).pack(anchor="w")
+        tk.Label(logo, text="ELECTRONICS", fg=TEXT, bg=SIDE, font=(FONT, 8, "bold")).pack(anchor="w")
 
-    def toggle_side(self):
-        if self.side_collapsed:
-            self.expand_side()
-        else:
-            self.collapse_side(auto=False)
+        moto = tk.Frame(inner, bg=SIDE)
+        moto.pack(side="left", padx=(24, 0))
+        tk.Label(moto, text="MOTO", fg=MUTED, bg=SIDE, font=(FONT, 7, "bold")).pack(anchor="w")
+        self.model_cb = ttk.Combobox(
+            moto, values=[m["label"] for m in MODELS.values()], state="readonly", width=32, font=(FONT, 9)
+        )
+        self.model_cb.pack()
+        self.model_cb.bind("<<ComboboxSelected>>", self.on_model)
+
+        tabs = tk.Frame(inner, bg=SIDE)
+        tabs.pack(side="left", padx=(28, 0))
+        for key, label in [
+            ("tele", "Télémétrie"),
+            ("graph", "Courbes"),
+            ("frames", "Trames CAN"),
+            ("esp", "Paramétrage ESP32"),
+        ]:
+            self.tab_item(tabs, key, label)
+
+        gear = NavIcon(inner, "settings", SIDE)
+        gear.pack(side="right", padx=(12, 0))
+        gear.bind("<Button-1>", lambda e: self.settings())
+        self.conn_btn = self.button(inner, "Connexion", self.on_conn_button, "#ffffff", RED, font=9)
+        self.conn_btn.pack(side="right", padx=(12, 0))
+        self.conn_lbl = tk.Label(inner, text="Déconnecté", bg=SIDE, fg=SUB, font=(FONT, 9, "bold"))
+        self.conn_lbl.pack(side="right")
+        self.conn_dot = make_dot(inner, MUTED, SIDE, 10)
+        self.conn_dot.pack(side="right", padx=(0, 6))
+
+    def tab_item(self, parent, key, label):
+        """Onglet de page : pictogramme, texte et soulignement de la page active."""
+        row = tk.Frame(parent, bg=SIDE, cursor="hand2")
+        row.pack(side="left", padx=2)
+        underline = tk.Frame(row, bg=SIDE, height=3)
+        underline.pack(side="bottom", fill="x")
+        icon = NavIcon(row, key, SIDE)
+        icon.pack(side="left", padx=(8, 0), pady=4)
+        text = tk.Label(
+            row, text=label, bg=SIDE, fg=TEXT, font=(FONT, 10, "bold"), padx=6, pady=6, cursor="hand2"
+        )
+        text.pack(side="left", padx=(0, 6))
+        for widget in (row, underline, icon, text):
+            widget.bind("<Button-1>", lambda e, k=key: self.show_page(k))
+        self.nav[key] = (row, underline, text, icon)
 
     # ---------- état ----------
     def set_state(self, text, color):
         self.status.set(text)
         set_dot(self.fl["dot"], color)
-
-    def set_conn_ui(self, live, text):
-        set_dot(self.conn_dot, GREEN if live else MUTED)
-        self.conn_lbl.config(text=text, fg=GREEN if live else SUB)
-        self.conn_btn.config(
-            text="Déconnecter" if live else "Connecter",
-            bg=CARD2 if live else RED,
-            activebackground=HOVER if live else "#ff3b44",
-        )
 
     # ---------- boucle ----------
     def update_status(self):

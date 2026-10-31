@@ -59,7 +59,13 @@ def main(capture, shots=None):
         app.root.update()
         timings[page] = round((time.time() - start) * 1000)
     print("passage de page (ms) :", timings)
-    assert app.side_collapsed is False
+
+    # fenêtre de connexion
+    app.open_connection_dialog()
+    app.root.update()
+    assert app._conn_win.winfo_exists()
+    shot("connexion")
+    app._conn_win.destroy()
 
     # courbes : superposées, empilées, séparateur, ascenseur horizontal
     app.show_page("graph")

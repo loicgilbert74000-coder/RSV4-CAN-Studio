@@ -3,7 +3,8 @@
 import socket
 import threading
 import time
-from tkinter import messagebox
+import tkinter as tk
+from tkinter import messagebox, ttk
 
 try:
     import serial
@@ -11,14 +12,132 @@ except ImportError:
     serial = None
 
 from .protocol import WIFI_FRAME_LEN, WIFI_MAGIC, xor_sum
-from .theme import GREEN, MUTED
+from .theme import BORDER, CARD, CARD2, FONT, GREEN, HOVER, MUTED, RED, SUB, TEXT
+from .widgets import set_dot
 
 
 class ConnectionMixin:
     """Connexion en direct : port série USB-CAN ou Wi-Fi vers l'ESP32."""
 
+    def on_conn_button(self):
+        """Bouton de la barre du haut : déconnecte si la liaison est active, sinon ouvre la fenêtre de connexion."""
+        if self.live:
+            self.disconnect()
+        else:
+            self.open_connection_dialog()
+
+    def set_conn_ui(self, live, text):
+        set_dot(self.conn_dot, GREEN if live else MUTED)
+        self.conn_lbl.config(text=text, fg=GREEN if live else SUB)
+        self.conn_btn.config(
+            text="Déconnecter" if live else "Connexion",
+            bg=CARD2 if live else RED,
+            activebackground=HOVER if live else "#ff3b44",
+        )
+        if self._conn_win is not None and self._conn_win.winfo_exists() and live:
+            self._conn_win.destroy()
+
+    def open_connection_dialog(self):
+        """Réglages de connexion : USB-CAN (port série) ou Wi-Fi vers l'ESP32."""
+        if self._conn_win is not None and self._conn_win.winfo_exists():
+            self._conn_win.lift()
+            return
+        win = tk.Toplevel(self.root)
+        win.title("Connexion")
+        win.configure(bg=CARD)
+        win.resizable(False, False)
+        win.transient(self.root)
+        self._conn_win = win
+        inner = tk.Frame(win, bg=CARD)
+        inner.pack(fill="both", padx=24, pady=18)
+        tk.Label(
+            inner, text="Connexion", fg=TEXT, bg=CARD, font=(FONT, 14, "bold")
+        ).pack(anchor="w", pady=(0, 10))
+
+        def row(label, make):
+            frame = tk.Frame(inner, bg=CARD)
+            tk.Label(
+                frame, text=label, bg=CARD, fg=SUB, font=(FONT, 9), anchor="w", width=14
+            ).pack(side="left")
+            make(frame).pack(side="right")
+            return frame
+
+        def readonly(values):
+            return lambda parent: self.read_only_combo(parent, values)
+
+        def entry(var):
+            return lambda parent: tk.Entry(
+                parent,
+                textvariable=var,
+                width=16,
+                bg=CARD2,
+                fg=TEXT,
+                insertbackground=TEXT,
+                relief="flat",
+                highlightbackground=BORDER,
+                highlightthickness=1,
+            )
+
+        def combo(var, values):
+            return lambda parent: ttk.Combobox(parent, textvariable=var, values=values, width=15)
+
+        source = row(
+            "Source",
+            lambda parent: ttk.Combobox(
+                parent,
+                textvariable=self.transport,
+                values=["USB-CAN (série)", "Wi-Fi ESP32"],
+                state="readonly",
+                width=15,
+            ),
+        )
+        source.pack(fill="x", pady=2)
+        row("Mode CAN", readonly(["Silent (écoute)"])).pack(fill="x", pady=2)
+        row("Type de trame", readonly(["Standard 11 bits"])).pack(fill="x", pady=2)
+        serial_rows = [
+            row("Port COM", combo(self.port, [f"COM{i}" for i in range(1, 21)])),
+            row("Vitesse série", combo(self.baud, ["2000000", "1000000", "500000", "250000"])),
+            row("Débit CAN", readonly(self.model["bitrates"])),
+        ]
+        wifi_rows = [row("Adresse ESP32", entry(self.host)), row("Port TCP", entry(self.tcp_port))]
+        button = tk.Button(
+            inner,
+            text="Connecter",
+            command=self.toggle_connect,
+            bg=RED,
+            fg="#ffffff",
+            activebackground="#ff3b44",
+            activeforeground="#ffffff",
+            relief="flat",
+            bd=0,
+            highlightthickness=0,
+            font=(FONT, 10, "bold"),
+            cursor="hand2",
+            pady=6,
+        )
+        button.pack(fill="x", pady=(12, 0))
+
+        def show_rows(event=None):
+            wifi = self.transport.get().startswith("Wi-Fi")
+            for frame in serial_rows + wifi_rows:
+                frame.pack_forget()
+            for frame in wifi_rows if wifi else serial_rows:
+                frame.pack(fill="x", pady=2, before=button)
+
+        source.winfo_children()[1].bind("<<ComboboxSelected>>", show_rows)
+        show_rows()
+
+    @staticmethod
+    def read_only_combo(parent, values):
+        combo = ttk.Combobox(parent, values=values, state="readonly", width=15)
+        combo.current(0)
+        return combo
+
     def toggle_connect(self):
-        self.disconnect() if self.live else self.connect()
+        if self.live:
+            self.disconnect()
+        else:
+            self.connect()
 
     def disconnect(self):
         was_live = self.live

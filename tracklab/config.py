@@ -12,7 +12,6 @@ SEEK_BACK = 20000  # trames rejouées avant l'instant visé quand on clique dans
 MODELS = {
     "rsv4": {
         "label": "Aprilia RSV4 Factory 2024",
-        "subtitle": "Aprilia RSV4 Factory 2024",
         "decoder": "aprilia",
         "rpm_max": 16000,
         "speed_max": 320,
@@ -24,7 +23,6 @@ MODELS = {
     },
     "cbr1000rr_r_2021": {
         "label": "Honda CBR1000RR-R Fireblade 2021",
-        "subtitle": "Honda CBR1000RR-R Fireblade 2021 · 999 cm³ · 217 ch",
         "decoder": None,
         "rpm_max": 15000,
         "speed_max": 300,
