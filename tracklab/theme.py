@@ -1,0 +1,22 @@
+"""Couleurs et police de l'interface."""
+
+# Palette inspirée de la maquette : fond très sombre, cartes, accents par grandeur
+BG = "#070d16"
+SIDE = "#0b1220"
+CARD = "#111a2a"
+CARD2 = "#1c2739"
+BORDER = "#23314b"
+HOVER = "#1f2e47"
+TEXT = "#eef3fb"
+SUB = "#9fb0c8"
+MUTED = "#5d7090"
+RED = "#e52028"
+GREEN = "#2fe39a"
+CYAN = "#3cc0ff"
+YELLOW = "#ffb938"
+ORANGE = "#ff8a3d"
+VIOLET = "#a98bff"
+PINK = "#ff5fa2"
+LIME = "#a3e635"
+PALETTE = [CYAN, GREEN, YELLOW, ORANGE, VIOLET, PINK, LIME, RED, "#60a5fa", "#f472b6", "#34d399", "#fbbf24"]
+FONT = "Segoe UI"
