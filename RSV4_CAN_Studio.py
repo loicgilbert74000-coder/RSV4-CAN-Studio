@@ -386,6 +386,31 @@ class GearBox(tk.Canvas):
    self.create_rectangle(x0,3,x1,h-3,fill=RED if on else CARD2,outline="")
    self.create_text((x0+x1)/2,h/2,text=label,fill=TEXT if on else MUTED,font=(FONT,10,"bold"))
 
+class NavIcon(tk.Canvas):
+ """Petit symbole dessiné (indépendant des polices) à côté d'un bouton de menu."""
+ def __init__(self,parent,kind,bg):
+  super().__init__(parent,width=26,height=22,bg=bg,highlightthickness=0,cursor="hand2")
+  self.kind=kind;self.paint(bg,RED)
+ def paint(self,bg,color):
+  c=self;c.delete("all");c.config(bg=bg);k=self.kind;w=2
+  if k=="tele":      # cadran
+   c.create_arc(3,4,23,24,start=0,extent=180,style="arc",outline=color,width=w)
+   c.create_line(13,14,19,8,fill=color,width=w);c.create_oval(11,12,15,16,fill=color,outline=color)
+  elif k=="graph":   # courbe
+   c.create_line(3,18,3,4,fill=color,width=1);c.create_line(3,18,23,18,fill=color,width=1)
+   c.create_line(4,15,9,8,13,13,18,5,23,10,fill=color,width=w,smooth=True)
+  elif k=="frames":  # liste de trames
+   for i,y in enumerate((5,11,17)):
+    c.create_rectangle(3,y-1,7,y+2,fill=color,outline=color);c.create_line(10,y,23,y,fill=color,width=w)
+  elif k=="esp":     # puce avec broches
+   c.create_rectangle(7,6,19,16,outline=color,width=w)
+   for x in (10,13,16):c.create_line(x,3,x,6,fill=color,width=1);c.create_line(x,16,x,19,fill=color,width=1)
+  else:              # roue dentée
+   c.create_oval(8,6,18,16,outline=color,width=w);c.create_oval(11,9,15,13,outline=color,width=1)
+   for dx,dy in ((0,-6),(0,6),(-7,0),(7,0)):c.create_line(13,11,13+dx*0.001,11,fill=color)
+   for x0,y0,x1,y1 in ((13,2,13,5),(13,17,13,20),(3,11,7,11),(19,11,23,11),(6,4,8,6),(18,16,20,18),(6,18,8,16),(18,6,20,4)):
+    c.create_line(x0,y0,x1,y1,fill=color,width=w)
+
 class SeekBar(tk.Canvas):
  """Barre de progression cliquable : un clic ou un glissement choisit l'instant de lecture."""
  def __init__(self,parent,on_seek,on_drag=None,width=300,height=22):
@@ -435,7 +460,7 @@ class App:
   self.start_wall=0;self.start_frame=0;self.q=queue.Queue();self.live=False;self.stop_event=threading.Event()
   self.cards={};self.pages={};self.nav={};self.flushables=[];self.srow={};self.fl={};self.badge={}
   self.decoder=None;self.model_key="rsv4"
-  self.rows=deque(maxlen=8000);self.matched=0;self.bulk=False
+  self.hist_max=20000;self.full_t={};self.full_v={};self.rows=deque(maxlen=8000);self.matched=0;self.bulk=False
   self.f_show=tk.StringVar();self.f_hide=tk.StringVar();self.f_text=tk.StringVar()
   self.id_show=None;self.id_hide=None;self.ftext="";self._fid=None;self.count_text=""
   self.frame_times=[];self.seek_target=None;self.seek_resume=False
@@ -484,7 +509,7 @@ class App:
   key=list(MODELS)[self.model_cb.current()]
   if self.live:self.disconnect()
   self.pause();self.apply_model(key)
-  if self.frames:self.set_state(f"Modèle : {self.model['label']}",SUB)
+  if self.frames:self.set_state(f"Modèle : {self.model['label']}",SUB);self.prebuild()
 
  # ---------- style & widgets ----------
  def set_styles(self):
@@ -519,13 +544,14 @@ class App:
  def nav_item(self,parent,key,label):
   row=tk.Frame(parent,bg=SIDE,cursor="hand2");row.pack(fill="x",padx=10,pady=1)
   bar=tk.Frame(row,bg=SIDE,width=4);bar.pack(side="left",fill="y")
-  lbl=tk.Label(row,text=label,bg=SIDE,fg=TEXT,font=(FONT,11,"bold"),anchor="w",padx=16,pady=9,cursor="hand2")
+  ico=NavIcon(row,key,SIDE);ico.pack(side="left",padx=(12,0))
+  lbl=tk.Label(row,text=label,bg=SIDE,fg=TEXT,font=(FONT,11,"bold"),anchor="w",padx=4,pady=9,cursor="hand2")
   lbl.pack(side="left",fill="x",expand=True)
   def go(e=None,k=key):
    if k=="settings":self.settings()
    else:self.show_page(k)
-  for w in (row,bar,lbl):w.bind("<Button-1>",go)
-  self.nav[key]=(row,bar,lbl)
+  for w in (row,bar,ico,lbl):w.bind("<Button-1>",go)
+  self.nav[key]=(row,bar,lbl,ico)
 
  def scroll_area(self,parent,bg,width=None):
   """Zone défilable verticalement : renvoie (conteneur à placer, cadre intérieur à remplir)."""
@@ -643,11 +669,13 @@ class App:
   self.subtitle=tk.Label(head,text="",fg=SUB,bg=BG,font=(FONT,11));self.subtitle.pack(side="left",padx=(14,0),pady=(6,0))
   self.build_playbar(main)
   self.area=tk.Frame(main,bg=BG);self.area.pack(fill="both",expand=True,padx=18,pady=(0,10))
+  self.area.grid_rowconfigure(0,weight=1);self.area.grid_columnconfigure(0,weight=1)
   self.page_tele=tk.Frame(self.area,bg=BG)
   self.page_graph=tk.Frame(self.area,bg=BG)
   self.page_frames=tk.Frame(self.area,bg=BG)
   self.page_esp=tk.Frame(self.area,bg=BG)
   self.pages={"tele":self.page_tele,"graph":self.page_graph,"frames":self.page_frames,"esp":self.page_esp}
+  for p in self.pages.values():p.grid(row=0,column=0,sticky="nsew")
   self.build_tele(self.page_tele)
   self.build_graph(self.page_graph)
   self.build_table(self.page_frames)
@@ -668,18 +696,19 @@ class App:
   self.seekbar=SeekBar(inner,on_seek=self.seek,on_drag=self.on_seek_drag,width=360);self.seekbar.pack(side="right",padx=8)
 
  def show_page(self,key):
-  for p in self.pages.values():p.pack_forget()
-  self.pages[key].pack(fill="both",expand=True)
   self.current_page=key
-  for k,(row,bar,lbl) in self.nav.items():
-   on=(k==key)
-   row.config(bg=HOVER if on else SIDE);bar.config(bg=RED if on else SIDE)
-   lbl.config(bg=HOVER if on else SIDE,fg=TEXT if on else SUB)
-  for k,b in self.tabs.items():
-   b.config(bg=RED if k==key else CARD2,fg="#ffffff" if k==key else SUB,activebackground=HOVER,activeforeground=TEXT)
+  # la barre latérale change AVANT d'afficher la page, et la mise en page est calculée page cachée
   if key=="graph":self.collapse_side(auto=True)
   elif self.auto_collapsed:self.expand_side()
-
+  self.root.update_idletasks()
+  self.pages[key].tkraise()
+  for k,(row,bar,lbl,ico) in self.nav.items():
+   on=(k==key)
+   row.config(bg=HOVER if on else SIDE);bar.config(bg=RED if on else SIDE)
+   lbl.config(bg=HOVER if on else SIDE,fg=TEXT if on else SUB);ico.paint(HOVER if on else SIDE,RED if on else SUB)
+  for k,b in self.tabs.items():
+   b.config(bg=RED if k==key else CARD2,fg="#ffffff" if k==key else SUB,activebackground=HOVER,activeforeground=TEXT)
+ 
  def collapse_side(self,auto=False):
   if self.side_collapsed:return
   self.side.pack_forget();self.side_strip.pack(side="left",fill="y",before=self.main)
@@ -729,7 +758,7 @@ class App:
   """Enregistre une valeur : valeur courante, historique pour les courbes, mise à jour de la tuile."""
   key=(cid,name);self.vals[key]=(val,src)
   h=self.hist.get(key)
-  if h is None:h=self.hist[key]=deque(maxlen=20000)
+  if h is None:h=self.hist[key]=deque(maxlen=self.hist_max)
   h.append((t,val));self.dirty.add(key)
 
  def refresh_tile(self,key):
@@ -908,14 +937,21 @@ class App:
   self.root.after(400,self.paint_map)
 
  # ---- gestion de la fenêtre temporelle (ascenseur horizontal)
+ def scroll_range(self):
+  """Bornes (début, fin) de ce que l'ascenseur horizontal peut atteindre."""
+  half=self.window.get()*500
+  if self.full_t:return -half,self.frames[-1][0]+half
+  ts=[self.hist[k][0][0] for k in self.sel if k in self.hist and self.hist[k]]
+  return (min(ts+[0]) if ts else 0),self.t_now+half
+
  def data_start(self):
   ts=[self.hist[k][0][0] for k in self.sel if k in self.hist and self.hist[k]]
   return min(ts+[0]) if ts else 0
 
  def on_hscroll(self,*a):
-  span=self.window.get()*1000;tmax=self.t_now+span/2;t0=self.data_start()
+  span=self.window.get()*1000;t0,tmax=self.scroll_range()
   if tmax-t0<=span:return
-  cur=self.view_end if self.view_end is not None else tmax
+  cur=self.view_end if self.view_end is not None else self.t_now+span/2
   if a[0]=="moveto":end=t0+float(a[1])*(tmax-t0)+span
   else:
    step=span*(0.9 if a[2]=="pages" else 0.1);end=cur+int(a[1])*step
@@ -949,8 +985,8 @@ class App:
   sel=[k for k in CURVE_KEYS if k in self.sel]
   L,R,T=70,250,10;pw=w-L-R
   # ascenseur horizontal
-  t0=self.data_start();tot=tmax+half-t0
-  if tot>span:self.chart_hsb.set(max(0,(start-t0)/tot),min(1,(end-t0)/tot))
+  t0,tmx=self.scroll_range();tot=tmx-t0
+  if tot>span:self.chart_hsb.set(max(0,min(1,(start-t0)/tot)),max(0,min(1,(end-t0)/tot)))
   else:self.chart_hsb.set(0,1)
   # axe du temps (fixe, sous la zone de courbes)
   ticks=nice_ticks(start/1000,end/1000,max(2,pw//110))
@@ -966,6 +1002,13 @@ class App:
   ta.create_text(L+pw+16,7,text=("◂ historique" if self.view_end is not None else "en direct"),fill=YELLOW if self.view_end is not None else GREEN,font=(FONT,8,"bold"),anchor="nw")
 
   def window_pts(key):
+   if self.full_t:
+    ts=self.full_t.get(key)
+    if not ts:return []
+    i=bisect.bisect_left(ts,start);j=bisect.bisect_right(ts,end)
+    pts=list(zip(ts[i:j],self.full_v[key][i:j]))
+    st=len(pts)//(2*max(pw,1))+1
+    return pts[::st] if st>1 else pts
    pts=[]
    for tt,v in reversed(self.hist.get(key,())):
     if tt>end:continue
@@ -979,6 +1022,11 @@ class App:
    for tt,v in pts:co.extend((L+pw*(tt-start)/span,ymap(v)))
    if len(co)>=4:c.create_line(*co,fill=color,width=2)
   def unit_of(key):return disp_unit(UNIT_OF.get(key,""))
+  def cur_of(key,pts):
+   if self.full_t and self.full_t.get(key):
+    i=bisect.bisect_right(self.full_t[key],tmax)
+    return self.full_v[key][max(0,i-1)]
+   return pts[-1][1]
   xnow=L+pw*(tmax-start)/span
   def vgrid(y0,y1):
    for x in xs:c.create_line(x,y0,x,y1,fill=BORDER,dash=(2,5))
@@ -996,7 +1044,7 @@ class App:
    for key in sel:
     pts=window_pts(key)
     if len(pts)>=2:
-     vals=[v for _,v in pts];data[key]=(pts,min(vals),max(vals),vals[-1])
+     vals=[v for _,v in pts];data[key]=(pts,min(vals),max(vals),cur_of(key,pts))
    ref=self.ref_key if self.ref_key in sel else next((k for k in sel if k in data and data[k][2]>data[k][1]),sel[0]);self.ref_key=ref
    rcol=PALETTE[CURVE_INDEX[ref]%len(PALETTE)]
    c.create_rectangle(L,T,L+pw,T+ph,outline=BORDER)
@@ -1054,7 +1102,7 @@ class App:
      c.create_text(L-8,yy,text=fmt_val(v),fill=SUB,font=(FONT,8),anchor="e")
     poly(pts,ym,color)
     c.create_text(lx,y0+17,text=f"{fmt_val(mn)} … {fmt_val(mx)} {unit_of(key)}",anchor="nw",fill=SUB,font=(FONT,8))
-    c.create_text(lx,y0+30,text=f"actuel {fmt_val(vals[-1])}",anchor="nw",fill=TEXT,font=(FONT,8,"bold"))
+    c.create_text(lx,y0+30,text=f"actuel {fmt_val(cur_of(key,pts))}",anchor="nw",fill=TEXT,font=(FONT,8,"bold"))
    gy=y1+4;self.grips.append((i,gy))
    active=self.drag is not None and self.drag[0]==i
    c.create_rectangle(L,gy-3,L+pw,gy+3,fill=CYAN if active else CARD2,outline="")
@@ -1363,13 +1411,13 @@ class App:
  def load(self,path):
   try:frames=load_capture(path)
   except Exception as exc:messagebox.showerror("Erreur de lecture",str(exc));return
-  self.pause();self.frames=frames;self.frame_times=[f[0] for f in frames];self.idx=0;self.clear_data()
+  self.pause();self.frames=frames;self.frame_times=[f[0] for f in frames];self.idx=0;self.full_t={};self.full_v={};self.clear_data()
   self.file_name.set(os.path.basename(path))
   if not frames:
    self.set_state("0 trame · format non reconnu",RED)
    messagebox.showwarning("0 trame","Le fichier ne contient pas de trames USB-CAN reconnaissables. Vérifiez qu'il s'agit d'un export TXT du logiciel USBCAN.")
   else:
-   self.set_state(f"{len(frames):,} trames chargées".replace(","," "),SUB)
+   self.set_state(f"{len(frames):,} trames chargées".replace(","," "),SUB);self.prebuild()
 
  def play(self):
   if not self.frames:messagebox.showinfo("Capture","Importez d'abord une capture TXT.");return
@@ -1379,6 +1427,23 @@ class App:
  def pause(self):
   was=self.playing;self.playing=False
   if was and self.frames and self.idx<len(self.frames):self.set_state("En pause",YELLOW)
+
+ def prebuild(self,keep=0):
+  """Décode toute la capture une fois pour toutes : les courbes montrent alors la fenêtre entière autour de l'instant courant."""
+  self.full_t={};self.full_v={}
+  if not self.frames or self.decoder is None:return
+  keep=keep or self.idx;self.playing=False
+  self.set_state("Analyse de la capture…",YELLOW);self.root.update_idletasks()
+  self.clear_data();self.hist_max=None;self.bulk=True
+  try:
+   for fr in self.frames[:300000]:self.ingest(*fr)
+  finally:
+   self.bulk=False;self.hist_max=20000
+  for k,d in self.hist.items():
+   self.full_t[k]=[p[0] for p in d];self.full_v[k]=[p[1] for p in d]
+  self.clear_data();self.idx=0
+  if keep:self.seek(self.frames[keep-1][0]/max(1,self.frames[-1][0]))
+  else:self.set_state(f"{len(self.frames):,} trames chargées".replace(","," "),SUB)
 
  def on_seek_drag(self,frac):
   if self.frames:
@@ -1575,7 +1640,7 @@ class App:
   for label,var in [("Port série",self.port),("Vitesse série (bauds)",self.baud)]:
    tk.Label(win,text=label,bg=CARD,fg=SUB,font=(FONT,9,"bold")).pack(anchor="w",padx=24,pady=(10,3))
    tk.Entry(win,textvariable=var,width=28,bg=CARD2,fg=TEXT,insertbackground=TEXT,relief="flat",highlightbackground=BORDER,highlightthickness=1).pack(anchor="w",padx=24,ipady=4)
-  tk.Checkbutton(win,text="Afficher les décodages expérimentaux (non validés)",variable=self.experimental,
+  tk.Checkbutton(win,text="Afficher les décodages expérimentaux (non validés)",variable=self.experimental,command=self.prebuild,
                  bg=CARD,fg=TEXT,selectcolor=CARD2,activebackground=CARD,activeforeground=TEXT).pack(anchor="w",padx=20,pady=(14,6))
   tk.Label(win,text=f"Moto sélectionnée : {self.model['label']}",bg=CARD,fg=SUB,font=(FONT,9,"bold")).pack(anchor="w",padx=24,pady=(4,2))
   tk.Label(win,text="Connexion USB-CAN : réception uniquement.\nMode Silent à configurer avec le logiciel officiel.",
