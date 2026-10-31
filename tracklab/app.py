@@ -511,8 +511,10 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
         if esp:
             if not flags & 8:
                 out["gps"] = ("Désactivé", MUTED)
+            elif not flags & 16 and flags & 64:
+                out["gps"] = ("Données illisibles · débit ?", YELLOW)
             elif not flags & 16:
-                out["gps"] = ("Module non détecté", YELLOW)
+                out["gps"] = ("Aucune donnée du module", YELLOW)
             elif flags & 32:
                 out["gps"] = (f"Position valide · {int(sats)} sat.", GREEN)
             else:

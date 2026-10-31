@@ -26,6 +26,7 @@
  *                     bit3 GPS activé, bit4 phrases NMEA reçues depuis moins de 2 s (module alimenté et relié), bit5 position valide ;
  *           octet 1 = signal Wi-Fi du PC vu par l'ESP32 (int8, dBm ; 127 = inconnu) ; octet 2 = appareils Wi-Fi connectés ;
  *           octets 3-4 = trames CAN par seconde (uint16) ; octet 5 = compteur d'erreurs de réception CAN (limité à 255).
+ *           Bit 6 des drapeaux : des octets arrivent du GPS (même illisibles : débit incorrect).
  *           Par défaut : ADC 1 = potentiomètre de suspension avant, ADC 2 = suspension arrière (0 à 3,3 V).
  *
  * Voyants (LED_GREEN_PIN / LED_RED_PIN / LED_BLUE_PIN, résistance de 330 ohms en série) :
@@ -151,14 +152,37 @@ static void parseNmea(char* line) {
 }
 
 static uint32_t lastNmeaMs = 0;                            // dernière phrase NMEA valide
+static uint32_t lastGpsByteMs = 0;                         // dernier octet reçu du module (bon ou illisible)
+static uint32_t gpsBytes = 0, gpsSentences = 0;            // compteurs pour le port série
+
+// Détection automatique du débit : si rien de lisible n'arrive, on essaie les débits usuels l'un après l'autre.
+static const uint32_t GPS_BAUDS[] = {GPS_BAUD, 9600, 38400, 115200, 4800};
+static const int GPS_BAUD_COUNT = sizeof(GPS_BAUDS) / sizeof(GPS_BAUDS[0]);
+static int gpsBaudIdx = 0;
+static uint32_t gpsBaudSince = 0;                          // instant du dernier changement de débit
+
+static void autoBaud(uint32_t now) {
+  if (lastNmeaMs && now - lastNmeaMs < 5000) return;       // un débit fonctionne : on le garde
+  if (now - gpsBaudSince < 4000) return;                   // laisser le temps de recevoir une phrase complète
+  gpsBaudIdx = (gpsBaudIdx + 1) % GPS_BAUD_COUNT;
+  gpsBaudSince = now;
+  gpsSerial.updateBaudRate(GPS_BAUDS[gpsBaudIdx]);
+  Serial.printf("GPS : aucune phrase lisible, essai à %lu bauds\n", (unsigned long)GPS_BAUDS[gpsBaudIdx]);
+}
 
 static void pollGps() {
   while (gpsSerial.available()) {
     char c = gpsSerial.read();
+    lastGpsByteMs = millis();
+    gpsBytes++;
     if (c == '\r') continue;
     if (c == '\n') {
       nmea[nlen] = 0;
-      if (nlen >= 6 && nmea[0] == '$') lastNmeaMs = millis();
+      if (nlen >= 6 && nmea[0] == '$') {
+        if (!lastNmeaMs || millis() - lastNmeaMs > 5000) Serial.printf("GPS : phrases lisibles à %lu bauds\n", (unsigned long)GPS_BAUDS[gpsBaudIdx]);
+        lastNmeaMs = millis();
+        gpsSentences++;
+      }
       parseNmea(nmea);
       nlen = 0;
     }
@@ -205,6 +229,7 @@ static void sendStatus(uint32_t now) {
   d[0] |= 8;
   if (lastNmeaMs && now - lastNmeaMs < 2000) d[0] |= 16;
   if (gps.valid) d[0] |= 32;
+  if (lastGpsByteMs && now - lastGpsByteMs < 2000) d[0] |= 64;
 #endif
   uint8_t st;
   d[1] = (uint8_t)wifiRssi(&st);
@@ -327,6 +352,7 @@ void loop() {
 
 #if GPS_ENABLED
   pollGps();
+  autoBaud(millis());
 #endif
 
 #if GPS_ENABLED
@@ -364,6 +390,10 @@ void loop() {
     Serial.printf("CAN: file=%u perdues=%u erreurs_rx=%u client=%s appareils_wifi=%d\n", (unsigned)st.msgs_to_rx,
                   (unsigned)st.rx_missed_count, (unsigned)st.rx_error_counter, client.connected() ? "oui" : "non",
                   WiFi.softAPgetStationNum());
+#if GPS_ENABLED
+    Serial.printf("GPS: octets=%lu phrases=%lu débit=%lu position=%s satellites=%u\n", (unsigned long)gpsBytes,
+                  (unsigned long)gpsSentences, (unsigned long)GPS_BAUDS[gpsBaudIdx], gps.valid ? "oui" : "non", gps.sats);
+#endif
   }
 #endif
 }

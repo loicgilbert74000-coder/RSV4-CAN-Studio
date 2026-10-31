@@ -31,3 +31,7 @@ Le firmware ignore (et signale sur le port série) toute broche inexistante ou r
 ## État de la carte dans l'application
 Le firmware envoie chaque seconde une trame d'état (0x7FA) : bus CAN actif ou non, module GPS détecté ou non, position valide, signal Wi-Fi (dBm) et nombre d'appareils connectés. L'application l'affiche dans « Statut système » (Télémétrie) et dans « État de la carte » (Paramétrage ESP32).
 Signal Wi-Fi : Bon ≥ −60 dBm · Correct −60 à −70 · Faible −70 à −80 · Très faible < −80.
+
+## GPS : détection du débit
+Si le module GPS n'envoie rien de lisible, le firmware essaie tout seul 9600, 38400, 115200 et 4800 bauds (le débit du réglage est essayé en premier) et garde celui qui donne des phrases NMEA. Le moniteur série indique « GPS : phrases lisibles à … bauds » et, toutes les 5 s, le nombre d'octets et de phrases reçus.
+Dans l'application : « Données illisibles · débit ? » = le module envoie mais le débit ne correspond pas (rare avec la détection) ; « Aucune donnée du module » = rien n'arrive (alimentation ou fil TX → GPIO16).
