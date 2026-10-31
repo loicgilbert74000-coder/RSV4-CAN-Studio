@@ -20,6 +20,7 @@ class EspMixin:
         sv("password", "rsv4-can-2026")
         sv("channel", 6)
         self.cv["tcp_port"] = self.tcp_port
+        bv("can_on", True)
         sv("can_bitrate", 250)
         sv("can_tx", 5)
         sv("can_rx", 4)
@@ -68,7 +69,7 @@ class EspMixin:
                 "channel": i("channel"),
                 "tcp_port": int(self.tcp_port.get().strip()),
             },
-            "can": {"bitrate_kbps": i("can_bitrate"), "tx_pin": i("can_tx"), "rx_pin": i("can_rx")},
+            "can": {"enabled": v["can_on"].get(), "bitrate_kbps": i("can_bitrate"), "tx_pin": i("can_tx"), "rx_pin": i("can_rx")},
             "gps": {"enabled": v["gps_on"].get(), "rx_pin": i("gps_rx"), "baud": i("gps_baud")},
             "digital_inputs": [
                 {
@@ -98,6 +99,7 @@ class EspMixin:
         v["password"].set(w["password"])
         v["channel"].set(w["channel"])
         self.tcp_port.set(str(w["tcp_port"]))
+        v["can_on"].set(bool(c.get("enabled", True)))
         v["can_bitrate"].set(c["bitrate_kbps"])
         v["can_tx"].set(c["tx_pin"])
         v["can_rx"].set(c["rx_pin"])
@@ -206,6 +208,7 @@ class EspMixin:
         self.ecombo(c, "Canal Wi-Fi", "channel", [str(n) for n in range(1, 14)])
         self.efield(c, "Port TCP (applications)", "tcp_port", 10)
         c = self.esp_card(left, "Bus CAN")
+        self.echeck(c, "Bus CAN activé (désactiver pour tester sans moto)", "can_on")
         self.ecombo(c, "Débit (kbit/s)", "can_bitrate", ["250", "500"])
         self.efield(c, "Broche TX (vers le transceiver)", "can_tx", 8)
         self.efield(c, "Broche RX (vers le transceiver)", "can_rx", 8)

@@ -51,6 +51,10 @@ static bool checkPin(const char* what, int p) {
   return false;
 }
 
+#ifndef CAN_ENABLED
+#define CAN_ENABLED 1
+#endif
+
 #ifndef LED_GREEN_PIN
 #define LED_GREEN_PIN 21
 #endif
@@ -218,12 +222,13 @@ static void updateLeds(uint32_t now) {
   ledSet(0, LED_GREEN_PIN, linked || ((now / 500) % 2));
   ledSet(2, LED_BLUE_PIN, canSeen && now - lastCanRx < 40);
   bool silent = canOk && canSeen && now - lastCanRx > 3000;
-  bool red = !canOk || (silent && ((now / 250) % 2));
+  bool red = CAN_ENABLED && (!canOk || (silent && ((now / 250) % 2)));
   ledSet(1, LED_RED_PIN, red);
 }
 
 // ---------- CAN ----------
 static void setupCan() {
+  if (!CAN_ENABLED) { Serial.println("Bus CAN désactivé dans la configuration"); return; }
 #if CAN_BITRATE_KBPS == 500
   twai_timing_config_t timing = TWAI_TIMING_CONFIG_500KBITS();
 #else
@@ -268,7 +273,7 @@ void loop() {
   }
 
   twai_message_t msg;
-  while (twai_receive(&msg, 0) == ESP_OK) {
+  while (CAN_ENABLED && twai_receive(&msg, 0) == ESP_OK) {
     lastCanRx = millis(); canSeen = true;
     if (msg.extd || msg.rtr) continue;                    // trames standard uniquement
     sendFrame(msg.identifier, msg.data, msg.data_length_code);
@@ -293,7 +298,7 @@ void loop() {
 
   // Surveillance du contrôleur CAN (une fois par seconde) : reprise automatique après un bus-off.
   static uint32_t lastCheck = 0;
-  if (now - lastCheck >= 1000) {
+  if (CAN_ENABLED && now - lastCheck >= 1000) {
     lastCheck = now;
     twai_status_info_t st;
     if (twai_get_status_info(&st) == ESP_OK) {
@@ -307,10 +312,11 @@ void loop() {
   static uint32_t lastStats = 0;
   if (now - lastStats >= CAN_STATS_PERIOD_MS) {
     lastStats = now;
-    twai_status_info_t st;
-    if (twai_get_status_info(&st) == ESP_OK)
-      Serial.printf("CAN: file=%u perdues=%u erreurs_rx=%u client=%s\n", (unsigned)st.msgs_to_rx,
-                    (unsigned)st.rx_missed_count, (unsigned)st.rx_error_counter, client.connected() ? "oui" : "non");
+    twai_status_info_t st = {};
+    if (CAN_ENABLED && twai_get_status_info(&st) != ESP_OK) st = {};
+    Serial.printf("CAN: file=%u perdues=%u erreurs_rx=%u client=%s appareils_wifi=%d\n", (unsigned)st.msgs_to_rx,
+                  (unsigned)st.rx_missed_count, (unsigned)st.rx_error_counter, client.connected() ? "oui" : "non",
+                  WiFi.softAPgetStationNum());
   }
 #endif
 }

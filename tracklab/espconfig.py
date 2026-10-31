@@ -50,7 +50,7 @@ def validate_cfg(cfg):
         raise ValueError("Le canal Wi-Fi doit être compris entre 1 et 13.")
     if not 1 <= w["tcp_port"] <= 65535:
         raise ValueError("Le port TCP doit être compris entre 1 et 65535.")
-    pins = [cfg["can"]["tx_pin"], cfg["can"]["rx_pin"]]
+    pins = [cfg["can"]["tx_pin"], cfg["can"]["rx_pin"]] if cfg["can"].get("enabled", True) else []
     if cfg["gps"]["enabled"]:
         pins.append(cfg["gps"]["rx_pin"])
     for grp in ("digital_inputs", "analog_inputs", "outputs"):
@@ -79,6 +79,7 @@ def make_header(cfg):
         f"#define AP_PASS {c_str(w['password'])}",
         f"#define AP_CHANNEL {int(w['channel'])}",
         f"#define TCP_PORT {int(w['tcp_port'])}",
+        f"#define CAN_ENABLED {(1 if c.get('enabled', True) else 0)}",
         f"#define CAN_TX_PIN {int(c['tx_pin'])}",
         f"#define CAN_RX_PIN {int(c['rx_pin'])}",
         f"#define CAN_BITRATE_KBPS {int(c['bitrate_kbps'])}",

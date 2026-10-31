@@ -4,6 +4,7 @@
 #define AP_PASS "rsv4-can-2026"
 #define AP_CHANNEL 6
 #define TCP_PORT 2323
+#define CAN_ENABLED 1
 #define CAN_TX_PIN 5
 #define CAN_RX_PIN 4
 #define CAN_BITRATE_KBPS 250
