@@ -27,3 +27,7 @@ Relais CAN (écoute seule) + GPS + entrées/sorties vers l'application, par Wi-F
 Les broches par défaut sont celles d'un ESP32 classique. Avec une ESP32-S3 (carte « ESP32S3 Dev Module »), utiliser `rsv4_config_ESP32-S3.h` : le copier dans le dossier du firmware sous le nom `rsv4_config.h`.
 Broches S3 : CAN TX 5 / RX 4, GPS RX 16, potentiomètres GPIO1 (avant) et GPIO2 (arrière), LED verte 21 / rouge 18 / bleue 17.
 Le firmware ignore (et signale sur le port série) toute broche inexistante ou réservée (flash, PSRAM).
+
+## État de la carte dans l'application
+Le firmware envoie chaque seconde une trame d'état (0x7FA) : bus CAN actif ou non, module GPS détecté ou non, position valide, signal Wi-Fi (dBm) et nombre d'appareils connectés. L'application l'affiche dans « Statut système » (Télémétrie) et dans « État de la carte » (Paramétrage ESP32).
+Signal Wi-Fi : Bon ≥ −60 dBm · Correct −60 à −70 · Faible −70 à −80 · Très faible < −80.

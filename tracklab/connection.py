@@ -27,6 +27,7 @@ class ConnectionMixin:
             self.open_connection_dialog()
 
     def set_conn_ui(self, live, text):
+        self._conn_shown = None
         set_dot(self.conn_dot, GREEN if live else MUTED)
         self.conn_lbl.config(text=text, fg=GREEN if live else SUB)
         self.conn_btn.config(

@@ -15,8 +15,8 @@ from .page_frames import FramesMixin
 from .page_graph import GraphMixin
 from .page_telemetry import TelemetryMixin
 from .player import PlayerMixin
-from .theme import BG, BORDER, CARD, CARD2, CYAN, FONT, GREEN, HOVER, MUTED, RED, SIDE, SUB, TEXT, YELLOW
-from .util import fmt_time
+from .theme import BG, BORDER, CARD, CARD2, CYAN, FONT, GREEN, HOVER, LIME, MUTED, RED, SIDE, SUB, TEXT, YELLOW
+from .util import fmt_time, wifi_quality
 from .widgets import NavIcon, SeekBar, make_dot, set_dot
 
 
@@ -59,6 +59,9 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
         self.track = deque(maxlen=30000)
         self.t_now = 0
         self.recent = deque()
+        self.esp = None  # dernier état reçu de l'ESP32 (trame 0x7FA)
+        self.link_t = None  # instant de la dernière trame reçue en direct
+        self._conn_shown = None
         self.ingested = 0
         self.t_last = 0
         self.t0 = 0
@@ -451,25 +454,91 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
         self.show_footer("frames", f"{self.ingested:,}".replace(",", " "))
         if self.current_page == "frames":
             self.refresh_count()
+        self.update_conn_label(now)
+        if self.current_page == "esp":
+            self.update_esp_live(now, rate)
         if self.current_page != "tele":
             return  # le panneau « Statut système » n'existe que sur la page Télémétrie
-        if self.live:
-            self.set_srow("can", "Connecté", GREEN)
-            if rate:
-                self.set_srow("rx", f"OK · {rate}/s", GREEN)
-            else:
-                self.set_srow("rx", "Aucune trame", RED)
-            self.set_srow("qual", "Bonne" if rate else "—", GREEN if rate else MUTED)
-        else:
-            self.set_srow("can", "Déconnecté", MUTED)
-            self.set_srow("rx", "Aucune" if not self.frames else f"Fichier · {len(self.count)} IDs", MUTED)
-            self.set_srow("qual", "—", MUTED)
-        if self.track:
-            self.set_srow("gps", f"{len(self.track)} points", GREEN)
-        else:
-            self.set_srow("gps", "Aucun fix" if self.live else "Non disponible", MUTED)
-        self.set_srow("rec", "Non disponible", MUTED)
+        for key, (text, color) in self.module_states(now, rate).items():
+            self.set_srow(key, text, color)
         self.set_srow("val", self.model["short"], YELLOW if self.decoder else MUTED)
+
+    def link_state(self, now):
+        """État de la liaison en direct : « attente », « ok » ou « muet » (None hors connexion)."""
+        if not self.live:
+            return None
+        if self.link_t is None:
+            return "attente"
+        return "ok" if now - self.link_t < 2500 else "muet"
+
+    def module_states(self, now, rate):
+        """Texte et couleur de chaque ligne du panneau d'état (liaison, CAN, GPS, Wi-Fi)."""
+        wifi = self.transport.get().startswith("Wi-Fi")
+        link = self.link_state(now)
+        esp = self.esp if (self.live and wifi and link == "ok") else None
+        flags = esp["flags"] if esp else 0
+        out = {}
+        if link is None:
+            out["link"] = ("Fichier" if self.frames else "Déconnecté", MUTED)
+        elif link == "attente":
+            out["link"] = ("En attente…", YELLOW)
+        elif link == "muet":
+            out["link"] = ("Aucune donnée", RED)
+        else:
+            out["link"] = (("ESP32 · connectée" if wifi else "USB-CAN · connecté"), GREEN)
+        # bus CAN
+        if link is None:
+            out["can"] = ("Fichier chargé" if self.frames else "—", MUTED)
+            out["rx"] = ("Fichier · %d IDs" % len(self.count) if self.frames else "Aucune", MUTED)
+        elif link != "ok":
+            out["can"] = ("—", MUTED)
+            out["rx"] = ("—", MUTED)
+        else:
+            if esp and not flags & 1:
+                out["can"] = ("Désactivé", MUTED)
+            elif esp and not flags & 2:
+                out["can"] = ("Défaut contrôleur", RED)
+            elif rate:
+                out["can"] = ("Actif", GREEN)
+            else:
+                out["can"] = ("Aucune trame", YELLOW)
+            if esp and not flags & 1:
+                out["rx"] = ("—", MUTED)
+            else:
+                out["rx"] = (f"OK · {rate}/s", GREEN) if rate else ("Aucune trame", YELLOW)
+        # GPS
+        sats = self.vals.get((2040, "Satellites"), (0,))[0]
+        if esp:
+            if not flags & 8:
+                out["gps"] = ("Désactivé", MUTED)
+            elif not flags & 16:
+                out["gps"] = ("Module non détecté", YELLOW)
+            elif flags & 32:
+                out["gps"] = (f"Position valide · {int(sats)} sat.", GREEN)
+            else:
+                out["gps"] = (f"Recherche · {int(sats)} sat.", YELLOW)
+        elif self.track:
+            out["gps"] = (f"{len(self.track)} points", GREEN)
+        else:
+            out["gps"] = ("—" if link is None else "Aucune donnée", MUTED)
+        # Wi-Fi
+        if esp and esp["rssi"] is not None:
+            level, label = wifi_quality(esp["rssi"])
+            out["wifi"] = (f"{esp['rssi']} dBm · {label}", (GREEN, LIME, YELLOW, RED)[level])
+        else:
+            out["wifi"] = ("—", MUTED)
+        return out
+
+    def update_conn_label(self, now):
+        """Voyant et texte de la barre du haut : reflètent la réception réelle, pas seulement la connexion TCP."""
+        link = self.link_state(now)
+        shown = {None: ("Déconnecté", MUTED, SUB), "attente": ("Connexion…", YELLOW, YELLOW),
+                 "ok": ("Connecté", GREEN, GREEN), "muet": ("Aucune donnée", RED, RED)}[link]
+        if shown != self._conn_shown:
+            self._conn_shown = shown
+            text, dot, fg = shown
+            set_dot(self.conn_dot, dot)
+            self.conn_lbl.config(text=text, fg=fg)
 
     def show_footer(self, key, text):
         """Texte du pied de page ; ne touche l'écran que s'il a changé."""

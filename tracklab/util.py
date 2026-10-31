@@ -4,6 +4,17 @@ import math
 import re
 
 
+# Qualité du signal Wi-Fi (dBm, vu par l'ESP32) : limites entre les niveaux
+WIFI_LIMITS = (-60, -70, -80)
+WIFI_LEVELS = ("Bon", "Correct", "Faible", "Très faible")
+
+
+def wifi_quality(rssi):
+    """Niveau (0 = bon … 3 = très faible) et libellé du signal Wi-Fi en dBm."""
+    level = sum(rssi < limit for limit in WIFI_LIMITS)
+    return level, WIFI_LEVELS[level]
+
+
 def fmt_val(v):
     if v is None:
         return "—"

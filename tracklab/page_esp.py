@@ -5,8 +5,9 @@ import os
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
+from .widgets import make_dot, set_dot
 from .espconfig import BOARDS, ANA_DEFAULT, DIG_DEFAULT, LED_DEFAULT, OUT_DEFAULT, make_header, validate_cfg
-from .theme import BG, BORDER, CARD, CARD2, CYAN, FONT, GREEN, MUTED, SUB, TEXT
+from .theme import BG, BORDER, CARD, CARD2, CYAN, FONT, GREEN, LIME, MUTED, RED, SUB, TEXT, YELLOW
 
 
 class EspMixin:
@@ -42,6 +43,59 @@ class EspMixin:
             sv(f"out{i}_name", name)
             sv(f"out{i}_level", level)
             bv(f"out{i}_on", on)
+
+    # ---------- état de la carte en direct ----------
+    WIFI_SPAN = (-90, -40)  # plage affichée par la jauge du signal Wi-Fi (dBm)
+
+    def build_esp_live(self, parent):
+        c = self.esp_card(parent, "État de la carte (en direct)")
+        self.live_rows, self._live_shown = {}, {}
+        for key, label in (("link", "Liaison"), ("can", "Bus CAN"), ("gps", "GPS"), ("wifi", "Signal Wi-Fi")):
+            row = tk.Frame(c, bg=CARD)
+            row.pack(fill="x", pady=3)
+            dot = make_dot(row, MUTED, CARD, 9)
+            dot.pack(side="left", padx=(0, 8))
+            tk.Label(row, text=label, fg=SUB, bg=CARD, font=(FONT, 9), width=14, anchor="w").pack(side="left")
+            val = tk.Label(row, text="—", fg=TEXT, bg=CARD, font=(FONT, 9, "bold"))
+            val.pack(side="right")
+            self.live_rows[key] = (dot, val)
+        lo, hi = self.WIFI_SPAN
+        width = 320
+        x = lambda dbm: (dbm - lo) / (hi - lo) * width
+        bar = tk.Canvas(c, width=width, height=34, bg=CARD, highlightthickness=0)
+        bar.pack(anchor="w", pady=(4, 0))
+        for a, b, color in ((lo, -80, RED), (-80, -70, YELLOW), (-70, -60, LIME), (-60, hi, GREEN)):
+            bar.create_rectangle(x(a), 4, x(b), 16, fill=color, outline="")
+        for dbm in (-80, -70, -60):
+            bar.create_line(x(dbm), 4, x(dbm), 20, fill=BG)
+            bar.create_text(x(dbm), 27, text=str(dbm), fill=SUB, font=(FONT, 8))
+        self.wifi_marker = bar.create_polygon(0, 0, 0, 0, 0, 0, fill=TEXT, outline=BG, state="hidden")
+        self.wifi_bar = (bar, x)
+        tk.Label(
+            c,
+            text="Signal du PC mesuré par l'ESP32 (dBm) :\nBon ≥ −60 · Correct −60 à −70 · Faible −70 à −80 (coupures possibles) · Très faible < −80 (liaison instable)\nPlus la valeur est proche de 0, meilleur est le signal. Rapprocher la carte ou changer de canal Wi-Fi si « Faible ».",
+            fg=MUTED, bg=CARD, font=(FONT, 8), justify="left", wraplength=460,
+        ).pack(anchor="w", pady=(2, 0))
+
+    def update_esp_live(self, now, rate):
+        """Met à jour l'état de la carte (liaison, CAN, GPS, signal Wi-Fi) ; ne touche l'écran que si le contenu change."""
+        states = self.module_states(now, rate)
+        esp = self.esp if self.link_state(now) == "ok" else None
+        if esp and esp["rssi"] is not None:
+            states["wifi"] = (states["wifi"][0] + f" · {esp['stations']} appareil(s)", states["wifi"][1])
+        for key, (dot, val) in self.live_rows.items():
+            state = states[key]
+            if self._live_shown.get(key) != state:
+                self._live_shown[key] = state
+                set_dot(dot, state[1])
+                val.config(text=state[0])
+        bar, x = self.wifi_bar
+        if esp and esp["rssi"] is not None:
+            pos = x(max(self.WIFI_SPAN[0], min(self.WIFI_SPAN[1], esp["rssi"])))
+            bar.coords(self.wifi_marker, pos - 5, 0, pos + 5, 0, pos, 8)
+            bar.itemconfigure(self.wifi_marker, state="normal")
+        else:
+            bar.itemconfigure(self.wifi_marker, state="hidden")
 
     def apply_board(self, name):
         """Remplit toutes les broches avec celles de la carte choisie."""
@@ -194,6 +248,7 @@ class EspMixin:
         left.pack(side="left", fill="y", anchor="n")
         right = tk.Frame(inner, bg=BG)
         right.pack(side="left", fill="both", expand=True, anchor="n")
+        self.build_esp_live(left)
         c = self.esp_card(left, "Carte")
         self.board_var = tk.StringVar(value=list(BOARDS)[0])
         r = tk.Frame(c, bg=CARD)

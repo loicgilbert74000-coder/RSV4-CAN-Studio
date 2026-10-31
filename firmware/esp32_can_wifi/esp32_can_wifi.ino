@@ -21,6 +21,11 @@
  *   0x7F0 : latitude et longitude, int32 chacune en 1e-7 degré (LE). Envoyée seulement si le fix est valide.
  *   0x7F8 : vitesse GPS (uint16, km/h x 100), cap (uint16, degrés x 100), satellites (uint8), qualité du fix (uint8).
  *   0x7F9 : octet 0 = entrées numériques (bit n = entrée n+1) ; octets 1-2, 3-4, 5-6 = ADC 1, 2, 3 (uint16, 0 à 4095).
+ *   0x7FA : état de la carte, envoyé chaque seconde.
+ *           octet 0 = drapeaux : bit0 CAN activé, bit1 contrôleur CAN en marche, bit2 trames CAN reçues depuis moins de 3 s,
+ *                     bit3 GPS activé, bit4 phrases NMEA reçues depuis moins de 2 s (module alimenté et relié), bit5 position valide ;
+ *           octet 1 = signal Wi-Fi du PC vu par l'ESP32 (int8, dBm ; 127 = inconnu) ; octet 2 = appareils Wi-Fi connectés ;
+ *           octets 3-4 = trames CAN par seconde (uint16) ; octet 5 = compteur d'erreurs de réception CAN (limité à 255).
  *           Par défaut : ADC 1 = potentiomètre de suspension avant, ADC 2 = suspension arrière (0 à 3,3 V).
  *
  * Voyants (LED_GREEN_PIN / LED_RED_PIN / LED_BLUE_PIN, résistance de 330 ohms en série) :
@@ -32,6 +37,7 @@
 #include <WiFi.h>
 #include <string.h>
 #include <math.h>
+#include "esp_wifi.h"
 #include "driver/twai.h"
 #include "rsv4_config.h"
 
@@ -144,11 +150,18 @@ static void parseNmea(char* line) {
   }
 }
 
+static uint32_t lastNmeaMs = 0;                            // dernière phrase NMEA valide
+
 static void pollGps() {
   while (gpsSerial.available()) {
     char c = gpsSerial.read();
     if (c == '\r') continue;
-    if (c == '\n') { nmea[nlen] = 0; parseNmea(nmea); nlen = 0; }
+    if (c == '\n') {
+      nmea[nlen] = 0;
+      if (nlen >= 6 && nmea[0] == '$') lastNmeaMs = millis();
+      parseNmea(nmea);
+      nlen = 0;
+    }
     else if (nlen < sizeof(nmea) - 1) nmea[nlen++] = c;
   }
 }
@@ -166,6 +179,42 @@ static void sendGps() {
   sendFrame(0x7F8, d, 6);
 }
 #endif
+
+// ---------- état de la carte ----------
+static bool canOk = false;                // contrôleur CAN démarré
+static uint32_t lastCanRx = 0;            // dernière trame CAN reçue (ms)
+static bool canSeen = false;              // au moins une trame reçue depuis le démarrage
+static uint16_t canCount = 0;                              // trames CAN reçues pendant la seconde en cours
+
+static int8_t wifiRssi(uint8_t* stations) {
+  wifi_sta_list_t list;
+  *stations = 0;
+  if (esp_wifi_ap_get_sta_list(&list) != ESP_OK || list.num == 0) return 127;
+  *stations = (uint8_t)list.num;
+  int best = -127;
+  for (int i = 0; i < list.num; i++) if (list.sta[i].rssi > best) best = list.sta[i].rssi;
+  return (int8_t)best;
+}
+
+static void sendStatus(uint32_t now) {
+  uint8_t d[6] = {0};
+  if (CAN_ENABLED) d[0] |= 1;
+  if (CAN_ENABLED && canOk) d[0] |= 2;
+  if (CAN_ENABLED && canSeen && now - lastCanRx < 3000) d[0] |= 4;
+#if GPS_ENABLED
+  d[0] |= 8;
+  if (lastNmeaMs && now - lastNmeaMs < 2000) d[0] |= 16;
+  if (gps.valid) d[0] |= 32;
+#endif
+  uint8_t st;
+  d[1] = (uint8_t)wifiRssi(&st);
+  d[2] = st;
+  memcpy(d + 3, &canCount, 2);
+  canCount = 0;
+  twai_status_info_t info = {};
+  if (CAN_ENABLED && twai_get_status_info(&info) == ESP_OK) d[5] = info.rx_error_counter > 255 ? 255 : (uint8_t)info.rx_error_counter;
+  sendFrame(0x7FA, d, 6);
+}
 
 // ---------- entrées / sorties ----------
 static bool digOk[DIG_COUNT], anaOk[ANA_COUNT], outOk[OUT_COUNT];
@@ -199,9 +248,6 @@ static void sendIo() {
 }
 
 // ---------- voyants ----------
-static bool canOk = false;                // contrôleur CAN démarré
-static uint32_t lastCanRx = 0;            // dernière trame CAN reçue (ms)
-static bool canSeen = false;              // au moins une trame reçue depuis le démarrage
 
 static bool ledOk[3];
 static void ledSet(int i, int pin, bool on) { if (ledOk[i]) digitalWrite(pin, on ? HIGH : LOW); }
@@ -274,7 +320,7 @@ void loop() {
 
   twai_message_t msg;
   while (CAN_ENABLED && twai_receive(&msg, 0) == ESP_OK) {
-    lastCanRx = millis(); canSeen = true;
+    lastCanRx = millis(); canSeen = true; canCount++;
     if (msg.extd || msg.rtr) continue;                    // trames standard uniquement
     sendFrame(msg.identifier, msg.data, msg.data_length_code);
   }
@@ -286,12 +332,13 @@ void loop() {
 #if GPS_ENABLED
   static uint32_t lastGps = 0;
 #endif
-  static uint32_t lastIo = 0;
+  static uint32_t lastIo = 0, lastStatus = 0;
   uint32_t now = millis();
 #if GPS_ENABLED
   if (now - lastGps >= 200) { lastGps = now; sendGps(); }
 #endif
   if (now - lastIo >= 100) { lastIo = now; sendIo(); }
+  if (now - lastStatus >= 1000) { lastStatus = now; sendStatus(now); }
 
   flushTx();
   updateLeds(now);

@@ -27,6 +27,8 @@ class PlayerMixin:
         self.first_t.clear()
         self.last_t.clear()
         self.recent.clear()
+        self.esp = None
+        self.link_t = None
         self.ingested = 0
         self.t_last = 0
         self.t_now = 0

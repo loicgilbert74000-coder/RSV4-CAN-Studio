@@ -12,6 +12,10 @@ LINE = re.compile(
 WIFI_MAGIC = b"\xa5Z"
 WIFI_FRAME_LEN = 20
 
+# Identifiants des trames propres à l'ESP32 (ce ne sont pas des trames du bus CAN de la moto)
+ESP_IDS = frozenset({0x7F0, 0x7F8, 0x7F9, 0x7FA})
+ID_ESP_STATUS = 0x7FA
+
 
 def load_capture(path):
     out = []

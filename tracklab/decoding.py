@@ -5,8 +5,8 @@ from collections import deque
 
 from .config import BY_CID, HAND_ALWAYS, HAND_EXPERIMENTAL
 from .names import fr
-from .protocol import extract_bits
-from .util import disp_unit, fmt_ms, fmt_val
+from .protocol import ESP_IDS, extract_bits
+from .util import disp_unit, fmt_ms, fmt_val, wifi_quality
 
 
 class DecodingMixin:
@@ -114,6 +114,20 @@ class DecodingMixin:
             self.put(cid, "Satellites", sats, t, "esp")
             self.put(cid, "Qualité fix", fix, t, "esp")
             return f"GPS {sp:.1f} km/h · cap {co:.0f}° · {sats} satellites · fix {fix}"
+        if cid == 2042 and len(data) >= 6:
+            rssi = int.from_bytes(data[1:2], "little", signed=True)
+            self.esp = {
+                "flags": data[0],
+                "rssi": None if rssi == 127 else rssi,
+                "stations": data[2],
+                "can_rate": int.from_bytes(data[3:5], "little"),
+                "can_err": data[5],
+                "t": t,
+            }
+            if rssi != 127:
+                self.put(cid, "Signal Wi-Fi", rssi, t, "esp")
+            q = f"{rssi} dBm · {wifi_quality(rssi)[1]}" if rssi != 127 else "aucun appareil"
+            return f"État ESP32 · drapeaux {data[0]:06b} · Wi-Fi {q} · CAN {self.esp['can_rate']}/s"
         if cid == 2041 and len(data) >= 7:
             mask = data[0]
             for n in range(8):
@@ -131,7 +145,10 @@ class DecodingMixin:
         self.count[cid] += 1
         self.ingested += 1
         self.t_last = t
-        self.recent.append(t)
+        if cid not in ESP_IDS:  # seules les vraies trames CAN comptent dans le débit affiché
+            self.recent.append(t)
+        if self.live:
+            self.link_t = t
         self.first_t.setdefault(cid, t)
         self.last_t[cid] = t
         dec = "—"

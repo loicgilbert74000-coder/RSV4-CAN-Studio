@@ -172,11 +172,11 @@ class TelemetryMixin:
             st, text="Statut système", fg=TEXT, bg=CARD, font=(FONT, 11, "bold")
         ).pack(anchor="w", padx=16, pady=(14, 8))
         for key, label in [
-            ("can", "CAN"),
-            ("rx", "Réception trames"),
+            ("link", "Liaison"),
+            ("can", "Bus CAN"),
+            ("rx", "Trames CAN"),
             ("gps", "GPS"),
-            ("rec", "Enregistrement"),
-            ("qual", "Qualité signal CAN"),
+            ("wifi", "Signal Wi-Fi"),
             ("val", "Validation"),
         ]:
             row = tk.Frame(st, bg=CARD)
