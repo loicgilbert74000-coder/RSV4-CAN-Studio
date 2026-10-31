@@ -1,6 +1,6 @@
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
-import re, time, math, queue, threading, os, sys, socket
+import re, time, math, queue, threading, os, sys, socket, json
 from collections import Counter, deque
 try: import serial
 except ImportError: serial=None
@@ -12,11 +12,12 @@ TEXT="#eef3fb"; SUB="#9fb0c8"; MUTED="#5d7090"
 RED="#e52028"; GREEN="#2fe39a"; CYAN="#3cc0ff"; YELLOW="#ffb938"; ORANGE="#ff8a3d"; VIOLET="#a98bff"; PINK="#ff5fa2"; LIME="#a3e635"
 PALETTE=[CYAN,GREEN,YELLOW,ORANGE,VIOLET,PINK,LIME,RED,"#60a5fa","#f472b6","#34d399","#fbbf24"]
 FONT="Segoe UI"
-SPEEDS=[0.25,0.5,1,2,4,8]
+SPEEDS={"x0.25":0.25,"x0.5":0.5,"x1":1,"x2":2,"x4":4,"x8":8}
 TILE_W=186; TILE_COLS=5
+BANDS=[70,110,160,240]          # hauteurs des bandes en mode empilé (px)
+WINDOWS=[30,60,120,300]         # fenêtres temporelles des courbes (s)
 
 # Profils de moto. "decoder" : décodages CAN définis pour ce modèle (None = trames brutes seulement).
-# Les échelles (rpm_max, speed_max) sont des valeurs d'affichage ; à confirmer pour chaque moto.
 MODELS={
  "rsv4":{"label":"Aprilia RSV4 Factory 2024","subtitle":"Aprilia RSV4 Factory 2024",
          "decoder":"aprilia","rpm_max":16000,"speed_max":320,"validated":("throttle",),
@@ -31,20 +32,28 @@ MODELS={
          "note":"Aucun décodage CAN défini pour ce modèle · trames brutes uniquement, valeurs non interprétées"},
 }
 
-# Index de la définition : signaux par identifiant CAN et clés uniques (identifiant, nom)
+# Signaux générés depuis can1.xml, plus les données de l'ESP32 (GPS et entrées/sorties).
+# Les identifiants 0x7F0, 0x7F8 et 0x7F9 ne sont pas dans la définition : ce sont des trames de l'ESP32.
+VIRTUAL=[(0x7F0,"GPS Latitude",0,0,0,0,"°"),(0x7F0,"GPS Longitude",0,0,0,0,"°"),
+         (0x7F8,"GPS Vitesse",0,0,0,0,"km/h"),(0x7F8,"GPS Cap",0,0,0,0,"°"),
+         (0x7F8,"Satellites",0,0,0,0,""),(0x7F8,"Qualité fix",0,0,0,0,"")]+\
+        [(0x7F9,f"Entrée {i+1}",0,0,0,0,"") for i in range(8)]+\
+        [(0x7F9,f"ADC {j+1}",0,0,0,0,"") for j in range(3)]
+TILE_DEFS=list(SIGNALS)+VIRTUAL
 BY_CID={}
 for _s in SIGNALS: BY_CID.setdefault(_s[0],[]).append(_s)
-SIG_KEYS=list(dict.fromkeys((s[0],s[1]) for s in SIGNALS))
+CURVE_KEYS=list(dict.fromkeys((s[0],s[1]) for s in TILE_DEFS))
+CURVE_INDEX={k:i for i,k in enumerate(CURVE_KEYS)}
 
-# Groupes d'affichage des signaux sur la page « Bus en direct »
+# Groupes d'affichage sur la page Télémétrie
 GROUP_OF={0x100:"Moteur",0x114:"Moteur",0x601:"Gaz",0x7F2:"Gaz",0x7F6:"Gaz",0x260:"Roues",
           0x102:"Freins & sécurité",0x261:"Freins & sécurité",0x104:"Modes & aides",0x230:"Modes & aides",
-          0x106:"Couple",0x108:"Commandes",0x300:"Commandes",0x174:"Centrale inertielle",
-          0x178:"Centrale inertielle",0x262:"Centrale inertielle",0x200:"Températures & électrique",
+          0x106:"Couple",0x108:"Commandes",0x300:"Commandes",0x174:"IMU · centrale inertielle",
+          0x178:"IMU · centrale inertielle",0x262:"IMU · centrale inertielle",0x200:"Températures & électrique",
           0x222:"Carburant & air",0x226:"Clignotants",0x220:"Divers",0x224:"Divers",0x228:"Divers",
-          0x382:"Non identifié"}
-GROUP_ORDER=["Moteur","Gaz","Roues","Freins & sécurité","Modes & aides","Couple","Centrale inertielle",
-             "Températures & électrique","Carburant & air","Clignotants","Commandes","Divers","Non identifié","Autres"]
+          0x382:"Non identifié",0x7F0:"GPS",0x7F8:"GPS",0x7F9:"E/S ESP32"}
+GROUP_ORDER=["Moteur","Gaz","Roues","Freins & sécurité","Modes & aides","Couple","IMU · centrale inertielle","GPS",
+             "E/S ESP32","Températures & électrique","Carburant & air","Clignotants","Commandes","Divers","Non identifié","Autres"]
 
 # Signaux décodés à la main (décodage de l'appli). Ils remplacent la définition pour ces trames.
 HAND_ALWAYS={(0x601,"Hand_Throttle"),(0x7F2,"RSV4_TPS1"),(0x7F2,"RSV4_TPS2")}
@@ -58,6 +67,12 @@ LINE=re.compile(r"Receive\s+(\d{2}:\d{2}:\d{2}:\d{3}).*?(?:Standard|Extended)\s+
 
 # Trame Wi-Fi (ESP32) : 0xA5 0x5A | temps ms (4, LE) | identifiant (4, LE) | DLC (1) | 8 octets | XOR des octets 2 à 18
 WIFI_MAGIC=b"\xa5\x5a";WIFI_FRAME_LEN=20
+
+# Paramétrage ESP32 : valeurs par défaut (broches d'un ESP32 DevKit)
+DIG_DEFAULT=[(13,"Entrée 1",False),(14,"Entrée 2",False),(27,"Entrée 3",False),(26,"Entrée 4",False),
+             (25,"Entrée 5",False),(33,"Entrée 6",False),(18,"Entrée 7",False),(19,"Entrée 8",False)]
+ANA_DEFAULT=[(32,"ADC 1",False),(34,"ADC 2",False),(35,"ADC 3",False)]
+OUT_DEFAULT=[(2,"Sortie 1","Bas",False),(23,"Sortie 2","Bas",False)]
 
 def load_capture(path):
  out=[]
@@ -108,6 +123,57 @@ def make_dot(parent,color,bg,size=10):
  c.create_oval(1,1,size-1,size-1,fill=color,outline="",tags="d")
  return c
 def set_dot(c,color):c.itemconfig("d",fill=color)
+
+def c_str(s):
+ return '"'+str(s).replace("\\","\\\\").replace('"','\\"')+'"'
+
+def validate_cfg(cfg):
+ """Vérifie la configuration ESP32 ; lève ValueError avec un message lisible."""
+ w=cfg["wifi"]
+ if not 1<=len(w["ssid"])<=32:raise ValueError("Le nom du réseau (SSID) doit faire entre 1 et 32 caractères.")
+ if w["password"] and not 8<=len(w["password"])<=63:raise ValueError("Le mot de passe Wi-Fi doit faire 8 à 63 caractères.")
+ if not 1<=w["channel"]<=13:raise ValueError("Le canal Wi-Fi doit être compris entre 1 et 13.")
+ if not 1<=w["tcp_port"]<=65535:raise ValueError("Le port TCP doit être compris entre 1 et 65535.")
+ pins=[cfg["can"]["tx_pin"],cfg["can"]["rx_pin"]]
+ if cfg["gps"]["enabled"]:pins.append(cfg["gps"]["rx_pin"])
+ for grp in ("digital_inputs","analog_inputs","outputs"):
+  for e in cfg[grp]:
+   if e["enabled"]:pins.append(e["pin"])
+ for p in pins:
+  if not 0<=p<=39:raise ValueError(f"Broche {p} hors plage (0 à 39).")
+ if cfg["can"]["bitrate_kbps"] not in (250,500):raise ValueError("Le débit CAN doit être 250 ou 500 kbit/s.")
+
+def make_header(cfg):
+ """Fichier rsv4_config.h lu par le firmware ESP32 à la compilation."""
+ w,c,g=cfg["wifi"],cfg["can"],cfg["gps"]
+ dig,ana,out=cfg["digital_inputs"],cfg["analog_inputs"],cfg["outputs"]
+ def arr(vals,ctype):
+  return "{"+", ".join(str(v) for v in vals)+"}"
+ lines=[
+  "// Fichier généré par RSV4 CAN Studio (Paramétrage ESP32). Ne pas modifier à la main.",
+  "#pragma once",
+  f"#define AP_SSID {c_str(w['ssid'])}",
+  f"#define AP_PASS {c_str(w['password'])}",
+  f"#define AP_CHANNEL {int(w['channel'])}",
+  f"#define TCP_PORT {int(w['tcp_port'])}",
+  f"#define CAN_TX_PIN {int(c['tx_pin'])}",
+  f"#define CAN_RX_PIN {int(c['rx_pin'])}",
+  f"#define CAN_BITRATE_KBPS {int(c['bitrate_kbps'])}",
+  f"#define GPS_ENABLED {1 if g['enabled'] else 0}",
+  f"#define GPS_RX_PIN {int(g['rx_pin'])}",
+  f"#define GPS_BAUD {int(g['baud'])}",
+  f"#define DIG_COUNT {len(dig)}",
+  f"static const int DIG_PIN[DIG_COUNT] = {arr([e['pin'] for e in dig],'int')};",
+  f"static const bool DIG_ON[DIG_COUNT] = {arr([1 if e['enabled'] else 0 for e in dig],'bool')};",
+  f"#define ANA_COUNT {len(ana)}",
+  f"static const int ANA_PIN[ANA_COUNT] = {arr([e['pin'] for e in ana],'int')};",
+  f"static const bool ANA_ON[ANA_COUNT] = {arr([1 if e['enabled'] else 0 for e in ana],'bool')};",
+  f"#define OUT_COUNT {len(out)}",
+  f"static const int OUT_PIN[OUT_COUNT] = {arr([e['pin'] for e in out],'int')};",
+  f"static const bool OUT_ON[OUT_COUNT] = {arr([1 if e['enabled'] else 0 for e in out],'bool')};",
+  f"static const bool OUT_HIGH[OUT_COUNT] = {arr([1 if e['level']=='Haut' else 0 for e in out],'bool')};",
+ ]
+ return "\n".join(lines)+"\n"
 
 class Gauge(tk.Canvas):
  """Jauge circulaire 270° : arc coloré par zone, graduations et valeur au centre."""
@@ -188,23 +254,25 @@ class App:
   self.port=tk.StringVar(value="COM7");self.baud=tk.StringVar(value="2000000")
   self.host=tk.StringVar(value="192.168.4.1");self.tcp_port=tk.StringVar(value="2323")
   self.experimental=tk.BooleanVar(value=True);self.filter_on=tk.BooleanVar(value=True)
-  self.window=tk.IntVar(value=60)
-  self.curve_vars={k:tk.BooleanVar(value=k in DEFAULT_CURVES) for k in SIG_KEYS}
+  self.window=tk.IntVar(value=60);self.stack=tk.BooleanVar(value=False);self.band_idx=1
+  self.sel=set(DEFAULT_CURVES);self.curve_btns={}
   self.count=Counter();self.first_t={};self.last_t={}
   self.vals={};self.hist={};self.dirty=set();self.flash_until={};self.tiles={}
+  self.track=deque(maxlen=30000)
   self.t_now=0;self.recent=deque();self.ingested=0;self.t_last=0;self.t0=0;self.last_row=None
   self.start_wall=0;self.start_frame=0;self.q=queue.Queue();self.live=False;self.stop_event=threading.Event()
   self.cards={};self.pages={};self.nav={};self.flushables=[];self.srow={};self.fl={};self.badge={}
   self.decoder=None;self.model_key="rsv4"
+  self.cv={};self.build_esp_vars()
   self.set_styles()
   self.build_footer()
   self.build_sidebar()
   self.build_main()
   self.apply_model("rsv4")
-  self.show_page("bus")
+  self.show_page("tele")
   self.set_conn_ui(False,"Déconnecté")
   self.set_state("Prêt · ouvrez une capture",MUTED)
-  self.root.after(40,self.tick);self.root.after(180,self.paint_chart)
+  self.root.after(40,self.tick);self.root.after(180,self.paint_chart);self.root.after(400,self.paint_map)
   base=getattr(sys,"_MEIPASS",os.path.dirname(os.path.abspath(__file__)))
   bundled=os.path.join(base,"CAPTURE_GAZ_RSV4.txt")
   if os.path.exists(bundled):self.load(bundled)
@@ -326,12 +394,13 @@ class App:
   self.model_cb.pack(fill="x");self.model_cb.bind("<<ComboboxSelected>>",self.on_model)
 
   self.section(side,"NAVIGATION")
-  self.nav_item(side,"bus","Bus en direct")
-  self.nav_item(side,"graph","Analyse")
+  self.nav_item(side,"tele","Télémétrie")
+  self.nav_item(side,"graph","Courbes")
   self.nav_item(side,"frames","Trames CAN")
+  self.nav_item(side,"esp","Paramétrage ESP32")
   self.nav_item(side,"settings","Paramètres")
 
-  self.section(side,"CONNEXION CAN")
+  self.section(side,"CONNEXION")
   card=self.card(side);card.pack(fill="x",padx=14,pady=2)
   inner=tk.Frame(card,bg=CARD);inner.pack(fill="x",padx=12,pady=8)
   def row(label,widget):
@@ -345,16 +414,15 @@ class App:
   self.transport_cb.pack(side="right");self.transport_cb.bind("<<ComboboxSelected>>",self.on_transport)
   row("Mode CAN",lambda p:self.ro_combo(p,["Silent (écoute)"])).pack(fill="x",pady=2)
   row("Type trame",lambda p:self.ro_combo(p,["Standard 11 bits"])).pack(fill="x",pady=2)
-  # Lignes propres au port série USB-CAN
   r_port=row("Port COM",lambda p:ttk.Combobox(p,textvariable=self.port,values=[f"COM{i}" for i in range(1,21)],width=13))
   r_baud=row("Vitesse",lambda p:ttk.Combobox(p,textvariable=self.baud,values=["2000000","1000000","500000","250000"],width=13))
   r_br=tk.Frame(inner,bg=CARD)
   tk.Label(r_br,text="CAN bitrate",bg=CARD,fg=SUB,font=(FONT,9),anchor="w",width=12).pack(side="left")
   self.bitrate_cb=ttk.Combobox(r_br,state="readonly",width=13);self.bitrate_cb.pack(side="right")
   self.serial_rows=[r_port,r_baud,r_br]
-  # Lignes propres à la connexion Wi-Fi vers l'ESP32
-  r_host=row("Adresse ESP32",lambda p:tk.Entry(p,textvariable=self.host,width=14,bg=CARD2,fg=TEXT,insertbackground=TEXT,relief="flat",highlightbackground=BORDER,highlightthickness=1))
-  r_tcp=row("Port TCP",lambda p:tk.Entry(p,textvariable=self.tcp_port,width=14,bg=CARD2,fg=TEXT,insertbackground=TEXT,relief="flat",highlightbackground=BORDER,highlightthickness=1))
+  entry=lambda p,var:tk.Entry(p,textvariable=var,width=14,bg=CARD2,fg=TEXT,insertbackground=TEXT,relief="flat",highlightbackground=BORDER,highlightthickness=1)
+  r_host=row("Adresse ESP32",lambda p:entry(p,self.host))
+  r_tcp=row("Port TCP",lambda p:entry(p,self.tcp_port))
   self.wifi_rows=[r_host,r_tcp]
   st=tk.Frame(inner,bg=CARD);st.pack(fill="x",pady=(8,6))
   self.conn_status=st
@@ -365,24 +433,6 @@ class App:
   self.conn_btn.pack(fill="x")
   self.on_transport()
 
-  self.section(side,"FICHIER DE LECTURE")
-  card2=self.card(side);card2.pack(fill="x",padx=14,pady=2)
-  in2=tk.Frame(card2,bg=CARD);in2.pack(fill="x",padx=12,pady=8)
-  self.button(in2,"Ouvrir un fichier .txt",self.open_file,TEXT,CARD2).pack(fill="x")
-  tk.Label(in2,textvariable=self.file_name,bg=CARD,fg=SUB,font=(FONT,8),anchor="w",wraplength=190,justify="left").pack(fill="x",pady=(6,4))
-  tr=tk.Frame(in2,bg=CARD);tr.pack(fill="x",pady=2)
-  self.button(tr,"Lecture",self.play,GREEN,CARD2,font=9).pack(side="left",expand=True,fill="x",padx=2)
-  self.button(tr,"Pause",self.pause,YELLOW,CARD2,font=9).pack(side="left",expand=True,fill="x",padx=2)
-  self.button(tr,"Début",self.reset,SUB,CARD2,font=9).pack(side="left",expand=True,fill="x",padx=2)
-  sp=tk.Frame(in2,bg=CARD);sp.pack(fill="x",pady=(8,0))
-  self.speed_lbl=tk.Label(sp,text="Vitesse x1",bg=CARD,fg=SUB,font=(FONT,9));self.speed_lbl.pack(side="left")
-  slider=tk.Scale(in2,from_=0,to=len(SPEEDS)-1,resolution=1,orient="horizontal",showvalue=False,command=self.on_speed,
-                  bg=CARD,troughcolor=CARD2,highlightthickness=0,activebackground=RED,bd=0,sliderlength=14,width=10)
-  slider.set(SPEEDS.index(1)); slider.pack(fill="x")
-  tk.Label(in2,text="Progression",bg=CARD,fg=MUTED,font=(FONT,8)).pack(anchor="w",pady=(6,0))
-  ttk.Progressbar(in2,variable=self.progress,maximum=100,style="Rsv.Horizontal.TProgressbar").pack(fill="x",pady=(2,2))
-  tk.Label(in2,textvariable=self.clock,bg=CARD,fg=TEXT,font=(FONT,9,"bold")).pack(anchor="e")
-
  def on_transport(self,e=None):
   wifi=self.transport.get().startswith("Wi-Fi")
   for r in self.serial_rows+self.wifi_rows:r.pack_forget()
@@ -391,22 +441,37 @@ class App:
  def ro_combo(self,parent,values):
   c=ttk.Combobox(parent,values=values,state="readonly",width=15);c.current(0);return c
 
- def on_speed(self,v):
-  val=SPEEDS[int(float(v))];self.speed.set(val);self.speed_lbl.config(text=f"Vitesse x{val:g}")
-
  def build_main(self):
   main=tk.Frame(self.root,bg=BG);main.pack(side="left",fill="both",expand=True)
-  head=tk.Frame(main,bg=BG);head.pack(fill="x",padx=22,pady=(16,6))
-  tk.Label(head,text="Diagnostic & Télémétrie CAN",fg=TEXT,bg=BG,font=(FONT,20,"bold")).pack(anchor="w")
-  self.subtitle=tk.Label(head,text="",fg=SUB,bg=BG,font=(FONT,11));self.subtitle.pack(anchor="w")
+  head=tk.Frame(main,bg=BG);head.pack(fill="x",padx=22,pady=(14,4))
+  tk.Label(head,text="Diagnostic & Télémétrie CAN",fg=TEXT,bg=BG,font=(FONT,18,"bold")).pack(side="left")
+  self.subtitle=tk.Label(head,text="",fg=SUB,bg=BG,font=(FONT,11));self.subtitle.pack(side="left",padx=(14,0),pady=(6,0))
+  self.build_playbar(main)
   self.area=tk.Frame(main,bg=BG);self.area.pack(fill="both",expand=True,padx=18,pady=(0,10))
-  self.page_bus=tk.Frame(self.area,bg=BG)
+  self.page_tele=tk.Frame(self.area,bg=BG)
   self.page_graph=tk.Frame(self.area,bg=BG)
   self.page_frames=tk.Frame(self.area,bg=BG)
-  self.pages={"bus":self.page_bus,"graph":self.page_graph,"frames":self.page_frames}
-  self.build_bus(self.page_bus)
+  self.page_esp=tk.Frame(self.area,bg=BG)
+  self.pages={"tele":self.page_tele,"graph":self.page_graph,"frames":self.page_frames,"esp":self.page_esp}
+  self.build_tele(self.page_tele)
   self.build_graph(self.page_graph)
   self.build_table(self.page_frames)
+  self.build_esp(self.page_esp)
+
+ def build_playbar(self,main):
+  bar=tk.Frame(main,bg=CARD,highlightbackground=BORDER,highlightthickness=1);bar.pack(fill="x",padx=18,pady=(4,8))
+  inner=tk.Frame(bar,bg=CARD);inner.pack(fill="x",padx=12,pady=8)
+  self.button(inner,"Ouvrir un fichier .txt",self.open_file,TEXT,CARD2,font=9).pack(side="left",padx=2)
+  self.button(inner,"Lecture",self.play,GREEN,CARD2,font=9).pack(side="left",padx=2)
+  self.button(inner,"Pause",self.pause,YELLOW,CARD2,font=9).pack(side="left",padx=2)
+  self.button(inner,"Début",self.reset,SUB,CARD2,font=9).pack(side="left",padx=2)
+  tk.Label(inner,text="Vitesse",bg=CARD,fg=SUB,font=(FONT,9)).pack(side="left",padx=(14,4))
+  cb=ttk.Combobox(inner,values=list(SPEEDS),state="readonly",width=6);cb.set("x1");cb.pack(side="left")
+  cb.bind("<<ComboboxSelected>>",lambda e:self.speed.set(SPEEDS[cb.get()]))
+  tk.Label(inner,textvariable=self.file_name,bg=CARD,fg=SUB,font=(FONT,9),anchor="w").pack(side="left",padx=(14,0))
+  tk.Label(inner,textvariable=self.clock,bg=CARD,fg=TEXT,font=(FONT,9,"bold")).pack(side="right",padx=(8,0))
+  ttk.Progressbar(inner,variable=self.progress,maximum=100,style="Rsv.Horizontal.TProgressbar",length=260).pack(side="right",padx=8)
+  tk.Label(inner,text="Progression",bg=CARD,fg=MUTED,font=(FONT,8)).pack(side="right")
 
  def show_page(self,key):
   for p in self.pages.values():p.pack_forget()
@@ -416,17 +481,17 @@ class App:
    row.config(bg=HOVER if on else SIDE);bar.config(bg=RED if on else SIDE)
    lbl.config(bg=HOVER if on else SIDE,fg=TEXT if on else SUB)
 
- # ---------- page 1 : bus en direct ----------
- def build_bus(self,parent):
+ # ---------- page Télémétrie ----------
+ def build_tele(self,parent):
   top=tk.Frame(parent,bg=BG);top.pack(fill="x")
   self.build_top(top)
   head=tk.Frame(parent,bg=BG);head.pack(fill="x",pady=(10,2))
-  tk.Label(head,text="Tous les paramètres du bus",fg=TEXT,bg=BG,font=(FONT,13,"bold")).pack(side="left")
+  tk.Label(head,text="Toutes les données de télémétrie",fg=TEXT,bg=BG,font=(FONT,13,"bold")).pack(side="left")
   self.bus_note=tk.Label(head,text="",fg=SUB,bg=BG,font=(FONT,9));self.bus_note.pack(side="left",padx=12)
   wrap,inner=self.scroll_area(parent,BG)
   wrap.pack(fill="both",expand=True,pady=(2,0))
   groups={}
-  for s in SIGNALS:groups.setdefault(GROUP_OF.get(s[0],"Autres"),[]).append(s)
+  for s in TILE_DEFS:groups.setdefault(GROUP_OF.get(s[0],"Autres"),[]).append(s)
   for g in dict.fromkeys(GROUP_ORDER+list(groups)):
    if g not in groups:continue
    tk.Label(inner,text=g.upper(),fg=MUTED,bg=BG,font=(FONT,8,"bold"),anchor="w").pack(fill="x",pady=(12,2))
@@ -438,27 +503,28 @@ class App:
   cid,name,_,_,_,_,unit=s
   f=tk.Frame(parent,bg=CARD,highlightbackground=BORDER,highlightthickness=1,width=TILE_W,height=96)
   f.pack_propagate(False)
-  tk.Label(f,text=name.replace("_"," "),fg=SUB,bg=CARD,font=(FONT,8,"bold"),anchor="w").pack(fill="x",padx=10,pady=(8,0))
+  nl=tk.Label(f,text=name.replace("_"," "),fg=SUB,bg=CARD,font=(FONT,8,"bold"),anchor="w");nl.pack(fill="x",padx=10,pady=(8,0))
   row=tk.Frame(f,bg=CARD);row.pack(anchor="w",padx=10)
   vl=tk.Label(row,text="—",fg=TEXT,bg=CARD,font=(FONT,18,"bold"));vl.pack(side="left")
   if unit:tk.Label(row,text=disp_unit(unit),fg=MUTED,bg=CARD,font=(FONT,9)).pack(side="left",padx=(5,0),pady=(9,0))
   sl=tk.Label(f,text=f"0x{cid:03X}",fg=MUTED,bg=CARD,font=(FONT,7,"bold"),anchor="w")
   sl.pack(side="bottom",fill="x",padx=10,pady=(0,6))
-  self.tiles[(cid,name)]=(f,vl,sl)
+  self.tiles[(cid,name)]=(f,vl,sl,nl)
   return f
 
  def put(self,cid,name,val,t,src):
-  """Enregistre une valeur décodée : valeur courante, historique pour les courbes, mise à jour de la tuile."""
+  """Enregistre une valeur : valeur courante, historique pour les courbes, mise à jour de la tuile."""
   key=(cid,name);self.vals[key]=(val,src)
   h=self.hist.get(key)
-  if h is None:h=self.hist[key]=deque(maxlen=8000)
+  if h is None:h=self.hist[key]=deque(maxlen=12000)
   h.append((t,val));self.dirty.add(key)
 
  def refresh_tile(self,key):
-  f,vl,sl=self.tiles[key];val,src=self.vals[key]
+  f,vl,sl,nl=self.tiles[key];val,src=self.vals[key]
   vl.config(text=fmt_val(val))
   if src=="def":sl.config(text=f"0x{key[0]:03X} · définition",fg=MUTED)
   elif src=="valid":sl.config(text=f"0x{key[0]:03X} · validé",fg=GREEN)
+  elif src=="esp":sl.config(text=f"0x{key[0]:03X} · ESP32",fg=CYAN)
   else:sl.config(text=f"0x{key[0]:03X} · app · à valider",fg=YELLOW)
   vl.config(fg=CYAN);self.flash_until[key]=time.monotonic()+.3
 
@@ -537,68 +603,300 @@ class App:
  def set_srow(self,key,text,color):
   dot,v=self.srow[key];set_dot(dot,color);v.config(text=text)
 
- # ---------- page 2 : analyse (courbes) ----------
+ # ---------- page Courbes ----------
  def build_graph(self,parent):
-  side=self.card(parent);side.pack(side="left",fill="y",padx=4,pady=4)
-  tk.Label(side,text="Signaux tracés",fg=TEXT,bg=CARD,font=(FONT,11,"bold")).pack(anchor="w",padx=12,pady=(10,4))
-  bt=tk.Frame(side,bg=CARD);bt.pack(fill="x",padx=10)
-  self.button(bt,"Défaut",lambda:self.set_curves(DEFAULT_CURVES),SUB,CARD2,font=9).pack(side="left",expand=True,fill="x",padx=2)
-  self.button(bt,"Aucun",lambda:self.set_curves([]),SUB,CARD2,font=9).pack(side="left",expand=True,fill="x",padx=2)
-  wrap,inner=self.scroll_area(side,CARD,width=250)
-  wrap.pack(fill="both",expand=True,padx=6,pady=6)
-  for i,key in enumerate(SIG_KEYS):
-   cid,name=key;color=PALETTE[i%len(PALETTE)]
-   tk.Checkbutton(inner,text=f"{name.replace('_',' ')}  ·  0x{cid:03X}",variable=self.curve_vars[key],bg=CARD,fg=color,
-                  selectcolor=CARD2,activebackground=CARD,activeforeground=color,font=(FONT,9),bd=0,highlightthickness=0,
-                  anchor="w").pack(fill="x",padx=4,pady=0)
-  main=self.card(parent);main.pack(fill="both",expand=True,padx=4,pady=4)
-  hdr=tk.Frame(main,bg=CARD);hdr.pack(fill="x",padx=14,pady=(10,2))
-  tk.Label(hdr,text="Analyse des courbes",fg=TEXT,bg=CARD,font=(FONT,12,"bold")).pack(side="left")
-  wc=ttk.Combobox(hdr,values=["30 s","60 s","120 s","300 s"],state="readonly",width=7)
-  wc.current(1);wc.pack(side="right")
-  wc.bind("<<ComboboxSelected>>",lambda e:self.window.set(int(wc.get().split()[0])))
-  tk.Label(hdr,text="Fenêtre",fg=SUB,bg=CARD,font=(FONT,9)).pack(side="right",padx=(0,6))
-  self.chart=tk.Canvas(main,bg=CARD,highlightthickness=0)
-  self.chart.pack(fill="both",expand=True,padx=10,pady=(4,10))
+  left=tk.Frame(parent,bg=BG,width=290);left.pack(side="left",fill="y",padx=(0,6));left.pack_propagate(False)
+  mapc=self.card(left);mapc.pack(fill="x",pady=(0,6))
+  self.map=tk.Canvas(mapc,bg=CARD,height=230,highlightthickness=0);self.map.pack(fill="x",padx=6,pady=6)
+  selc=self.card(left);selc.pack(fill="both",expand=True)
+  tk.Label(selc,text="Signaux tracés · cliquer pour ajouter",fg=SUB,bg=CARD,font=(FONT,9,"bold")).pack(anchor="w",padx=10,pady=(8,4))
+  wrap,inner=self.scroll_area(selc,CARD)
+  wrap.pack(fill="both",expand=True,padx=6,pady=(0,6))
+  for key in CURVE_KEYS:
+   cid,name=key
+   b=tk.Button(inner,text=f"{name.replace('_',' ')}  ·  0x{cid:03X}",anchor="w",relief="flat",bd=0,highlightthickness=0,
+               font=(FONT,9,"bold"),padx=8,pady=3,cursor="hand2",command=lambda k=key:self.toggle_curve(k))
+   b.pack(fill="x",padx=2,pady=1)
+   self.curve_btns[key]=b
+  self.refresh_curve_buttons()
 
- def set_curves(self,keys):
-  for k,v in self.curve_vars.items():v.set(k in keys)
+  right=self.card(parent);right.pack(side="left",fill="both",expand=True)
+  bar=tk.Frame(right,bg=CARD);bar.pack(fill="x",padx=12,pady=(10,6))
+  tk.Label(bar,text="Courbes",fg=TEXT,bg=CARD,font=(FONT,12,"bold")).pack(side="left",padx=(0,14))
+  self.btn_ov=self.button(bar,"Superposées",lambda:self.set_stack(False),SUB,CARD2,font=9);self.btn_ov.pack(side="left",padx=2)
+  self.btn_st=self.button(bar,"Empilées",lambda:self.set_stack(True),SUB,CARD2,font=9);self.btn_st.pack(side="left",padx=2)
+  self.btn_band=self.button(bar,"",self.cycle_band,SUB,CARD2,font=9);self.btn_band.pack(side="left",padx=(10,2))
+  wc=ttk.Combobox(bar,values=[f"{w} s" for w in WINDOWS],state="readonly",width=7)
+  wc.set(f"{self.window.get()} s");wc.pack(side="right")
+  wc.bind("<<ComboboxSelected>>",lambda e:self.window.set(int(wc.get().split()[0])))
+  tk.Label(bar,text="Fenêtre",fg=SUB,bg=CARD,font=(FONT,9)).pack(side="right",padx=(0,6))
+  cw=tk.Frame(right,bg=CARD);cw.pack(fill="both",expand=True,padx=6,pady=(0,6))
+  self.chart=tk.Canvas(cw,bg=CARD,highlightthickness=0)
+  self.chart_sb=ttk.Scrollbar(cw,orient="vertical",command=self.chart.yview)
+  self.chart.configure(yscrollcommand=self.chart_sb.set)
+  self.chart.pack(side="left",fill="both",expand=True)
+  def wheel(e):self.chart.yview_scroll(int(-e.delta/120),"units")
+  self.chart.bind("<Enter>",lambda e:self.chart.bind_all("<MouseWheel>",wheel))
+  self.chart.bind("<Leave>",lambda e:self.chart.unbind_all("<MouseWheel>"))
+  self.refresh_mode_buttons()
+
+ def toggle_curve(self,key):
+  if key in self.sel:self.sel.discard(key)
+  else:self.sel.add(key)
+  self.refresh_curve_buttons()
+
+ def refresh_curve_buttons(self):
+  for key,b in self.curve_btns.items():
+   on=key in self.sel;color=PALETTE[CURVE_INDEX[key]%len(PALETTE)]
+   b.config(bg=color if on else CARD2,fg=BG if on else SUB,activebackground=color if on else HOVER,activeforeground=BG if on else TEXT)
+
+ def set_stack(self,stacked):
+  self.stack.set(stacked);self.refresh_mode_buttons()
+
+ def cycle_band(self):
+  self.band_idx=(self.band_idx+1)%len(BANDS);self.refresh_mode_buttons()
+
+ def refresh_mode_buttons(self):
+  for b,on in ((self.btn_ov,not self.stack.get()),(self.btn_st,self.stack.get())):
+   b.config(bg=CYAN if on else CARD2,fg=BG if on else SUB)
+  stacked=self.stack.get()
+  self.btn_band.config(text=f"Hauteur : {BANDS[self.band_idx]} px",state="normal" if stacked else "disabled",
+                       fg=SUB if stacked else MUTED)
+
+ def paint_map(self):
+  c=self.map;c.delete("all");w=c.winfo_width();h=c.winfo_height()
+  if w>60 and h>60:
+   c.create_text(10,8,text="Circuit",anchor="nw",fill=SUB,font=(FONT,9,"bold"))
+   pts=list(self.track)
+   if len(pts)<2:
+    c.create_text(w/2,h/2,text="Pas de données GPS dans cette source",fill=MUTED,font=(FONT,9))
+   else:
+    lats=[p[0] for p in pts];lons=[p[1] for p in pts]
+    mnla,mxla,mnlo,mxlo=min(lats),max(lats),min(lons),max(lons)
+    lat0=(mnla+mxla)/2;kx=math.cos(math.radians(lat0))
+    dx=max((mxlo-mnlo)*kx,1e-7);dy=max(mxla-mnla,1e-7)
+    s=min((w-30)/dx,(h-40)/dy)
+    ox=(w-dx*s)/2;oy=20+((h-40)-dy*s)/2
+    def xy(la,lo):return ox+(lo-mnlo)*kx*s, oy+(mxla-la)*s
+    step=max(1,len(pts)//1500);sample=pts[::step]
+    if sample[-1]!=pts[-1]:sample.append(pts[-1])
+    coords=[]
+    for la,lo in sample:coords.extend(xy(la,lo))
+    c.create_line(*coords,fill=CYAN,width=2)
+    x,y=xy(*pts[-1]);c.create_oval(x-5,y-5,x+5,y+5,fill=GREEN,outline="")
+  self.root.after(400,self.paint_map)
 
  def paint_chart(self):
   c=self.chart;c.delete("all");w=c.winfo_width();h=c.winfo_height()
   if w>300 and h>120:
-   win=self.window.get();L,R,T,B=56,300,16,30;pw=w-L-R;ph=h-T-B
-   span=win*1000;start=self.t_now-span
-   for i in range(5):
-    y=T+ph*i/4;c.create_line(L,y,L+pw,y,fill=BORDER)
-   for frac,label,anc in [(0,f"-{win} s","w"),(.5,f"-{win//2} s","center"),(1,"maintenant","e")]:
-    c.create_text(L+pw*frac,h-12,text=label,fill=MUTED,font=(FONT,8),anchor=anc)
-   lx=L+pw+14;ly=T+4
-   c.create_text(lx,ly,text="Signal · min · max · actuel",anchor="nw",fill=SUB,font=(FONT,8,"bold"))
-   row=0
-   for i,key in enumerate(SIG_KEYS):
-    if not self.curve_vars[key].get():continue
-    color=PALETTE[i%len(PALETTE)];cid,name=key
+   win=self.window.get();span=win*1000;start=self.t_now-span
+   sel=[k for k in CURVE_KEYS if k in self.sel]
+   L,R,T,B=64,280,14,30;pw=w-L-R
+   def recent(key):
     pts=[]
     for t,v in reversed(self.hist.get(key,())):
      if t<start:break
      pts.append((t,v))
-    pts.reverse()
-    y0=ly+26+row*38;row+=1
-    c.create_line(lx,y0+7,lx+18,y0+7,fill=color,width=3)
-    c.create_text(lx+26,y0,text=f"{name.replace('_',' ')} · 0x{cid:03X}",anchor="nw",fill=TEXT,font=(FONT,8,"bold"))
-    if len(pts)<2:
-     c.create_text(lx+26,y0+14,text="pas de donnée",anchor="nw",fill=MUTED,font=(FONT,8))
-     continue
-    vals=[v for _,v in pts];mn=min(vals);mx=max(vals);rng=mx-mn
-    coords=[]
-    for t,v in pts:
-     x=L+pw*(t-start)/span
-     y=T+ph/2 if rng==0 else T+ph*(1-(v-mn)/rng)
-     coords.extend((x,y))
-    c.create_line(*coords,fill=color,width=2)
-    c.create_text(lx+26,y0+14,text=f"min {fmt_val(mn)} · max {fmt_val(mx)} · {fmt_val(vals[-1])}",anchor="nw",fill=SUB,font=(FONT,8))
+    pts.reverse();return pts
+   if not self.stack.get():
+    ph=h-T-B
+    c.configure(scrollregion=(0,0,w,h))
+    for i in range(5):
+     y=T+ph*i/4;c.create_line(L,y,L+pw,y,fill=BORDER)
+    for frac,label,anc in [(0,f"-{win} s","w"),(.5,f"-{win//2} s","center"),(1,"maintenant","e")]:
+     c.create_text(L+pw*frac,h-12,text=label,fill=MUTED,font=(FONT,8),anchor=anc)
+    c.create_text(L+pw+14,T+2,text="Signal · min · max · actuel",anchor="nw",fill=SUB,font=(FONT,8,"bold"))
+    c.create_text(L+8,T+2,text="Courbes superposées · chacune normalisée sur son étendue",anchor="nw",fill=MUTED,font=(FONT,8))
+    for i,key in enumerate(sel):
+     color=PALETTE[CURVE_INDEX[key]%len(PALETTE)];cid,name=key
+     pts=recent(key);y0=T+26+i*40
+     c.create_line(L+pw+14,y0+7,L+pw+32,y0+7,fill=color,width=3)
+     c.create_text(L+pw+40,y0,text=f"{name.replace('_',' ')} · 0x{cid:03X}",anchor="nw",fill=TEXT,font=(FONT,8,"bold"))
+     if len(pts)<2:
+      c.create_text(L+pw+40,y0+14,text="pas de donnée",anchor="nw",fill=MUTED,font=(FONT,8));continue
+     vals=[v for _,v in pts];mn=min(vals);mx=max(vals);rng=mx-mn
+     coords=[]
+     for t,v in pts:
+      coords.extend((L+pw*(t-start)/span, T+ph/2 if rng==0 else T+ph*(1-(v-mn)/rng)))
+     c.create_line(*coords,fill=color,width=2)
+     c.create_text(L+pw+40,y0+14,text=f"min {fmt_val(mn)} · max {fmt_val(mx)} · {fmt_val(vals[-1])}",anchor="nw",fill=SUB,font=(FONT,8))
+   else:
+    H=BANDS[self.band_idx];total=max(h,T+len(sel)*H+B)
+    c.configure(scrollregion=(0,0,w,total))
+    for i,key in enumerate(sel):
+     color=PALETTE[CURVE_INDEX[key]%len(PALETTE)];cid,name=key
+     y0=T+i*H;y1=y0+H
+     c.create_rectangle(L,y0+3,L+pw,y1-3,outline=BORDER,fill=BG)
+     c.create_text(L+8,y0+8,text=f"{name.replace('_',' ')} · 0x{cid:03X}",anchor="nw",fill=color,font=(FONT,9,"bold"))
+     pts=recent(key)
+     if len(pts)<2:
+      c.create_text(L+pw+14,y0+8,text="pas de donnée",anchor="nw",fill=MUTED,font=(FONT,8));continue
+     vals=[v for _,v in pts];mn=min(vals);mx=max(vals);rng=mx-mn
+     top=y0+24;bot=y1-10;coords=[]
+     for t,v in pts:
+      coords.extend((L+pw*(t-start)/span, (top+bot)/2 if rng==0 else bot-(bot-top)*(v-mn)/rng))
+     c.create_line(*coords,fill=color,width=2)
+     c.create_text(L+pw+14,y0+8,text=f"min {fmt_val(mn)}",anchor="nw",fill=SUB,font=(FONT,8))
+     c.create_text(L+pw+14,y0+22,text=f"max {fmt_val(mx)}",anchor="nw",fill=SUB,font=(FONT,8))
+     c.create_text(L+pw+14,y0+36,text=f"actuel {fmt_val(vals[-1])}",anchor="nw",fill=TEXT,font=(FONT,8,"bold"))
+    yb=total-12
+    for frac,label,anc in [(0,f"-{win} s","w"),(.5,f"-{win//2} s","center"),(1,"maintenant","e")]:
+     c.create_text(L+pw*frac,yb,text=label,fill=MUTED,font=(FONT,8),anchor=anc)
   self.root.after(180,self.paint_chart)
+
+ # ---------- page Paramétrage ESP32 ----------
+ def build_esp_vars(self):
+  sv=lambda k,v:self.cv.__setitem__(k,tk.StringVar(value=str(v)))
+  bv=lambda k,v:self.cv.__setitem__(k,tk.BooleanVar(value=v))
+  sv("ssid","RSV4-CAN");sv("password","rsv4-can-2026");sv("channel",6)
+  self.cv["tcp_port"]=self.tcp_port
+  sv("can_bitrate",250);sv("can_tx",5);sv("can_rx",4)
+  bv("gps_on",True);sv("gps_rx",16);sv("gps_baud",115200)
+  for i,(pin,name,on) in enumerate(DIG_DEFAULT):sv(f"dig{i}_pin",pin);sv(f"dig{i}_name",name);bv(f"dig{i}_on",on)
+  for i,(pin,name,on) in enumerate(ANA_DEFAULT):sv(f"ana{i}_pin",pin);sv(f"ana{i}_name",name);bv(f"ana{i}_on",on)
+  for i,(pin,name,level,on) in enumerate(OUT_DEFAULT):sv(f"out{i}_pin",pin);sv(f"out{i}_name",name);sv(f"out{i}_level",level);bv(f"out{i}_on",on)
+
+ def cfg_from_vars(self):
+  """Construit la configuration ESP32 à partir des champs ; lève ValueError si un champ est invalide."""
+  v=self.cv;i=lambda k:int(str(v[k].get()).strip())
+  return {"wifi":{"ssid":v["ssid"].get().strip(),"password":v["password"].get(),"channel":i("channel"),"tcp_port":int(self.tcp_port.get().strip())},
+          "can":{"bitrate_kbps":i("can_bitrate"),"tx_pin":i("can_tx"),"rx_pin":i("can_rx")},
+          "gps":{"enabled":v["gps_on"].get(),"rx_pin":i("gps_rx"),"baud":i("gps_baud")},
+          "digital_inputs":[{"pin":i(f"dig{n}_pin"),"name":v[f"dig{n}_name"].get(),"enabled":v[f"dig{n}_on"].get()} for n in range(8)],
+          "analog_inputs":[{"pin":i(f"ana{n}_pin"),"name":v[f"ana{n}_name"].get(),"enabled":v[f"ana{n}_on"].get()} for n in range(3)],
+          "outputs":[{"pin":i(f"out{n}_pin"),"name":v[f"out{n}_name"].get(),"level":v[f"out{n}_level"].get(),"enabled":v[f"out{n}_on"].get()} for n in range(2)]}
+
+ def cfg_to_vars(self,cfg):
+  v=self.cv
+  w,c,g=cfg["wifi"],cfg["can"],cfg["gps"]
+  v["ssid"].set(w["ssid"]);v["password"].set(w["password"]);v["channel"].set(w["channel"]);self.tcp_port.set(str(w["tcp_port"]))
+  v["can_bitrate"].set(c["bitrate_kbps"]);v["can_tx"].set(c["tx_pin"]);v["can_rx"].set(c["rx_pin"])
+  v["gps_on"].set(bool(g["enabled"]));v["gps_rx"].set(g["rx_pin"]);v["gps_baud"].set(g["baud"])
+  for n,e in enumerate(cfg["digital_inputs"]):v[f"dig{n}_pin"].set(e["pin"]);v[f"dig{n}_name"].set(e["name"]);v[f"dig{n}_on"].set(bool(e["enabled"]))
+  for n,e in enumerate(cfg["analog_inputs"]):v[f"ana{n}_pin"].set(e["pin"]);v[f"ana{n}_name"].set(e["name"]);v[f"ana{n}_on"].set(bool(e["enabled"]))
+  for n,e in enumerate(cfg["outputs"]):
+   v[f"out{n}_pin"].set(e["pin"]);v[f"out{n}_name"].set(e["name"]);v[f"out{n}_level"].set(e["level"]);v[f"out{n}_on"].set(bool(e["enabled"]))
+
+ def esp_card(self,parent,title):
+  c=self.card(parent);c.pack(fill="x",padx=6,pady=6)
+  tk.Label(c,text=title,fg=TEXT,bg=CARD,font=(FONT,10,"bold")).pack(anchor="w",padx=14,pady=(10,6))
+  inner=tk.Frame(c,bg=CARD);inner.pack(fill="x",padx=14,pady=(0,12))
+  return inner
+
+ def efield(self,parent,label,key,width=16):
+  r=tk.Frame(parent,bg=CARD);r.pack(fill="x",pady=2)
+  tk.Label(r,text=label,bg=CARD,fg=SUB,font=(FONT,9),anchor="w",width=38).pack(side="left")
+  tk.Entry(r,textvariable=self.cv[key],width=width,bg=CARD2,fg=TEXT,insertbackground=TEXT,relief="flat",
+           highlightbackground=BORDER,highlightthickness=1).pack(side="left")
+
+ def ecombo(self,parent,label,key,values):
+  r=tk.Frame(parent,bg=CARD);r.pack(fill="x",pady=2)
+  tk.Label(r,text=label,bg=CARD,fg=SUB,font=(FONT,9),anchor="w",width=38).pack(side="left")
+  ttk.Combobox(r,textvariable=self.cv[key],values=values,state="readonly",width=12).pack(side="left")
+
+ def echeck(self,parent,label,key):
+  tk.Checkbutton(parent,text=label,variable=self.cv[key],bg=CARD,fg=TEXT,selectcolor=CARD2,activebackground=CARD,
+                 activeforeground=TEXT,font=(FONT,9),bd=0,highlightthickness=0).pack(anchor="w",pady=2)
+
+ def build_esp(self,parent):
+  bar=tk.Frame(parent,bg=BG);bar.pack(fill="x",pady=(0,6))
+  tk.Label(bar,text="Paramétrage de l'ESP32",fg=TEXT,bg=BG,font=(FONT,13,"bold")).pack(side="left")
+  tk.Label(bar,text="Réseau, bus CAN, GPS et entrées/sorties",fg=SUB,bg=BG,font=(FONT,9)).pack(side="left",padx=12)
+  self.button(bar,"Appliquer à l'application",self.apply_esp,TEXT,CARD2,font=9).pack(side="right",padx=3)
+  self.button(bar,"Générer rsv4_config.h",self.export_header,TEXT,CARD2,font=9).pack(side="right",padx=3)
+  self.button(bar,"Enregistrer (JSON)",self.save_esp,TEXT,CARD2,font=9).pack(side="right",padx=3)
+  self.button(bar,"Charger (JSON)",self.load_esp,TEXT,CARD2,font=9).pack(side="right",padx=3)
+  wrap,inner=self.scroll_area(parent,BG)
+  wrap.pack(fill="both",expand=True)
+  left=tk.Frame(inner,bg=BG);left.pack(side="left",fill="y",anchor="n")
+  right=tk.Frame(inner,bg=BG);right.pack(side="left",fill="both",expand=True,anchor="n")
+  c=self.esp_card(left,"Réseau Wi-Fi (point d'accès de l'ESP32)")
+  self.efield(c,"Nom du réseau (SSID)","ssid",22)
+  self.efield(c,"Mot de passe (8 caractères min.)","password",22)
+  self.ecombo(c,"Canal Wi-Fi","channel",[str(n) for n in range(1,14)])
+  self.efield(c,"Port TCP (applications)","tcp_port",10)
+  c=self.esp_card(left,"Bus CAN")
+  self.ecombo(c,"Débit (kbit/s)","can_bitrate",["250","500"])
+  self.efield(c,"Broche TX (vers le transceiver)","can_tx",8)
+  self.efield(c,"Broche RX (vers le transceiver)","can_rx",8)
+  c=self.esp_card(left,"GPS (UART)")
+  self.echeck(c,"GPS activé (trames 0x7F0 et 0x7F8)","gps_on")
+  self.efield(c,"Broche RX (depuis le module GPS)","gps_rx",8)
+  self.ecombo(c,"Débit (bauds)","gps_baud",["9600","38400","115200"])
+  c=self.esp_card(right,"Entrées numériques (trame 0x7F9, bit par entrée)")
+  self.io_header(c,["Entrée","Broche","Nom","Active"])
+  for n in range(8):
+   r=tk.Frame(c,bg=CARD);r.pack(fill="x",pady=1)
+   tk.Label(r,text=f"E{n+1}",bg=CARD,fg=SUB,font=(FONT,9),width=8,anchor="w").pack(side="left")
+   self.io_entry(r,f"dig{n}_pin",6);self.io_entry(r,f"dig{n}_name",18)
+   tk.Checkbutton(r,variable=self.cv[f"dig{n}_on"],bg=CARD,selectcolor=CARD2,activebackground=CARD,bd=0,highlightthickness=0).pack(side="left",padx=12)
+  c=self.esp_card(right,"Entrées analogiques ADC (trame 0x7F9, 0 à 4095)")
+  self.io_header(c,["Entrée","Broche","Nom","Active"])
+  for n in range(3):
+   r=tk.Frame(c,bg=CARD);r.pack(fill="x",pady=1)
+   tk.Label(r,text=f"ADC{n+1}",bg=CARD,fg=SUB,font=(FONT,9),width=8,anchor="w").pack(side="left")
+   self.io_entry(r,f"ana{n}_pin",6);self.io_entry(r,f"ana{n}_name",18)
+   tk.Checkbutton(r,variable=self.cv[f"ana{n}_on"],bg=CARD,selectcolor=CARD2,activebackground=CARD,bd=0,highlightthickness=0).pack(side="left",padx=12)
+  c=self.esp_card(right,"Sorties (niveau appliqué au démarrage)")
+  self.io_header(c,["Sortie","Broche","Nom","Niveau","Active"])
+  for n in range(2):
+   r=tk.Frame(c,bg=CARD);r.pack(fill="x",pady=1)
+   tk.Label(r,text=f"S{n+1}",bg=CARD,fg=SUB,font=(FONT,9),width=8,anchor="w").pack(side="left")
+   self.io_entry(r,f"out{n}_pin",6);self.io_entry(r,f"out{n}_name",18)
+   ttk.Combobox(r,textvariable=self.cv[f"out{n}_level"],values=["Haut","Bas"],state="readonly",width=6).pack(side="left",padx=6)
+   tk.Checkbutton(r,variable=self.cv[f"out{n}_on"],bg=CARD,selectcolor=CARD2,activebackground=CARD,bd=0,highlightthickness=0).pack(side="left",padx=12)
+  tk.Label(right,text="Les broches et réglages sont appliqués au firmware par « Générer rsv4_config.h » puis recompilation du firmware.\n"
+                      "Les entrées/sorties sont lues par le firmware ; les sorties ne sont pas pilotées depuis l'application.",
+           fg=MUTED,bg=BG,font=(FONT,8),justify="left").pack(anchor="w",padx=8,pady=(4,10))
+
+ def io_header(self,parent,labels):
+  r=tk.Frame(parent,bg=CARD);r.pack(fill="x",pady=(0,4))
+  widths=[8,6,18,6,6]
+  for i,l in enumerate(labels):
+   tk.Label(r,text=l,bg=CARD,fg=MUTED,font=(FONT,8,"bold"),width=widths[i] if i<len(widths) else 8,anchor="w").pack(side="left")
+
+ def io_entry(self,parent,key,width):
+  tk.Entry(parent,textvariable=self.cv[key],width=width,bg=CARD2,fg=TEXT,insertbackground=TEXT,relief="flat",
+           highlightbackground=BORDER,highlightthickness=1).pack(side="left",padx=(0,6))
+
+ def apply_esp(self):
+  try:cfg=self.cfg_from_vars();validate_cfg(cfg)
+  except ValueError as e:messagebox.showerror("Paramétrage ESP32",str(e));return
+  names={(0x7F9,f"Entrée {n+1}"):e["name"] for n,e in enumerate(cfg["digital_inputs"])}
+  names.update({(0x7F9,f"ADC {n+1}"):e["name"] for n,e in enumerate(cfg["analog_inputs"])})
+  for key,(f,vl,sl,nl) in self.tiles.items():
+   if key in names:nl.config(text=names[key] or key[1])
+  self.set_state("Paramétrage appliqué · recompiler le firmware pour les broches",CYAN)
+
+ def save_esp(self):
+  try:cfg=self.cfg_from_vars();validate_cfg(cfg)
+  except ValueError as e:messagebox.showerror("Paramétrage ESP32",str(e));return
+  p=filedialog.asksaveasfilename(title="Enregistrer le paramétrage",defaultextension=".json",initialfile="rsv4_esp32.json",
+                                 filetypes=[("Paramétrage JSON","*.json")])
+  if p:
+   with open(p,"w",encoding="utf-8") as f:json.dump(cfg,f,ensure_ascii=False,indent=2)
+   self.set_state(f"Paramétrage enregistré : {os.path.basename(p)}",GREEN)
+
+ def load_esp(self):
+  p=filedialog.askopenfilename(title="Charger un paramétrage",filetypes=[("Paramétrage JSON","*.json")])
+  if not p:return
+  try:
+   with open(p,encoding="utf-8") as f:cfg=json.load(f)
+   validate_cfg(cfg);self.cfg_to_vars(cfg)
+  except (OSError,ValueError,KeyError) as e:messagebox.showerror("Paramétrage ESP32",f"Fichier invalide : {e}");return
+  self.set_state(f"Paramétrage chargé : {os.path.basename(p)}",SUB)
+
+ def export_header(self):
+  try:cfg=self.cfg_from_vars();validate_cfg(cfg)
+  except ValueError as e:messagebox.showerror("Paramétrage ESP32",str(e));return
+  base=getattr(sys,"_MEIPASS",os.path.dirname(os.path.abspath(__file__)))
+  default_dir=os.path.join(base,"firmware","esp32_can_wifi")
+  p=filedialog.asksaveasfilename(title="Enregistrer rsv4_config.h dans le dossier du firmware",defaultextension=".h",
+                                 initialfile="rsv4_config.h",initialdir=default_dir if os.path.isdir(default_dir) else None,
+                                 filetypes=[("En-tête C","*.h")])
+  if p:
+   with open(p,"w",encoding="utf-8") as f:f.write(make_header(cfg))
+   self.set_state(f"Fichier firmware généré : {os.path.basename(p)}",GREEN)
 
  # ---------- trames ----------
  def build_table(self,parent):
@@ -639,12 +937,12 @@ class App:
  def clear_data(self):
   self.count.clear();self.first_t.clear();self.last_t.clear()
   self.recent.clear();self.ingested=0;self.t_last=0;self.t_now=0
-  self.vals.clear();self.hist.clear();self.dirty.clear();self.flash_until.clear()
+  self.vals.clear();self.hist.clear();self.dirty.clear();self.flash_until.clear();self.track.clear()
   self.clear_table()
   for key in self.cards:self.show(key,None)
   self.gear.set(None);self.gear_val.config(text="—");self.rpm.set(None);self.speedg.set(None)
   self.tps_lbl.config(text="TPS1 —  ·  TPS2 —")
-  for key,(f,vl,sl) in self.tiles.items():vl.config(text="—",fg=TEXT)
+  for key,(f,vl,sl,nl) in self.tiles.items():vl.config(text="—",fg=TEXT)
 
  def load(self,path):
   try:frames=load_capture(path)
@@ -724,6 +1022,26 @@ class App:
    parts.append(f"{name.replace('_',' ')} {fmt_val(val)}{(' '+disp_unit(unit)) if unit else ''}")
   return parts
 
+ def decode_virtual(self,t,cid,data):
+  """Trames de l'ESP32 : GPS (0x7F0, 0x7F8) et entrées/sorties (0x7F9). Renvoie le texte affiché, ou None."""
+  if cid==0x7F0 and len(data)>=8:
+   lat=int.from_bytes(data[0:4],'little',signed=True)/1e7;lon=int.from_bytes(data[4:8],'little',signed=True)/1e7
+   self.put(cid,"GPS Latitude",lat,t,"esp");self.put(cid,"GPS Longitude",lon,t,"esp")
+   if lat or lon:self.track.append((lat,lon))
+   return f"GPS {lat:.6f} ; {lon:.6f}"
+  if cid==0x7F8 and len(data)>=6:
+   sp=int.from_bytes(data[0:2],'little')/100;co=int.from_bytes(data[2:4],'little')/100;sats=data[4];fix=data[5]
+   self.put(cid,"GPS Vitesse",sp,t,"esp");self.put(cid,"GPS Cap",co,t,"esp")
+   self.put(cid,"Satellites",sats,t,"esp");self.put(cid,"Qualité fix",fix,t,"esp")
+   return f"GPS {sp:.1f} km/h · cap {co:.0f}° · {sats} satellites · fix {fix}"
+  if cid==0x7F9 and len(data)>=7:
+   mask=data[0]
+   for n in range(8):self.put(cid,f"Entrée {n+1}",(mask>>n)&1,t,"esp")
+   adc=[int.from_bytes(data[1+2*j:3+2*j],'little') for j in range(3)]
+   for j in range(3):self.put(cid,f"ADC {j+1}",adc[j],t,"esp")
+   return f"E/S {mask:08b} · ADC {adc[0]} / {adc[1]} / {adc[2]}"
+  return None
+
  def ingest(self,t,cid,data):
   self.t_now=t
   self.count[cid]+=1;self.ingested+=1;self.t_last=t;self.recent.append(t)
@@ -733,6 +1051,8 @@ class App:
    dec=self.decode_aprilia(t,cid,data)
    parts=self.decode_generic(t,cid,data)
    if parts:dec=" | ".join(parts) if dec=="—" else dec+" | "+" | ".join(parts)
+  v=self.decode_virtual(t,cid,data)
+  if v:dec=v if dec=="—" else dec+" | "+v
   n=self.count[cid];freq="—"
   if n>1 and self.last_t[cid]>self.first_t[cid]:freq=f"{(n-1)*1000/(self.last_t[cid]-self.first_t[cid]):.0f}"
   hide=self.filter_on.get() and self.decoder is not None and dec=="—"
@@ -768,7 +1088,8 @@ class App:
    self.set_srow("can","Déconnecté",MUTED)
    self.set_srow("rx","Aucune" if not self.frames else f"Fichier · {len(self.count)} IDs",MUTED)
    self.set_srow("qual","—",MUTED)
-  self.set_srow("gps","Non connecté",MUTED)
+  if self.track:self.set_srow("gps",f"{len(self.track)} points",GREEN)
+  else:self.set_srow("gps","Aucun fix" if self.live else "Non disponible",MUTED)
   self.set_srow("rec","Non disponible",MUTED)
   self.set_srow("val",self.model["short"],YELLOW if self.decoder else MUTED)
 
