@@ -58,6 +58,11 @@ static bool checkPin(const char* what, int p) {
   return false;
 }
 
+#ifndef GPS_RATE_HZ
+#define GPS_RATE_HZ 10                    // cadence de mesure du GPS (1, 5 ou 10) ; les trames GPS sont envoyées à la même cadence
+#endif
+#define GPS_SEND_MS (1000 / GPS_RATE_HZ)
+
 #ifndef CAN_ENABLED
 #define CAN_ENABLED 1
 #endif
@@ -114,6 +119,8 @@ struct GpsState { double lat, lon; double speedKmh; double course; uint8_t sats;
 static char nmea[128];
 static uint8_t nlen = 0;
 
+static uint32_t gpsRmc = 0;                                // phrases RMC reçues (mesure de la cadence)
+
 static double nmeaToDeg(const char* s, char hemi) {       // format ddmm.mmmm
   double v = atof(s);
   if (v == 0) return 0;
@@ -138,6 +145,7 @@ static void parseNmea(char* line) {
   int n = splitFields(line, f, 16);
   const char* type = f[0] + 3;                              // "$GNRMC" -> "RMC"
   if (strncmp(type, "RMC", 3) == 0 && n >= 9) {
+    gpsRmc++;
     gps.valid = (f[2][0] == 'A');
     if (gps.valid) {
       gps.lat = nmeaToDeg(f[3], f[4][0]);
@@ -154,6 +162,37 @@ static void parseNmea(char* line) {
 static uint32_t lastNmeaMs = 0;                            // dernière phrase NMEA valide
 static uint32_t lastGpsByteMs = 0;                         // dernier octet reçu du module (bon ou illisible)
 static uint32_t gpsBytes = 0, gpsSentences = 0;            // compteurs pour le port série
+
+// Configuration du module u-blox (NEO-M8N / M9N) : cadence de mesure et phrases NMEA envoyées.
+static void ubxSend(uint8_t cls, uint8_t id, const uint8_t* payload, uint16_t len) {
+  uint8_t head[6] = {0xB5, 0x62, cls, id, (uint8_t)(len & 0xFF), (uint8_t)(len >> 8)};
+  uint8_t a = 0, b = 0;
+  for (int i = 2; i < 6; i++) { a += head[i]; b += a; }
+  for (uint16_t i = 0; i < len; i++) { a += payload[i]; b += a; }
+  gpsSerial.write(head, 6);
+  gpsSerial.write(payload, len);
+  gpsSerial.write(a);
+  gpsSerial.write(b);
+  gpsSerial.flush();
+  delay(30);
+}
+
+static void gpsConfigure() {
+  const uint16_t ms = 1000 / GPS_RATE_HZ;
+  // M8 : UBX-CFG-RATE (mesure en ms, navigation 1, référence GPS)
+  const uint8_t rate[6] = {(uint8_t)(ms & 0xFF), (uint8_t)(ms >> 8), 1, 0, 1, 0};
+  ubxSend(0x06, 0x08, rate, sizeof(rate));
+  // M9 : UBX-CFG-VALSET (mémoire vive), clé CFG-RATE-MEAS = 0x30210001
+  const uint8_t valset[10] = {0, 1, 0, 0, 0x01, 0x00, 0x21, 0x30, (uint8_t)(ms & 0xFF), (uint8_t)(ms >> 8)};
+  ubxSend(0x06, 0x8A, valset, sizeof(valset));
+  // Phrases inutiles coupées (GLL, GSA, GSV, VTG) : seules RMC et GGA sont lues, et le débit série reste suffisant à 10 Hz
+  const uint8_t ids[4] = {0x01, 0x02, 0x03, 0x05};
+  for (int i = 0; i < 4; i++) {
+    const uint8_t msg[8] = {0xF0, ids[i], 0, 0, 0, 0, 0, 0};
+    ubxSend(0x06, 0x01, msg, sizeof(msg));
+  }
+  Serial.printf("GPS : cadence réglée à %d Hz (RMC et GGA seulement)\n", GPS_RATE_HZ);
+}
 
 // Détection automatique du débit : si rien de lisible n'arrive, on essaie les débits usuels l'un après l'autre.
 static const uint32_t GPS_BAUDS[] = {GPS_BAUD, 9600, 38400, 115200, 4800};
@@ -180,8 +219,10 @@ static void pollGps() {
       nmea[nlen] = 0;
       if (nlen >= 6 && nmea[0] == '$') {
         if (!lastNmeaMs || millis() - lastNmeaMs > 5000) Serial.printf("GPS : phrases lisibles à %lu bauds\n", (unsigned long)GPS_BAUDS[gpsBaudIdx]);
+        bool relock = !lastNmeaMs || millis() - lastNmeaMs > 5000;
         lastNmeaMs = millis();
         gpsSentences++;
+        if (relock) gpsConfigure();
       }
       parseNmea(nmea);
       nlen = 0;
@@ -330,7 +371,10 @@ static void printReport(uint32_t now) {
 #if GPS_ENABLED
   const char* module = (lastNmeaMs && now - lastNmeaMs < 2000) ? "détecté"
                        : (lastGpsByteMs && now - lastGpsByteMs < 2000) ? "données illisibles (débit ?)" : "aucune donnée";
-  Serial.printf("GPS    : module %s · débit=%lu · octets=%lu · phrases=%lu · position=%s · satellites=%u\n", module,
+  static uint32_t lastRmc = 0;
+  float hz = (gpsRmc - lastRmc) * 1000.0f / dt;
+  lastRmc = gpsRmc;
+  Serial.printf("GPS    : module %s · cadence=%.1f Hz · débit=%lu · octets=%lu · phrases=%lu · position=%s · satellites=%u\n", module, hz,
                 (unsigned long)GPS_BAUDS[gpsBaudIdx], (unsigned long)gpsBytes, (unsigned long)gpsSentences,
                 gps.valid ? "valide" : "non", gps.sats);
   if (gps.valid) Serial.printf("         lat=%.6f lon=%.6f vitesse=%.1f km/h\n", gps.lat, gps.lon, gps.speedKmh);
@@ -418,7 +462,7 @@ void loop() {
   static uint32_t lastIo = 0, lastStatus = 0;
   uint32_t now = millis();
 #if GPS_ENABLED
-  if (now - lastGps >= 200) { lastGps = now; sendGps(); }
+  if (now - lastGps >= GPS_SEND_MS) { lastGps = now; sendGps(); }
 #endif
   if (now - lastIo >= 100) { lastIo = now; sendIo(); }
   if (now - lastStatus >= 1000) { lastStatus = now; sendStatus(now); }

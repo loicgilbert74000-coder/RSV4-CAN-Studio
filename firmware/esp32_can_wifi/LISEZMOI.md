@@ -38,3 +38,6 @@ Dans l'application : « Données illisibles · débit ? » = le module envoie ma
 
 ## Moniteur série : rapport d'état
 Toutes les 5 s (réglable par `CAN_STATS_PERIOD_MS`), le moniteur série (115200 bauds) affiche l'état de chaque périphérique : Wi-Fi (appareils, signal en dBm), CAN (contrôleur, trames par seconde, erreurs), GPS (module détecté ou non, débit, octets, phrases, position, satellites), entrées et potentiomètres de suspension. La connexion et la déconnexion de l'application sont signalées au moment où elles se produisent.
+
+## GPS à 10 Hz
+Dès que le module GPS est lisible, le firmware le règle sur 10 Hz (commandes u-blox UBX-CFG-RATE pour M8 et UBX-CFG-VALSET pour M9) et coupe les phrases GLL, GSA, GSV et VTG pour que le débit série suffise. Les trames GPS sont envoyées à l'application à la même cadence. Le réglage est refait à chaque démarrage (rien n'est écrit dans la mémoire du module). Changer la cadence : `#define GPS_RATE_HZ` (1, 5 ou 10) en tête du fichier `.ino`. Le rapport série affiche la cadence mesurée (« cadence=10.0 Hz »).
