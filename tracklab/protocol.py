@@ -47,6 +47,10 @@ def parse_trk(data):
     return out
 
 
+# ligne du moniteur série du programme de test CAN : « 595359  STD  ID=0x222  DAT  DLC=8  00 46 … »
+SERIAL_LINE = re.compile(r"^\s*(\d+)\s+STD\s+ID=0x([0-9A-Fa-f]+)\s+DAT\s+DLC=(\d+)((?:\s+[0-9A-Fa-f]{2})*)\s*$")
+
+
 def load_capture(path):
     with open(path, "rb") as f:
         if f.read(4) == TRK_MAGIC:
@@ -55,6 +59,13 @@ def load_capture(path):
     out = []
     with open(path, "r", encoding="latin1", errors="replace") as f:
         for line in f:
+            sm = SERIAL_LINE.match(line)
+            if sm:
+                dlc = int(sm.group(3))
+                data = bytes.fromhex(sm.group(4).replace(" ", ""))[:dlc]
+                if len(data) == dlc and dlc <= 8:
+                    out.append((int(sm.group(1)) & 0xFFFFFFFF, int(sm.group(2), 16), data))
+                continue
             m = LINE.search(line.replace("\x00", " "))
             if not m:
                 continue
