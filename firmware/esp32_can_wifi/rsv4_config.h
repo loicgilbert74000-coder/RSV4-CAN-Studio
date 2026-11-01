@@ -7,7 +7,7 @@
 #define CAN_ENABLED 1
 #define CAN_TX_PIN 5
 #define CAN_RX_PIN 4
-#define CAN_BITRATE_KBPS 250
+#define CAN_BITRATE_KBPS 500
 #define GPS_ENABLED 1
 #define GPS_RX_PIN 16
 #define GPS_TX_PIN 12

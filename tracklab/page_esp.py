@@ -22,7 +22,7 @@ class EspMixin:
         sv("channel", 6)
         self.cv["tcp_port"] = self.tcp_port
         bv("can_on", True)
-        sv("can_bitrate", 250)
+        sv("can_bitrate", 500)
         sv("can_tx", 5)
         sv("can_rx", 4)
         bv("gps_on", True)
