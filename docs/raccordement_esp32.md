@@ -47,3 +47,20 @@ L'application affiche les valeurs brutes (0–4095) « Suspension avant / arriè
 - Bleue : éclat à chaque trame CAN reçue.
 - Rouge : fixe = contrôleur CAN en défaut ; clignote = aucune trame CAN depuis 3 s.
 - Test au démarrage : les trois s'allument à tour de rôle.
+
+## ESP32-S3 : schéma rév. 3 (`schema_raccordement_ESP32-S3.*`)
+| Fonction | GPIO (ESP32-S3 DevKitC-1) |
+|---|---|
+| CAN TXD / RXD | 5 / 4 |
+| GPS (TX du module) | 16 |
+| ENT1–8 | 7, 8, 9, 14, 40, 41, 42, 47 |
+| Suspension avant / arrière / ADC3 libre | 1 / 2 / 6 |
+| SORTIE1–2 | 38, 39 |
+| LED verte / rouge / bleue | 21 / 18 / 17 |
+| Bouton d'enregistrement (vers GND) | 15 |
+| Carte SD : CS / MOSI / SCK / MISO | 10 / 11 / 12 / 13 |
+
+## Enregistrement
+- Un appui sur le bouton (ou « ● Enreg. » dans TrackLab) démarre l'enregistrement, un autre l'arrête. La LED rouge fait un éclat par seconde pendant l'enregistrement.
+- Fichiers `/rec/NNNN.trk` sur la carte SD (sinon mémoire interne, quelques minutes seulement) : trames CAN, GPS et E/S avec leur horodatage.
+- TrackLab, page Paramétrage ESP32, carte « Enregistrement » : liste, « Récupérer et ouvrir », « Récupérer », « Supprimer ». Les fichiers sont sauvegardés dans `Documents\\TrackLab\\Enregistrements` ; le bouton « Ouvrir un fichier » de TrackLab lit aussi les `.trk`.

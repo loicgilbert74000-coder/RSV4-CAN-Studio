@@ -11,7 +11,7 @@ try:
 except ImportError:
     serial = None
 
-from .protocol import WIFI_FRAME_LEN, WIFI_MAGIC, xor_sum
+from .protocol import FILE_IDS, WIFI_FRAME_LEN, WIFI_MAGIC, xor_sum
 from .theme import BORDER, CARD, CARD2, FONT, GREEN, HOVER, MUTED, RED, SUB, TEXT
 from .widgets import set_dot
 
@@ -239,6 +239,7 @@ class ConnectionMixin:
             try:
                 with socket.create_connection((host, port), timeout=3) as sock:
                     sock.settimeout(0.3)
+                    self.wifi_sock = sock  # les commandes (enregistrement, fichiers) partent par la même liaison
                     buf = bytearray()
                     while not stop.is_set():
                         try:
@@ -264,7 +265,12 @@ class ConnectionMixin:
                             del buf[:WIFI_FRAME_LEN]
                             cid = int.from_bytes(p[6:10], "little")
                             dlc = min(p[10], 8)
-                            q.put((cid, p[11:11 + dlc]))
+                            if cid in FILE_IDS:
+                                q.put(("file", (cid, p[11:11 + dlc])))
+                            else:
+                                q.put((cid, p[11:11 + dlc]))
             except Exception as e:
                 q.put(("error", str(e)))
+            finally:
+                self.wifi_sock = None
         return worker

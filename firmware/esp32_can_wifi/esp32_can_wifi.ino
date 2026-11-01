@@ -29,6 +29,21 @@
  *           Bit 6 des drapeaux : des octets arrivent du GPS (même illisibles : débit incorrect).
  *           Par défaut : ADC 1 = potentiomètre de suspension avant, ADC 2 = suspension arrière (0 à 3,3 V).
  *
+ *   0x7FB : enregistrement, chaque seconde : octets 0-1 = numéro du fichier en cours (0 = pas d'enregistrement),
+ *           octets 2-5 = octets enregistrés (uint32), octets 6-7 = espace libre en Mo (uint16, plafonné).
+ *           La trame 0x7FA porte en plus (octet 6) : bit0 enregistrement en cours, bit1 stockage disponible, bit2 carte SD.
+ *   0x7FC, 0x7FD, 0x7FE : liste et téléchargement des enregistrements (voir « Commandes »).
+ *
+ * Enregistrement (bouton REC_BTN_PIN vers GND, ou commande de l'application) :
+ *   les trames CAN, GPS et E/S sont écrites dans /rec/NNNN.trk (carte SD, sinon mémoire interne) ; un enregistrement
+ *   = 16 octets d'en-tête « TRK1 » puis des enregistrements de 16 octets : temps (uint32, ms depuis le début), identifiant (uint16),
+ *   DLC (1), données (8), contrôle XOR des 15 premiers octets. La LED rouge clignote une fois par seconde pendant l'enregistrement.
+ *
+ * Commandes envoyées par l'application (texte, terminées par un saut de ligne) :
+ *   REC 1 / REC 0 : démarrer / arrêter ; LIST : liste des fichiers (0x7FC : n° uint16, taille uint32, drapeaux ; n° 0xFFFF = fin) ;
+ *   GET n : envoie le fichier n (0x7FE type 1 = début avec la taille, 0x7FD = 8 octets de données, 0x7FE type 2 = fin avec la somme
+ *   des octets, type 3 = erreur) ; DEL n : supprime le fichier n.
+ *
  * Voyants (LED_GREEN_PIN / LED_RED_PIN / LED_BLUE_PIN, résistance de 330 ohms en série) :
  *   verte  : clignote lentement = Wi-Fi prêt, pas de PC connecté ; fixe = application connectée.
  *   bleue  : bref éclat à chaque trame CAN reçue (activité du bus).
@@ -38,6 +53,10 @@
 #include <WiFi.h>
 #include <string.h>
 #include <math.h>
+#include <FS.h>
+#include <SD.h>
+#include <SPI.h>
+#include <LittleFS.h>
 #include "esp_wifi.h"
 #include "driver/twai.h"
 #include "rsv4_config.h"
@@ -62,6 +81,19 @@ static bool checkPin(const char* what, int p) {
 #define GPS_RATE_HZ 10                    // cadence de mesure du GPS (1, 5 ou 10) ; les trames GPS sont envoyées à la même cadence
 #endif
 #define GPS_SEND_MS (1000 / GPS_RATE_HZ)
+
+#ifndef REC_BTN_PIN
+#define REC_BTN_PIN 15                    // bouton poussoir d'enregistrement (entre la broche et GND)
+#endif
+#ifndef REC_SD_ENABLED
+#define REC_SD_ENABLED 1
+#endif
+#ifndef SD_CS_PIN
+#define SD_CS_PIN 10
+#define SD_MOSI_PIN 11
+#define SD_SCK_PIN 12
+#define SD_MISO_PIN 13
+#endif
 
 #ifndef CAN_ENABLED
 #define CAN_ENABLED 1
@@ -95,7 +127,10 @@ static void flushTx() {
 }
 
 // ---------- envoi de trames ----------
-static void sendFrame(uint32_t id, const uint8_t* d, uint8_t dlc) {
+static void recordFrame(uint32_t id, const uint8_t* d, uint8_t dlc);
+
+static void sendFrame(uint32_t id, const uint8_t* d, uint8_t dlc, bool rec = true) {
+  if (rec) recordFrame(id, d, dlc);                         // enregistré même sans application connectée
   if (!client || !client.connected()) { txLen = 0; return; }
   if (txLen + 20 > sizeof(txBuf)) flushTx();
   uint8_t* p = txBuf + txLen;
@@ -245,6 +280,241 @@ static void sendGps() {
 }
 #endif
 
+// ---------- stockage et enregistrement ----------
+static fs::FS* store = nullptr;                            // carte SD ou mémoire interne
+static bool storeSd = false;
+static int64_t storeFree = 0;                              // octets libres (estimation, mise à jour à l'écriture)
+static File recFile;
+static bool recording = false;
+static uint16_t recNo = 0;
+static uint32_t recStartMs = 0, recBytes = 0;
+static uint8_t recBuf[1024];
+static size_t recLen = 0;
+static bool statusNow = false;                             // envoyer l'état tout de suite (changement d'enregistrement)
+#if REC_SD_ENABLED
+static SPIClass sdSpi(HSPI);
+#endif
+
+static void sendCtl(uint8_t type, uint16_t n, uint32_t v) {  // 0x7FE : début (1), fin (2) ou erreur (3) d'un transfert
+  uint8_t d[8] = {0};
+  d[0] = type; memcpy(d + 1, &n, 2); memcpy(d + 3, &v, 4);
+  sendFrame(0x7FE, d, 7, false);
+}
+
+static int fileNumber(const char* name) {                  // « /rec/0012.trk » ou « 0012.trk » -> 12 (0 si autre fichier)
+  const char* b = strrchr(name, '/');
+  b = b ? b + 1 : name;
+  int n = atoi(b);
+  size_t l = strlen(b);
+  if (n <= 0 || l < 5 || strcmp(b + l - 4, ".trk") != 0) return 0;
+  return n;
+}
+
+static void setupStorage() {
+#if REC_SD_ENABLED
+  if (checkPin("SD CS", SD_CS_PIN) && checkPin("SD MOSI", SD_MOSI_PIN) && checkPin("SD MISO", SD_MISO_PIN) && checkPin("SD SCK", SD_SCK_PIN)) {
+    sdSpi.begin(SD_SCK_PIN, SD_MISO_PIN, SD_MOSI_PIN, SD_CS_PIN);
+    if (SD.begin(SD_CS_PIN, sdSpi, 20000000) && SD.cardType() != CARD_NONE) {
+      Serial.println("Carte SD détectée, calcul de l'espace libre…");
+      store = &SD; storeSd = true;
+      storeFree = (int64_t)SD.totalBytes() - (int64_t)SD.usedBytes();
+    } else {
+      Serial.println("Carte SD absente ou illisible : mémoire interne utilisée (durée d'enregistrement limitée)");
+    }
+  }
+#endif
+  if (!store) {
+    if (LittleFS.begin(true)) { store = &LittleFS; storeFree = (int64_t)LittleFS.totalBytes() - (int64_t)LittleFS.usedBytes(); }
+    else Serial.println("Aucun stockage disponible : enregistrement impossible");
+  }
+  if (store) {
+    if (!store->exists("/rec")) store->mkdir("/rec");
+    Serial.printf("Stockage : %s · %lld Mo libres\n", storeSd ? "carte SD" : "mémoire interne", (long long)(storeFree / 1048576));
+  }
+}
+
+static uint16_t nextRecNo() {
+  int best = 0;
+  File dir = store->open("/rec");
+  if (dir) {
+    File f = dir.openNextFile();
+    while (f) {
+      int n = fileNumber(f.name());
+      if (n > best) best = n;
+      f = dir.openNextFile();
+    }
+    dir.close();
+  }
+  return (uint16_t)(best + 1);
+}
+
+static void flushRec() {
+  if (recLen) { recFile.write(recBuf, recLen); recBytes += recLen; storeFree -= (int64_t)recLen; recLen = 0; }
+}
+
+static void recordFrame(uint32_t id, const uint8_t* d, uint8_t dlc) {
+  if (!recording) return;
+  if (recLen + 16 > sizeof(recBuf)) flushRec();
+  uint8_t* p = recBuf + recLen;
+  uint32_t t = millis() - recStartMs;
+  if (dlc > 8) dlc = 8;
+  memcpy(p, &t, 4);
+  p[4] = (uint8_t)(id & 0xFF); p[5] = (uint8_t)(id >> 8); p[6] = dlc;
+  memset(p + 7, 0, 8);
+  memcpy(p + 7, d, dlc);
+  uint8_t x = 0;
+  for (int i = 0; i < 15; i++) x ^= p[i];
+  p[15] = x;
+  recLen += 16;
+}
+
+static void startRecording() {
+  if (recording) return;
+  if (!store) { Serial.println("Enregistrement impossible : aucun stockage"); sendCtl(3, 0, 1); return; }
+  recNo = nextRecNo();
+  char path[24];
+  snprintf(path, sizeof(path), "/rec/%04u.trk", (unsigned)recNo);
+  recFile = store->open(path, FILE_WRITE);
+  if (!recFile) { Serial.printf("Enregistrement impossible : %s non créé\n", path); sendCtl(3, recNo, 4); return; }
+  uint8_t h[16] = {'T', 'R', 'K', '1'};
+  h[4] = (uint8_t)(recNo & 0xFF); h[5] = (uint8_t)(recNo >> 8);
+  uint32_t boot = millis(); memcpy(h + 6, &boot, 4);
+  h[10] = GPS_RATE_HZ; h[11] = CAN_BITRATE_KBPS / 50;
+  recFile.write(h, 16);
+  recBytes = 16; recLen = 0; recStartMs = millis();
+  recording = true; statusNow = true;
+  Serial.printf("Enregistrement démarré : %s\n", path);
+}
+
+static void stopRecording() {
+  if (!recording) return;
+  recording = false; statusNow = true;
+  flushRec();
+  recFile.close();
+  Serial.printf("Enregistrement arrêté : fichier %04u, %lu Ko\n", (unsigned)recNo, (unsigned long)(recBytes / 1024));
+}
+
+static void toggleRecording() { if (recording) stopRecording(); else startRecording(); }
+
+static void tickRecording(uint32_t now) {                  // une fois par seconde : écriture sur le support, contrôle de l'espace libre
+  static uint32_t last = 0;
+  if (!recording || now - last < 1000) return;
+  last = now;
+  flushRec();
+  recFile.flush();
+  if (storeFree < 65536) { Serial.println("Stockage plein : enregistrement arrêté"); sendCtl(3, recNo, 5); stopRecording(); }
+}
+
+static bool btnOk = false;
+static void setupButton() {
+  btnOk = checkPin("bouton", REC_BTN_PIN);
+  if (btnOk) pinMode(REC_BTN_PIN, INPUT_PULLUP);
+}
+
+static void pollButton(uint32_t now) {                     // un appui = démarrer ou arrêter (anti-rebond 40 ms)
+  static bool last = true;
+  static uint32_t changed = 0;
+  if (!btnOk) return;
+  bool level = digitalRead(REC_BTN_PIN);
+  if (level != last && now - changed > 40) {
+    changed = now; last = level;
+    if (!level) toggleRecording();
+  }
+}
+
+// ---------- liste, téléchargement et suppression des fichiers ----------
+static void sendListEntry(uint16_t n, uint32_t size, uint8_t flags) {
+  uint8_t d[8] = {0};
+  memcpy(d, &n, 2); memcpy(d + 2, &size, 4); d[6] = flags;
+  sendFrame(0x7FC, d, 8, false);
+}
+
+static void listFiles() {
+  if (!store) { sendListEntry(0xFFFF, 0, 0x80); return; }
+  int count = 0;
+  File dir = store->open("/rec");
+  if (dir) {
+    File f = dir.openNextFile();
+    while (f && count < 400) {
+      int n = fileNumber(f.name());
+      if (n > 0) {
+        bool cur = recording && n == recNo;
+        sendListEntry((uint16_t)n, cur ? recBytes + recLen : (uint32_t)f.size(), cur ? 1 : 0);
+        count++;
+      }
+      f = dir.openNextFile();
+    }
+    dir.close();
+  }
+  sendListEntry(0xFFFF, count, 0);
+}
+
+static File dlFile;
+static bool dlActive = false;
+static uint32_t dlRemaining = 0, dlSum = 0;
+static uint16_t dlNo = 0;
+
+static void startDownload(uint16_t n) {
+  if (dlActive) { dlFile.close(); dlActive = false; }
+  if (!store) { sendCtl(3, n, 1); return; }
+  if (recording && n == recNo) { sendCtl(3, n, 3); return; }
+  char path[24];
+  snprintf(path, sizeof(path), "/rec/%04u.trk", (unsigned)n);
+  dlFile = store->open(path, FILE_READ);
+  if (!dlFile) { sendCtl(3, n, 2); return; }
+  dlRemaining = dlFile.size(); dlSum = 0; dlNo = n; dlActive = true;
+  sendCtl(1, n, dlRemaining);
+}
+
+static void pumpDownload() {                               // quelques centaines d'octets par tour de boucle : le CAN continue d'être lu
+  if (!dlActive) return;
+  if (!client || !client.connected()) { dlFile.close(); dlActive = false; return; }
+  uint8_t blk[320];
+  size_t want = dlRemaining < sizeof(blk) ? dlRemaining : sizeof(blk);
+  size_t got = want ? dlFile.read(blk, want) : 0;
+  if (want && got == 0) { sendCtl(3, dlNo, 4); dlFile.close(); dlActive = false; return; }
+  for (size_t i = 0; i < got; i += 8) {
+    size_t n = got - i < 8 ? got - i : 8;
+    for (size_t k = 0; k < n; k++) dlSum += blk[i + k];
+    sendFrame(0x7FD, blk + i, (uint8_t)n, false);
+  }
+  dlRemaining -= got;
+  if (dlRemaining == 0) { sendCtl(2, dlNo, dlSum); dlFile.close(); dlActive = false; }
+}
+
+static void deleteFile(uint16_t n) {
+  if (!store) { sendCtl(3, n, 1); return; }
+  if (recording && n == recNo) { sendCtl(3, n, 3); return; }
+  char path[24];
+  snprintf(path, sizeof(path), "/rec/%04u.trk", (unsigned)n);
+  File f = store->open(path, FILE_READ);
+  int64_t size = f ? (int64_t)f.size() : 0;
+  if (f) f.close();
+  if (store->remove(path)) storeFree += size; else sendCtl(3, n, 2);
+}
+
+// ---------- commandes de l'application ----------
+static void handleCommand(const char* line) {
+  int n = 0;
+  if (strcmp(line, "REC 1") == 0) startRecording();
+  else if (strcmp(line, "REC 0") == 0) stopRecording();
+  else if (strcmp(line, "LIST") == 0) listFiles();
+  else if (sscanf(line, "GET %d", &n) == 1 && n > 0) startDownload((uint16_t)n);
+  else if (sscanf(line, "DEL %d", &n) == 1 && n > 0) { deleteFile((uint16_t)n); listFiles(); }
+  statusNow = true;
+}
+
+static void pollCommands() {
+  static char cmd[32];
+  static uint8_t len = 0;
+  while (client && client.connected() && client.available()) {
+    char c = client.read();
+    if (c == '\r') continue;
+    if (c == '\n') { cmd[len] = 0; handleCommand(cmd); len = 0; }
+    else if (len < sizeof(cmd) - 1) cmd[len++] = c;
+  }
+}
+
 // ---------- état de la carte ----------
 static bool canOk = false;                // contrôleur CAN démarré
 static uint32_t lastCanRx = 0;            // dernière trame CAN reçue (ms)
@@ -263,7 +533,7 @@ static int8_t wifiRssi(uint8_t* stations) {
 }
 
 static void sendStatus(uint32_t now) {
-  uint8_t d[6] = {0};
+  uint8_t d[7] = {0};
   if (CAN_ENABLED) d[0] |= 1;
   if (CAN_ENABLED && canOk) d[0] |= 2;
   if (CAN_ENABLED && canSeen && now - lastCanRx < 3000) d[0] |= 4;
@@ -280,7 +550,15 @@ static void sendStatus(uint32_t now) {
   canCount = 0;
   twai_status_info_t info = {};
   if (CAN_ENABLED && twai_get_status_info(&info) == ESP_OK) d[5] = info.rx_error_counter > 255 ? 255 : (uint8_t)info.rx_error_counter;
-  sendFrame(0x7FA, d, 6);
+  d[6] = (recording ? 1 : 0) | (store ? 2 : 0) | (storeSd ? 4 : 0);
+  sendFrame(0x7FA, d, 7, false);
+  uint8_t r[8] = {0};
+  uint16_t no = recording ? recNo : 0;
+  uint32_t bytes = recBytes + recLen;
+  int64_t mb = storeFree / 1048576;
+  uint16_t mbs = mb < 0 ? 0 : mb > 65535 ? 65535 : (uint16_t)mb;
+  memcpy(r, &no, 2); memcpy(r + 2, &bytes, 4); memcpy(r + 6, &mbs, 2);
+  sendFrame(0x7FB, r, 8, false);
 }
 
 // ---------- entrées / sorties ----------
@@ -335,7 +613,9 @@ static void updateLeds(uint32_t now) {
   ledSet(0, LED_GREEN_PIN, linked || ((now / 500) % 2));
   ledSet(2, LED_BLUE_PIN, canSeen && now - lastCanRx < 40);
   bool silent = canOk && canSeen && now - lastCanRx > 3000;
-  bool red = CAN_ENABLED && (!canOk || (silent && ((now / 250) % 2)));
+  bool fault = CAN_ENABLED && !canOk;                       // défaut du contrôleur CAN : rouge fixe
+  bool flash = (now % 1000) < 150;                          // enregistrement : un éclat par seconde
+  bool red = fault || (recording ? flash : (CAN_ENABLED && silent && ((now / 250) % 2)));
   ledSet(1, LED_RED_PIN, red);
 }
 
@@ -381,6 +661,11 @@ static void printReport(uint32_t now) {
 #else
   Serial.println("GPS    : désactivé dans la configuration");
 #endif
+  // enregistrement
+  Serial.printf("Enreg. : %s · stockage=%s · libre=%lld Mo", recording ? "EN COURS" : "arrêté",
+                store ? (storeSd ? "carte SD" : "mémoire interne") : "aucun", (long long)(storeFree / 1048576));
+  if (recording) Serial.printf(" · fichier %04u · %lu Ko", (unsigned)recNo, (unsigned long)((recBytes + recLen) / 1024));
+  Serial.println();
   // entrées / potentiomètres
   Serial.print("Entrées: ");
   bool any = false;
@@ -407,7 +692,7 @@ static void setupCan() {
   twai_timing_config_t timing = TWAI_TIMING_CONFIG_250KBITS();
 #endif
   twai_general_config_t general = TWAI_GENERAL_CONFIG_DEFAULT((gpio_num_t)CAN_TX_PIN, (gpio_num_t)CAN_RX_PIN, TWAI_MODE_LISTEN_ONLY);
-  general.rx_queue_len = 64;                                // évite de perdre des trames entre deux tours de boucle
+  general.rx_queue_len = 128;                               // évite de perdre des trames entre deux tours de boucle
   twai_filter_config_t filter = TWAI_FILTER_CONFIG_ACCEPT_ALL();
   canOk = twai_driver_install(&general, &timing, &filter) == ESP_OK && twai_start() == ESP_OK;
   if (!canOk) Serial.println("Erreur : contrôleur CAN non démarré");
@@ -418,9 +703,11 @@ void setup() {
   WiFi.mode(WIFI_AP);
   WiFi.softAP(AP_SSID, AP_PASS, AP_CHANNEL);
   server.begin();
-  Serial.println("TrackLab Electronics - relais CAN/GPS/E-S v2.1");
+  Serial.println("TrackLab Electronics - relais CAN/GPS/E-S v2.2");
   Serial.print("Wi-Fi "); Serial.print(AP_SSID); Serial.print(" prêt, adresse "); Serial.println(WiFi.softAPIP());
   setupLeds();
+  setupButton();
+  setupStorage();
   setupCan();
   setupIo();
 #if GPS_ENABLED
@@ -455,6 +742,8 @@ void loop() {
   pollGps();
   autoBaud(millis());
 #endif
+  pollCommands();
+  pollButton(millis());
 
 #if GPS_ENABLED
   static uint32_t lastGps = 0;
@@ -465,7 +754,9 @@ void loop() {
   if (now - lastGps >= GPS_SEND_MS) { lastGps = now; sendGps(); }
 #endif
   if (now - lastIo >= 100) { lastIo = now; sendIo(); }
-  if (now - lastStatus >= 1000) { lastStatus = now; sendStatus(now); }
+  if (statusNow || now - lastStatus >= 1000) { lastStatus = now; statusNow = false; sendStatus(now); }
+  tickRecording(now);
+  pumpDownload();
 
   flushTx();
   updateLeds(now);

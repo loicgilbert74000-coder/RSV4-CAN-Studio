@@ -12,15 +12,21 @@
 #define GPS_RX_PIN 16
 #define GPS_BAUD 38400
 #define DIG_COUNT 8
-static const int DIG_PIN[DIG_COUNT] = {7, 8, 9, 10, 11, 12, 13, 14};
+static const int DIG_PIN[DIG_COUNT] = {7, 8, 9, 14, 40, 41, 42, 47};
 static const bool DIG_ON[DIG_COUNT] = {0, 0, 0, 0, 0, 0, 0, 0};
 #define ANA_COUNT 3
 static const int ANA_PIN[ANA_COUNT] = {1, 2, 6};
 static const bool ANA_ON[ANA_COUNT] = {1, 1, 0};
 #define OUT_COUNT 2
-static const int OUT_PIN[OUT_COUNT] = {15, 38};
+static const int OUT_PIN[OUT_COUNT] = {38, 39};
 static const bool OUT_ON[OUT_COUNT] = {0, 0};
 static const bool OUT_HIGH[OUT_COUNT] = {0, 0};
+#define REC_BTN_PIN 15
+#define REC_SD_ENABLED 1
+#define SD_CS_PIN 10
+#define SD_MOSI_PIN 11
+#define SD_MISO_PIN 13
+#define SD_SCK_PIN 12
 #define LED_GREEN_PIN 21
 #define LED_RED_PIN 18
 #define LED_BLUE_PIN 17

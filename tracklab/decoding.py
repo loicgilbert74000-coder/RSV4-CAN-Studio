@@ -123,11 +123,22 @@ class DecodingMixin:
                 "can_rate": int.from_bytes(data[3:5], "little"),
                 "can_err": data[5],
                 "t": t,
+                "rec": len(data) >= 7 and bool(data[6] & 1),
+                "store": len(data) >= 7 and bool(data[6] & 2),
+                "sd": len(data) >= 7 and bool(data[6] & 4),
+                # les champs de la trame 0x7FB sont conservés d'une trame d'état à l'autre
+                **{k: (self.esp or {}).get(k, 0) for k in ("rec_no", "rec_bytes", "free_mb")},
             }
             if rssi != 127:
                 self.put(cid, "Signal Wi-Fi", rssi, t, "esp")
             q = f"{rssi} dBm · {wifi_quality(rssi)[1]}" if rssi != 127 else "aucun appareil"
             return f"État ESP32 · drapeaux {data[0]:06b} · Wi-Fi {q} · CAN {self.esp['can_rate']}/s"
+        if cid == 2043 and len(data) >= 8:
+            no = int.from_bytes(data[0:2], "little")
+            free = int.from_bytes(data[6:8], "little")
+            if self.esp is not None:
+                self.esp.update(rec_no=no, rec_bytes=int.from_bytes(data[2:6], "little"), free_mb=free)
+            return f"Enregistrement · fichier {no} · {free} Mo libres"
         if cid == 2041 and len(data) >= 7:
             mask = data[0]
             for n in range(8):

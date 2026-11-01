@@ -16,8 +16,8 @@ class PlayerMixin:
 
     def open_file(self):
         p = filedialog.askopenfilename(
-            title="Choisir une capture USB-CAN",
-            filetypes=[("Fichiers texte", "*.txt *.log"), ("Tous fichiers", "*.*")],
+            title="Choisir une capture USB-CAN ou un enregistrement TrackLab (.trk)",
+            filetypes=[("Captures et enregistrements", "*.txt *.log *.trk"), ("Tous fichiers", "*.*")],
         )
         if p:
             self.load(p)
@@ -29,6 +29,10 @@ class PlayerMixin:
         self.recent.clear()
         self.esp = None
         self.link_t = None
+        self._rec_listed = False
+        self._rec_was_on = False
+        self.rec_client.files = []
+        self.rec_client.dl = None
         self.ingested = 0
         self.t_last = 0
         self.t_now = 0

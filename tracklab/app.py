@@ -14,13 +14,14 @@ from .page_esp import EspMixin
 from .page_frames import FramesMixin
 from .page_graph import GraphMixin
 from .page_telemetry import TelemetryMixin
+from .recording import RecordingMixin
 from .player import PlayerMixin
 from .theme import BG, BORDER, CARD, CARD2, CYAN, FONT, GREEN, HOVER, LIME, MUTED, RED, SIDE, SUB, TEXT, YELLOW
 from .util import fmt_time, wifi_quality
 from .widgets import NavIcon, SeekBar, make_dot, set_dot
 
 
-class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, DecodingMixin, ConnectionMixin):
+class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, DecodingMixin, ConnectionMixin, RecordingMixin):
     """Fenêtre principale."""
 
     def __init__(self):
@@ -59,7 +60,9 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
         self.track = deque(maxlen=30000)
         self.t_now = 0
         self.recent = deque()
-        self.esp = None  # dernier état reçu de l'ESP32 (trame 0x7FA)
+        self.esp = None  # dernier état reçu de l'ESP32 (trames 0x7FA et 0x7FB)
+        self.wifi_sock = None
+        self.rec_init()
         self.link_t = None  # instant de la dernière trame reçue en direct
         self._conn_shown = None
         self.ingested = 0
@@ -337,7 +340,7 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
         inner = tk.Frame(bar, bg=CARD)
         inner.pack(fill="x", padx=12, pady=8)
         self.button(
-            inner, "Ouvrir un fichier .txt", self.open_file, TEXT, CARD2, font=9
+            inner, "Ouvrir un fichier", self.open_file, TEXT, CARD2, font=9
         ).pack(side="left", padx=2)
         self.button(inner, "Lecture", self.play, GREEN, CARD2, font=9).pack(side="left", padx=2)
         self.button(inner, "Pause", self.pause, YELLOW, CARD2, font=9).pack(side="left", padx=2)
@@ -408,6 +411,9 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
         gear.bind("<Button-1>", lambda e: self.settings())
         self.conn_btn = self.button(inner, "Connexion", self.on_conn_button, "#ffffff", RED, font=9)
         self.conn_btn.pack(side="right", padx=(12, 0))
+        self.rec_btn = self.button(inner, "● Enreg.", self.rec_toggle, TEXT, CARD2, font=9)
+        self.rec_btn.config(state="disabled")
+        self.rec_btn.pack(side="right", padx=(12, 0))
         self.conn_lbl = tk.Label(inner, text="Déconnecté", bg=SIDE, fg=SUB, font=(FONT, 9, "bold"))
         self.conn_lbl.pack(side="right")
         self.conn_dot = make_dot(inner, MUTED, SIDE, 10)
@@ -455,6 +461,8 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
         if self.current_page == "frames":
             self.refresh_count()
         self.update_conn_label(now)
+        link = self.link_state(now)
+        self.update_rec_live(self.esp if link == "ok" else None, link == "ok")
         if self.current_page == "esp":
             self.update_esp_live(now, rate)
         if self.current_page != "tele":
@@ -529,6 +537,15 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
             out["wifi"] = (f"{esp['rssi']} dBm · {label}", (GREEN, LIME, YELLOW, RED)[level])
         else:
             out["wifi"] = ("—", MUTED)
+        # enregistrement sur l'ESP32
+        if esp and esp.get("rec"):
+            out["rec"] = (f"En cours · {esp.get('rec_bytes', 0) // 1024} Ko", RED)
+        elif esp and not esp.get("store"):
+            out["rec"] = ("Pas de stockage", YELLOW)
+        elif esp:
+            out["rec"] = ("Arrêté", MUTED)
+        else:
+            out["rec"] = ("—", MUTED)
         return out
 
     def update_conn_label(self, now):
@@ -561,7 +578,8 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
             if self.idx >= len(self.frames):
                 self.playing = False
                 self.set_state("Lecture terminée", CYAN)
-        for _ in range(400):
+        budget, started = 400, time.monotonic()
+        while budget > 0 and time.monotonic() - started < 0.03:
             try:
                 cid, data = self.q.get_nowait()
             except queue.Empty:
@@ -569,7 +587,10 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
             if cid == "error":
                 self.disconnect()
                 messagebox.showerror("Connexion", data)
+            elif cid == "file":  # liste et téléchargement des enregistrements : peu coûteux, ne compte pas dans le budget
+                self.on_file_frame(*data)
             else:
+                budget -= 1
                 self.ingest(int(time.monotonic() * 1000), cid, data)
         if self.current_page == "tele":  # les jauges et tuiles cachées se mettent à jour au retour sur la page
             self.refresh_tiles()

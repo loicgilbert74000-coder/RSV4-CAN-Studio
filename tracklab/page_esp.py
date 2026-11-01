@@ -6,7 +6,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from .widgets import make_dot, set_dot
-from .espconfig import BOARDS, ANA_DEFAULT, DIG_DEFAULT, LED_DEFAULT, OUT_DEFAULT, make_header, validate_cfg
+from .espconfig import BOARDS, ANA_DEFAULT, DIG_DEFAULT, LED_DEFAULT, OUT_DEFAULT, REC_DEFAULT, make_header, validate_cfg
 from .theme import BG, BORDER, CARD, CARD2, CYAN, FONT, GREEN, LIME, MUTED, RED, SUB, TEXT, YELLOW
 
 
@@ -38,6 +38,8 @@ class EspMixin:
             bv(f"ana{i}_on", on)
         for color, pin in LED_DEFAULT.items():
             sv(f"led_{color}", pin)
+        for key, val in REC_DEFAULT.items():
+            (bv if key == "sd" else sv)(f"rec_{key}", val)
         for i, (pin, name, level, on) in enumerate(OUT_DEFAULT):
             sv(f"out{i}_pin", pin)
             sv(f"out{i}_name", name)
@@ -111,6 +113,9 @@ class EspMixin:
             v[f"out{n}_pin"].set(pin)
         for color, pin in b["leds"].items():
             v[f"led_{color}"].set(pin)
+        for key, val in {**REC_DEFAULT, **b.get("rec", {})}.items():
+            if key != "sd":
+                v[f"rec_{key}"].set(val)
 
     def cfg_from_vars(self):
         """Construit la configuration ESP32 à partir des champs ; lève ValueError si un champ est invalide."""
@@ -136,6 +141,7 @@ class EspMixin:
                 } for n in range(3)
             ],
             "leds": {color: i(f"led_{color}") for color in LED_DEFAULT},
+            "rec": {"button": i("rec_button"), "sd": v["rec_sd"].get(), **{k: i(f"rec_{k}") for k in ("cs", "mosi", "miso", "sck")}},
             "outputs": [
                 {
                     "pin": i(f"out{n}_pin"),
@@ -170,6 +176,8 @@ class EspMixin:
             v[f"ana{n}_on"].set(bool(e["enabled"]))
         for color, pin in {**LED_DEFAULT, **cfg.get("leds", {})}.items():
             v[f"led_{color}"].set(pin)
+        for key, val in {**REC_DEFAULT, **cfg.get("rec", {})}.items():
+            v[f"rec_{key}"].set(bool(val) if key == "sd" else val)
         for n, e in enumerate(cfg["outputs"]):
             v[f"out{n}_pin"].set(e["pin"])
             v[f"out{n}_name"].set(e["name"])
@@ -249,6 +257,7 @@ class EspMixin:
         right = tk.Frame(inner, bg=BG)
         right.pack(side="left", fill="both", expand=True, anchor="n")
         self.build_esp_live(left)
+        self.build_rec_card(left)
         c = self.esp_card(left, "Carte")
         self.board_var = tk.StringVar(value=list(BOARDS)[0])
         r = tk.Frame(c, bg=CARD)
@@ -337,6 +346,11 @@ class EspMixin:
             r.pack(fill="x", pady=1)
             tk.Label(r, text=label, bg=CARD, fg=SUB, font=(FONT, 9), width=22, anchor="w").pack(side="left")
             self.io_entry(r, f"led_{color}", 6)
+        c = self.esp_card(right, "Enregistrement : bouton et carte SD")
+        self.efield(c, "Bouton poussoir (entre la broche et GND)", "rec_button", 8)
+        self.echeck(c, "Module carte SD présent (sinon mémoire interne, durée limitée)", "rec_sd")
+        for key, label in (("cs", "SD · CS"), ("mosi", "SD · MOSI"), ("miso", "SD · MISO"), ("sck", "SD · SCK")):
+            self.efield(c, label, f"rec_{key}", 8)
         tk.Label(
             right,
             text="Les broches et réglages sont appliqués au firmware par « Générer rsv4_config.h » puis recompilation du firmware.\nLes entrées/sorties sont lues par le firmware ; les sorties ne sont pas pilotées depuis l'application.",

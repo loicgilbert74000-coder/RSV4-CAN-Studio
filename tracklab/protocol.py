@@ -15,9 +15,43 @@ WIFI_FRAME_LEN = 20
 # Identifiants des trames propres à l'ESP32 (ce ne sont pas des trames du bus CAN de la moto)
 ESP_IDS = frozenset({0x7F0, 0x7F8, 0x7F9, 0x7FA})
 ID_ESP_STATUS = 0x7FA
+ID_ESP_REC = 0x7FB  # état de l'enregistrement
+ID_FILE_LIST, ID_FILE_DATA, ID_FILE_CTL = 0x7FC, 0x7FD, 0x7FE  # liste et téléchargement des enregistrements
+FILE_IDS = frozenset({ID_FILE_LIST, ID_FILE_DATA, ID_FILE_CTL})
+ESP_IDS = ESP_IDS | {ID_ESP_REC} | FILE_IDS
+
+# Fichier d'enregistrement de l'ESP32 (.trk) : en-tête « TRK1 » (16 octets) puis des enregistrements de 16 octets :
+# temps ms (4, LE) | identifiant (2, LE) | DLC (1) | données (8) | XOR des 15 premiers octets
+TRK_MAGIC = b"TRK1"
+TRK_RECORD = 16
+REC_ERRORS = {
+    1: "aucun stockage disponible sur l'ESP32 (carte SD absente ?)",
+    2: "fichier introuvable",
+    3: "ce fichier est en cours d'enregistrement : arrêtez d'abord l'enregistrement",
+    4: "erreur de lecture ou d'écriture sur le stockage de l'ESP32",
+    5: "stockage plein : l'enregistrement a été arrêté",
+}
+
+
+def parse_trk(data):
+    """Décode un fichier .trk : liste (temps_ms, identifiant, octets) ; les enregistrements corrompus sont ignorés."""
+    if data[:4] != TRK_MAGIC:
+        raise ValueError("ce n'est pas un enregistrement TrackLab (.trk)")
+    out = []
+    for i in range(16, len(data) - TRK_RECORD + 1, TRK_RECORD):
+        r = data[i:i + TRK_RECORD]
+        if xor_sum(r[:15]) != r[15]:
+            continue
+        dlc = min(r[6], 8)
+        out.append((int.from_bytes(r[0:4], "little"), int.from_bytes(r[4:6], "little"), bytes(r[7:7 + dlc])))
+    return out
 
 
 def load_capture(path):
+    with open(path, "rb") as f:
+        if f.read(4) == TRK_MAGIC:
+            f.seek(0)
+            return parse_trk(f.read())
     out = []
     with open(path, "r", encoding="latin1", errors="replace") as f:
         for line in f:

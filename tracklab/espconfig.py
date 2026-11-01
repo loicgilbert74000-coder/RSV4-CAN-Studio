@@ -14,20 +14,29 @@ DIG_DEFAULT = [
 ANA_DEFAULT = [(32, "Suspension avant", True), (34, "Suspension arrière", True), (35, "ADC 3", False)]
 # Voyants à côté du tableau de bord : (broche, couleur)
 LED_DEFAULT = {"green": 21, "red": 22, "blue": 17}
+# Enregistrement : bouton poussoir (vers GND) et module carte SD (SPI)
+REC_DEFAULT = {"button": 15, "sd": True, "cs": 10, "mosi": 11, "miso": 13, "sck": 12}
 OUT_DEFAULT = [(2, "Sortie 1", "Bas", False), (23, "Sortie 2", "Bas", False)]
 
 
 # Broches proposées selon la carte (les broches d'un ESP32 classique ne conviennent pas à un ESP32-S3)
 BOARDS = {
     "ESP32 classique (DevKit 38 broches)": {
-        "can": (5, 4), "gps": 16, "dig": [13, 14, 27, 26, 25, 33, 18, 19],
-        "ana": [32, 34, 35], "out": [2, 23], "leds": {"green": 21, "red": 22, "blue": 17},
+        "can": (5, 4), "gps": 16, "dig": [14, 27, 26, 25, 33, 36, 39, 12],
+        "ana": [32, 34, 35], "out": [2, 0], "leds": {"green": 21, "red": 22, "blue": 17},
+        "rec": {"button": 15, "sd": True, "cs": 13, "mosi": 23, "miso": 19, "sck": 18},
     },
     "ESP32-S3 (DevKitC-1)": {
-        "can": (5, 4), "gps": 16, "dig": [7, 8, 9, 10, 11, 12, 13, 14],
-        "ana": [1, 2, 6], "out": [15, 38], "leds": {"green": 21, "red": 18, "blue": 17},
+        "can": (5, 4), "gps": 16, "dig": [7, 8, 9, 14, 40, 41, 42, 47],
+        "ana": [1, 2, 6], "out": [38, 39], "leds": {"green": 21, "red": 18, "blue": 17},
+        "rec": {"button": 15, "sd": True, "cs": 10, "mosi": 11, "miso": 13, "sck": 12},
     },
 }
+
+
+def rec_of(cfg):
+    """Réglages de l'enregistrement (valeurs par défaut si l'ancien fichier n'en contient pas)."""
+    return {**REC_DEFAULT, **cfg.get("rec", {})}
 
 
 def leds_of(cfg):
@@ -58,6 +67,10 @@ def validate_cfg(cfg):
             if e["enabled"]:
                 pins.append(e["pin"])
     pins += list(leds_of(cfg).values())
+    rec = rec_of(cfg)
+    pins.append(rec["button"])
+    if rec["sd"]:
+        pins += [rec["cs"], rec["mosi"], rec["miso"], rec["sck"]]
     for p in pins:
         if not 0 <= p <= 39:
             raise ValueError(f"Broche {p} hors plage (0 à 39).")
@@ -70,6 +83,7 @@ def make_header(cfg):
     w, c, g = (cfg["wifi"], cfg["can"], cfg["gps"])
     dig, ana, out = (cfg["digital_inputs"], cfg["analog_inputs"], cfg["outputs"])
     leds = leds_of(cfg)
+    rec = rec_of(cfg)
     def arr(vals, ctype):
         return "{" + ", ".join((str(v) for v in vals)) + "}"
     lines = [
@@ -96,6 +110,12 @@ def make_header(cfg):
         f"static const int OUT_PIN[OUT_COUNT] = {arr([e['pin'] for e in out], 'int')};",
         f"static const bool OUT_ON[OUT_COUNT] = {arr([1 if e['enabled'] else 0 for e in out], 'bool')};",
         f"static const bool OUT_HIGH[OUT_COUNT] = {arr([1 if e['level'] == 'Haut' else 0 for e in out], 'bool')};",
+        f"#define REC_BTN_PIN {int(rec['button'])}",
+        f"#define REC_SD_ENABLED {(1 if rec['sd'] else 0)}",
+        f"#define SD_CS_PIN {int(rec['cs'])}",
+        f"#define SD_MOSI_PIN {int(rec['mosi'])}",
+        f"#define SD_MISO_PIN {int(rec['miso'])}",
+        f"#define SD_SCK_PIN {int(rec['sck'])}",
         f"#define LED_GREEN_PIN {int(leds['green'])}",
         f"#define LED_RED_PIN {int(leds['red'])}",
         f"#define LED_BLUE_PIN {int(leds['blue'])}",

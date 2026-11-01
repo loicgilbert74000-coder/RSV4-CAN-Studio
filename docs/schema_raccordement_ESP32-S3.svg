@@ -1,0 +1,556 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1800 1880" width="1800" height="1880" font-family="Arial, Helvetica, sans-serif">
+<rect x="0" y="0" width="1800" height="1880" rx="0" fill="#fff" stroke="none" stroke-width="2"/>
+<text x="40" y="48" font-size="26" fill="#111" text-anchor="start" font-weight="bold">TrackLab Electronics — boîtier ESP32-S3 : schéma de raccordement</text>
+<text x="40" y="74" font-size="14" fill="#666" text-anchor="start" font-weight="normal">Relais CAN (écoute seule) + GPS + entrées / sorties, vers Wi-Fi.   Rouge : alimentation   ·   Bleu : signaux   ·   Orange : bus CAN   ·   Tous les GND sont reliés.</text>
+<rect x="30" y="110" width="640" height="230" rx="8" fill="none" stroke="#8a93a6" stroke-width="1.5" stroke-dasharray="8 6"/>
+<text x="42" y="102" font-size="15" fill="#333" text-anchor="start" font-weight="bold">1 · ALIMENTATION (depuis la batterie de la moto)</text>
+<circle cx="60" cy="190" r="5" fill="#fff" stroke="#c0191f" stroke-width="2"/>
+<text x="40" y="160" font-size="13" fill="#c0191f" text-anchor="start" font-weight="bold">+12 V après contact</text>
+<line x1="75" y1="190" x2="102.0" y2="190" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="158.0" y1="190" x2="185" y2="190" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<rect x="102.0" y="180" width="56" height="20" rx="0" fill="#fff" stroke="#111" stroke-width="2"/>
+<line x1="102.0" y1="190" x2="158.0" y2="190" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<text x="130.0" y="172" font-size="13" fill="#111" text-anchor="middle" font-weight="normal">F1  </text>
+<text x="130" y="224" font-size="13" fill="#111" text-anchor="middle" font-weight="normal">2 A</text>
+<polyline points="60,190 75,190" fill="none" stroke="#c0191f" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="185,190 240,190" fill="none" stroke="#c0191f" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<line x1="240" y1="190" x2="258.0" y2="190" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="282.0" y1="190" x2="300" y2="190" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<polygon points="258.0,178 258.0,202 282.0,190" fill="#fff" stroke="#111" stroke-width="2"/>
+<line x1="282.0" y1="178" x2="282.0" y2="202" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<text x="270.0" y="170" font-size="13" fill="#111" text-anchor="middle" font-weight="normal">D1  SS34</text>
+<text x="270" y="224" font-size="12" fill="#666" text-anchor="middle" font-weight="normal">anti-inversion</text>
+<polyline points="300,190 470,190" fill="none" stroke="#c0191f" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="340" cy="190" r="4" fill="#c0191f"/>
+<line x1="340" y1="190" x2="340" y2="233.0" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="340" y1="257.0" x2="340" y2="300" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<polygon points="328,257.0 352,257.0 340,233.0" fill="#fff" stroke="#111" stroke-width="2"/>
+<line x1="328" y1="233.0" x2="352" y2="233.0" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<text x="320" y="243.0" font-size="13" fill="#111" text-anchor="end" font-weight="normal"></text>
+<text x="320" y="259.0" font-size="13" fill="#111" text-anchor="end" font-weight="normal"></text>
+<text x="332" y="262" font-size="11" fill="#111" text-anchor="end" font-weight="normal">D2 TVS</text>
+<text x="332" y="276" font-size="11" fill="#111" text-anchor="end" font-weight="normal">SMBJ18A</text>
+<line x1="340" y1="300" x2="340" y2="310" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="322" y1="310" x2="358" y2="310" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="328" y1="315" x2="352" y2="315" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="334" y1="320" x2="346" y2="320" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<circle cx="420" cy="190" r="4" fill="#c0191f"/>
+<line x1="420" y1="190" x2="420" y2="240.0" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="420" y1="250.0" x2="420" y2="300" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="406" y1="240.0" x2="434" y2="240.0" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="406" y1="250.0" x2="434" y2="250.0" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<text x="440" y="243.0" font-size="13" fill="#111" text-anchor="start" font-weight="normal"></text>
+<text x="440" y="259.0" font-size="13" fill="#111" text-anchor="start" font-weight="normal"></text>
+<text x="358" y="252" font-size="11" fill="#111" text-anchor="start" font-weight="normal">C1</text>
+<text x="358" y="266" font-size="11" fill="#111" text-anchor="start" font-weight="normal">470 µF</text>
+<text x="358" y="280" font-size="11" fill="#111" text-anchor="start" font-weight="normal">35 V</text>
+<line x1="420" y1="300" x2="420" y2="310" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="402" y1="310" x2="438" y2="310" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="408" y1="315" x2="432" y2="315" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="414" y1="320" x2="426" y2="320" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<rect x="470" y="140" width="150" height="130" rx="4" fill="#f4f6fa" stroke="#111" stroke-width="2.5"/>
+<text x="545.0" y="162" font-size="15" fill="#111" text-anchor="middle" font-weight="bold">Convertisseur</text>
+<text x="545.0" y="180" font-size="12" fill="#666" text-anchor="middle" font-weight="normal">12 V → 5 V</text>
+<text x="545" y="222" font-size="11" fill="#666" text-anchor="middle" font-weight="normal">≥ 2 A · entrée ≥ 30 V</text>
+<text x="478" y="194" font-size="12" fill="#111" text-anchor="start" font-weight="normal">IN+</text>
+<text x="478" y="250" font-size="12" fill="#111" text-anchor="start" font-weight="normal">IN−</text>
+<text x="612" y="195" font-size="12" fill="#111" text-anchor="end" font-weight="normal">OUT+</text>
+<text x="612" y="250" font-size="12" fill="#111" text-anchor="end" font-weight="normal">OUT−</text>
+<polyline points="620,190 660,190" fill="none" stroke="#c0191f" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="626" y="180" font-size="14" fill="#c0191f" text-anchor="start" font-weight="bold">+5 V</text>
+<polyline points="470,245 440,245 440,300" fill="none" stroke="#111" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="440" cy="300" r="4" fill="#111"/>
+<line x1="60" y1="300" x2="640" y2="300" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<circle cx="60" cy="300" r="5" fill="#fff" stroke="#111" stroke-width="2"/>
+<text x="60" y="322" font-size="13" fill="#111" text-anchor="start" font-weight="bold">GND (masse moto)</text>
+<polyline points="620,245 640,245 640,300" fill="none" stroke="#111" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<line x1="520" y1="300" x2="520" y2="310" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="502" y1="310" x2="538" y2="310" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="508" y1="315" x2="532" y2="315" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="514" y1="320" x2="526" y2="320" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<circle cx="520" cy="300" r="4" fill="#111"/>
+<rect x="30" y="380" width="640" height="270" rx="8" fill="none" stroke="#8a93a6" stroke-width="1.5" stroke-dasharray="8 6"/>
+<text x="42" y="372" font-size="15" fill="#333" text-anchor="start" font-weight="bold">2 · BUS CAN DE LA MOTO (écoute seule)</text>
+<rect x="50" y="420" width="130" height="140" rx="4" fill="#f4f6fa" stroke="#111" stroke-width="2.5"/>
+<text x="115" y="442" font-size="15" fill="#111" text-anchor="middle" font-weight="bold">Prise CAN</text>
+<text x="115" y="458" font-size="12" fill="#666" text-anchor="middle" font-weight="normal">de la moto</text>
+<text x="172" y="494" font-size="13" fill="#b86a00" text-anchor="end" font-weight="bold">CAN H</text>
+<circle cx="180" cy="490" r="5" fill="#fff" stroke="#b86a00" stroke-width="2"/>
+<text x="172" y="524" font-size="13" fill="#b86a00" text-anchor="end" font-weight="bold">CAN L</text>
+<circle cx="180" cy="520" r="5" fill="#fff" stroke="#b86a00" stroke-width="2"/>
+<text x="172" y="554" font-size="13" fill="#111" text-anchor="end" font-weight="bold">GND</text>
+<circle cx="180" cy="550" r="5" fill="#fff" stroke="#111" stroke-width="2"/>
+<polyline points="180,490 340,490" fill="none" stroke="#b86a00" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="180,520 340,520" fill="none" stroke="#b86a00" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="180,550 220,550" fill="none" stroke="#111" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<line x1="220" y1="550" x2="220" y2="560" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="202" y1="560" x2="238" y2="560" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="208" y1="565" x2="232" y2="565" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="214" y1="570" x2="226" y2="570" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<text x="50" y="580" font-size="11" fill="#666" text-anchor="start" font-weight="normal">Repérer CAN H / CAN L / GND</text>
+<text x="50" y="594" font-size="11" fill="#666" text-anchor="start" font-weight="normal">avec le manuel d'atelier de la moto.</text>
+<circle cx="250" cy="490" r="4" fill="#b86a00"/>
+<circle cx="270" cy="520" r="4" fill="#b86a00"/>
+<polyline points="250,490 250,600" fill="none" stroke="#b86a00" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="262" y="612" font-size="1" fill="#111" text-anchor="start" font-weight="normal"></text>
+<rect x="340" y="450" width="170" height="130" rx="4" fill="#f4f6fa" stroke="#111" stroke-width="2.5"/>
+<text x="425.0" y="472" font-size="15" fill="#111" text-anchor="middle" font-weight="bold">U2  SN65HVD230</text>
+<text x="425" y="576" font-size="11" fill="#666" text-anchor="middle" font-weight="normal">transceiver CAN 3,3 V</text>
+<text x="348" y="494" font-size="12" fill="#111" text-anchor="start" font-weight="normal">CANH</text>
+<text x="348" y="524" font-size="12" fill="#111" text-anchor="start" font-weight="normal">CANL</text>
+<text x="504" y="494" font-size="12" fill="#111" text-anchor="end" font-weight="normal">TXD</text>
+<text x="504" y="524" font-size="12" fill="#111" text-anchor="end" font-weight="normal">RXD</text>
+<text x="348" y="560" font-size="12" fill="#111" text-anchor="start" font-weight="normal">Rs→GND</text>
+<text x="504" y="560" font-size="12" fill="#111" text-anchor="end" font-weight="normal">GND</text>
+<polyline points="425,450 425,425" fill="none" stroke="#c0191f" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="435" y="434" font-size="14" fill="#c0191f" text-anchor="start" font-weight="bold">+3,3 V</text>
+<polyline points="490,580 490,600" fill="none" stroke="#111" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<line x1="490" y1="600" x2="490" y2="610" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="472" y1="610" x2="508" y2="610" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="478" y1="615" x2="502" y2="615" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="484" y1="620" x2="496" y2="620" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<rect x="212" y="560" width="0.1" height="0.1" rx="0" fill="#fff" stroke="none" stroke-width="2"/>
+<polyline points="250,490 250,590" fill="none" stroke="#b86a00" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="270,520 270,590" fill="none" stroke="#b86a00" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+<rect x="236" y="590" width="48" height="22" rx="0" fill="#f4f6fa" stroke="#111" stroke-width="2"/>
+<text x="260" y="606" font-size="12" fill="#111" text-anchor="middle" font-weight="bold">D3</text>
+<polyline points="260,612 260,618" fill="none" stroke="#111" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<line x1="260" y1="618" x2="260" y2="628" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="242" y1="628" x2="278" y2="628" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="248" y1="633" x2="272" y2="633" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="254" y1="638" x2="266" y2="638" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<text x="296" y="604" font-size="12" fill="#666" text-anchor="start" font-weight="normal">PESD2CAN</text>
+<text x="296" y="618" font-size="12" fill="#666" text-anchor="start" font-weight="normal">(anti-parasites)</text>
+<polyline points="510,490 740,490" fill="none" stroke="#1456b8" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="510,520 740,520" fill="none" stroke="#1456b8" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<rect x="30" y="690" width="640" height="165" rx="8" fill="none" stroke="#8a93a6" stroke-width="1.5" stroke-dasharray="8 6"/>
+<text x="42" y="682" font-size="15" fill="#333" text-anchor="start" font-weight="bold">3 · GPS (liaison série)</text>
+<rect x="380" y="720" width="170" height="130" rx="4" fill="#f4f6fa" stroke="#111" stroke-width="2.5"/>
+<text x="465.0" y="742" font-size="15" fill="#111" text-anchor="middle" font-weight="bold">U3  Module GPS</text>
+<text x="465.0" y="760" font-size="12" fill="#666" text-anchor="middle" font-weight="normal">NEO-M9N · UART</text>
+<text x="388" y="770" font-size="12" fill="#111" text-anchor="start" font-weight="normal">VCC</text>
+<text x="388" y="800" font-size="12" fill="#111" text-anchor="start" font-weight="normal">GND</text>
+<text x="544" y="770" font-size="12" fill="#111" text-anchor="end" font-weight="normal">TX</text>
+<text x="544" y="800" font-size="12" fill="#111" text-anchor="end" font-weight="normal">RX (libre)</text>
+<polyline points="380,765 340,765" fill="none" stroke="#c0191f" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="290" y="755" font-size="14" fill="#c0191f" text-anchor="start" font-weight="bold">+3,3 V</text>
+<polyline points="380,795 350,795 350,815" fill="none" stroke="#111" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<line x1="350" y1="815" x2="350" y2="825" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="332" y1="825" x2="368" y2="825" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="338" y1="830" x2="362" y2="830" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="344" y1="835" x2="356" y2="835" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<polyline points="550,765 640,765 640,550 740,550" fill="none" stroke="#1456b8" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="50" y="725" font-size="11" fill="#666" text-anchor="start" font-weight="normal">Antenne hors boîtier métallique,</text>
+<text x="50" y="739" font-size="11" fill="#666" text-anchor="start" font-weight="normal">vue dégagée vers le ciel.</text>
+<text x="50" y="790" font-size="11" fill="#666" text-anchor="start" font-weight="normal">Module 5 V ? relier VCC à +5 V.</text>
+<text x="50" y="806" font-size="11" fill="#666" text-anchor="start" font-weight="normal">Débit d'usine du M9N : 38400 bauds ; le firmware</text>
+<text x="50" y="820" font-size="11" fill="#666" text-anchor="start" font-weight="normal">détecte le débit et règle le GPS à 10 Hz.</text>
+<rect x="760" y="250" width="240" height="1070" rx="6" fill="#eef3ff" stroke="#111" stroke-width="3"/>
+<text x="880.0" y="278" font-size="18" fill="#111" text-anchor="middle" font-weight="bold">ESP32-S3 DevKitC-1</text>
+<text x="880.0" y="298" font-size="12" fill="#666" text-anchor="middle" font-weight="normal">(carte « ESP32S3 Dev Module »)</text>
+<text x="880.0" y="1302" font-size="12" fill="#666" text-anchor="middle" font-weight="normal">alimenté par VIN (5 V) ou USB</text>
+<line x1="740" y1="330" x2="760" y2="330" stroke="#c0191f" stroke-width="2.5" stroke-linecap="round"/>
+<text x="770" y="335" font-size="13" fill="#111" text-anchor="start" font-weight="normal">VIN (5 V)</text>
+<line x1="740" y1="370" x2="760" y2="370" stroke="#111" stroke-width="2.5" stroke-linecap="round"/>
+<text x="770" y="375" font-size="13" fill="#111" text-anchor="start" font-weight="normal">GND</text>
+<line x1="740" y1="410" x2="760" y2="410" stroke="#c0191f" stroke-width="2.5" stroke-linecap="round"/>
+<text x="770" y="415" font-size="13" fill="#111" text-anchor="start" font-weight="normal">3V3</text>
+<line x1="740" y1="490" x2="760" y2="490" stroke="#1456b8" stroke-width="2.5" stroke-linecap="round"/>
+<text x="770" y="495" font-size="13" fill="#111" text-anchor="start" font-weight="normal">GPIO5  → TXD</text>
+<line x1="740" y1="520" x2="760" y2="520" stroke="#1456b8" stroke-width="2.5" stroke-linecap="round"/>
+<text x="770" y="525" font-size="13" fill="#111" text-anchor="start" font-weight="normal">GPIO4  ← RXD</text>
+<line x1="740" y1="550" x2="760" y2="550" stroke="#1456b8" stroke-width="2.5" stroke-linecap="round"/>
+<text x="770" y="555" font-size="13" fill="#111" text-anchor="start" font-weight="normal">GPIO16 ← TX GPS</text>
+<line x1="740" y1="940" x2="760" y2="940" stroke="#1456b8" stroke-width="2.5" stroke-linecap="round"/>
+<text x="770" y="945" font-size="13" fill="#111" text-anchor="start" font-weight="normal">GPIO10  → CS</text>
+<line x1="740" y1="970" x2="760" y2="970" stroke="#1456b8" stroke-width="2.5" stroke-linecap="round"/>
+<text x="770" y="975" font-size="13" fill="#111" text-anchor="start" font-weight="normal">GPIO11  → MOSI</text>
+<line x1="740" y1="1000" x2="760" y2="1000" stroke="#1456b8" stroke-width="2.5" stroke-linecap="round"/>
+<text x="770" y="1005" font-size="13" fill="#111" text-anchor="start" font-weight="normal">GPIO12  → SCK</text>
+<line x1="740" y1="1030" x2="760" y2="1030" stroke="#1456b8" stroke-width="2.5" stroke-linecap="round"/>
+<text x="770" y="1035" font-size="13" fill="#111" text-anchor="start" font-weight="normal">GPIO13  ← MISO</text>
+<line x1="740" y1="1210" x2="760" y2="1210" stroke="#1456b8" stroke-width="2.5" stroke-linecap="round"/>
+<text x="770" y="1215" font-size="13" fill="#111" text-anchor="start" font-weight="normal">GPIO15  ← bouton</text>
+<polyline points="660,190 700,190 700,330 740,330" fill="none" stroke="#c0191f" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+<line x1="740" y1="330" x2="760" y2="330" stroke="#c0191f" stroke-width="2.5" stroke-linecap="round"/>
+<circle cx="700" cy="190" r="4" fill="#c0191f"/>
+<polyline points="740,370 720,370" fill="none" stroke="#111" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<line x1="720" y1="370" x2="720" y2="380" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="702" y1="380" x2="738" y2="380" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="708" y1="385" x2="732" y2="385" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="714" y1="390" x2="726" y2="390" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<polyline points="740,410 700,410" fill="none" stroke="#c0191f" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="690" y="398" font-size="14" fill="#c0191f" text-anchor="end" font-weight="bold">+3,3 V</text>
+<text x="690" y="428" font-size="11" fill="#666" text-anchor="end" font-weight="normal">vers U2 et U3</text>
+<line x1="1000" y1="330" x2="1040" y2="330" stroke="#1456b8" stroke-width="2.5" stroke-linecap="round"/>
+<text x="990" y="335" font-size="13" fill="#111" text-anchor="end" font-weight="normal">GPIO7</text>
+<circle cx="1040" cy="330" r="5" fill="#fff" stroke="#1456b8" stroke-width="2"/>
+<text x="1052" y="335" font-size="13" fill="#1456b8" text-anchor="start" font-weight="bold">ENT1</text>
+<line x1="1000" y1="366" x2="1040" y2="366" stroke="#1456b8" stroke-width="2.5" stroke-linecap="round"/>
+<text x="990" y="371" font-size="13" fill="#111" text-anchor="end" font-weight="normal">GPIO8</text>
+<circle cx="1040" cy="366" r="5" fill="#fff" stroke="#1456b8" stroke-width="2"/>
+<text x="1052" y="371" font-size="13" fill="#1456b8" text-anchor="start" font-weight="bold">ENT2</text>
+<line x1="1000" y1="402" x2="1040" y2="402" stroke="#1456b8" stroke-width="2.5" stroke-linecap="round"/>
+<text x="990" y="407" font-size="13" fill="#111" text-anchor="end" font-weight="normal">GPIO9</text>
+<circle cx="1040" cy="402" r="5" fill="#fff" stroke="#1456b8" stroke-width="2"/>
+<text x="1052" y="407" font-size="13" fill="#1456b8" text-anchor="start" font-weight="bold">ENT3</text>
+<line x1="1000" y1="438" x2="1040" y2="438" stroke="#1456b8" stroke-width="2.5" stroke-linecap="round"/>
+<text x="990" y="443" font-size="13" fill="#111" text-anchor="end" font-weight="normal">GPIO14</text>
+<circle cx="1040" cy="438" r="5" fill="#fff" stroke="#1456b8" stroke-width="2"/>
+<text x="1052" y="443" font-size="13" fill="#1456b8" text-anchor="start" font-weight="bold">ENT4</text>
+<line x1="1000" y1="474" x2="1040" y2="474" stroke="#1456b8" stroke-width="2.5" stroke-linecap="round"/>
+<text x="990" y="479" font-size="13" fill="#111" text-anchor="end" font-weight="normal">GPIO40</text>
+<circle cx="1040" cy="474" r="5" fill="#fff" stroke="#1456b8" stroke-width="2"/>
+<text x="1052" y="479" font-size="13" fill="#1456b8" text-anchor="start" font-weight="bold">ENT5</text>
+<line x1="1000" y1="510" x2="1040" y2="510" stroke="#1456b8" stroke-width="2.5" stroke-linecap="round"/>
+<text x="990" y="515" font-size="13" fill="#111" text-anchor="end" font-weight="normal">GPIO41</text>
+<circle cx="1040" cy="510" r="5" fill="#fff" stroke="#1456b8" stroke-width="2"/>
+<text x="1052" y="515" font-size="13" fill="#1456b8" text-anchor="start" font-weight="bold">ENT6</text>
+<line x1="1000" y1="546" x2="1040" y2="546" stroke="#1456b8" stroke-width="2.5" stroke-linecap="round"/>
+<text x="990" y="551" font-size="13" fill="#111" text-anchor="end" font-weight="normal">GPIO42</text>
+<circle cx="1040" cy="546" r="5" fill="#fff" stroke="#1456b8" stroke-width="2"/>
+<text x="1052" y="551" font-size="13" fill="#1456b8" text-anchor="start" font-weight="bold">ENT7</text>
+<line x1="1000" y1="582" x2="1040" y2="582" stroke="#1456b8" stroke-width="2.5" stroke-linecap="round"/>
+<text x="990" y="587" font-size="13" fill="#111" text-anchor="end" font-weight="normal">GPIO47</text>
+<circle cx="1040" cy="582" r="5" fill="#fff" stroke="#1456b8" stroke-width="2"/>
+<text x="1052" y="587" font-size="13" fill="#1456b8" text-anchor="start" font-weight="bold">ENT8</text>
+<line x1="1000" y1="650" x2="1040" y2="650" stroke="#1456b8" stroke-width="2.5" stroke-linecap="round"/>
+<text x="990" y="655" font-size="13" fill="#111" text-anchor="end" font-weight="normal">GPIO1</text>
+<circle cx="1040" cy="650" r="5" fill="#fff" stroke="#1456b8" stroke-width="2"/>
+<text x="1052" y="655" font-size="13" fill="#1456b8" text-anchor="start" font-weight="bold">SUSP AV</text>
+<line x1="1000" y1="686" x2="1040" y2="686" stroke="#1456b8" stroke-width="2.5" stroke-linecap="round"/>
+<text x="990" y="691" font-size="13" fill="#111" text-anchor="end" font-weight="normal">GPIO2</text>
+<circle cx="1040" cy="686" r="5" fill="#fff" stroke="#1456b8" stroke-width="2"/>
+<text x="1052" y="691" font-size="13" fill="#1456b8" text-anchor="start" font-weight="bold">SUSP AR</text>
+<line x1="1000" y1="722" x2="1040" y2="722" stroke="#1456b8" stroke-width="2.5" stroke-linecap="round"/>
+<text x="990" y="727" font-size="13" fill="#111" text-anchor="end" font-weight="normal">GPIO6</text>
+<circle cx="1040" cy="722" r="5" fill="#fff" stroke="#1456b8" stroke-width="2"/>
+<text x="1052" y="727" font-size="13" fill="#1456b8" text-anchor="start" font-weight="bold">ADC3 (libre)</text>
+<line x1="1000" y1="790" x2="1040" y2="790" stroke="#1456b8" stroke-width="2.5" stroke-linecap="round"/>
+<text x="990" y="795" font-size="13" fill="#111" text-anchor="end" font-weight="normal">GPIO38</text>
+<circle cx="1040" cy="790" r="5" fill="#fff" stroke="#1456b8" stroke-width="2"/>
+<text x="1052" y="795" font-size="13" fill="#1456b8" text-anchor="start" font-weight="bold">SORTIE1</text>
+<line x1="1000" y1="826" x2="1040" y2="826" stroke="#1456b8" stroke-width="2.5" stroke-linecap="round"/>
+<text x="990" y="831" font-size="13" fill="#111" text-anchor="end" font-weight="normal">GPIO39</text>
+<circle cx="1040" cy="826" r="5" fill="#fff" stroke="#1456b8" stroke-width="2"/>
+<text x="1052" y="831" font-size="13" fill="#1456b8" text-anchor="start" font-weight="bold">SORTIE2</text>
+<line x1="1000" y1="890" x2="1040" y2="890" stroke="#1456b8" stroke-width="2.5" stroke-linecap="round"/>
+<text x="990" y="895" font-size="13" fill="#111" text-anchor="end" font-weight="normal">GPIO21</text>
+<circle cx="1040" cy="890" r="5" fill="#fff" stroke="#1456b8" stroke-width="2"/>
+<text x="1052" y="895" font-size="13" fill="#1456b8" text-anchor="start" font-weight="bold">LED verte</text>
+<line x1="1000" y1="926" x2="1040" y2="926" stroke="#1456b8" stroke-width="2.5" stroke-linecap="round"/>
+<text x="990" y="931" font-size="13" fill="#111" text-anchor="end" font-weight="normal">GPIO18</text>
+<circle cx="1040" cy="926" r="5" fill="#fff" stroke="#1456b8" stroke-width="2"/>
+<text x="1052" y="931" font-size="13" fill="#1456b8" text-anchor="start" font-weight="bold">LED rouge</text>
+<line x1="1000" y1="962" x2="1040" y2="962" stroke="#1456b8" stroke-width="2.5" stroke-linecap="round"/>
+<text x="990" y="967" font-size="13" fill="#111" text-anchor="end" font-weight="normal">GPIO17</text>
+<circle cx="1040" cy="962" r="5" fill="#fff" stroke="#1456b8" stroke-width="2"/>
+<text x="1052" y="967" font-size="13" fill="#1456b8" text-anchor="start" font-weight="bold">LED bleue</text>
+<text x="1052" y="306" font-size="12" fill="#666" text-anchor="start" font-weight="normal">Entrées numériques (12 V)</text>
+<text x="1052" y="626" font-size="12" fill="#666" text-anchor="start" font-weight="normal">Potentiomètres de suspension</text>
+<text x="1052" y="766" font-size="12" fill="#666" text-anchor="start" font-weight="normal">Sorties (MOSFET)</text>
+<text x="1052" y="866" font-size="12" fill="#666" text-anchor="start" font-weight="normal">Voyants du tableau de bord</text>
+<rect x="30" y="880" width="640" height="250" rx="8" fill="none" stroke="#8a93a6" stroke-width="1.5" stroke-dasharray="8 6"/>
+<text x="42" y="872" font-size="15" fill="#333" text-anchor="start" font-weight="bold">4 · CARTE SD (enregistrement)</text>
+<rect x="340" y="900" width="160" height="160" rx="4" fill="#f4f6fa" stroke="#111" stroke-width="2.5"/>
+<text x="420.0" y="922" font-size="15" fill="#111" text-anchor="middle" font-weight="bold">U4  Module SD</text>
+<text x="420.0" y="940" font-size="12" fill="#666" text-anchor="middle" font-weight="normal">microSD · SPI</text>
+<text x="494" y="945" font-size="12" fill="#111" text-anchor="end" font-weight="normal">CS</text>
+<polyline points="500,940 740,940" fill="none" stroke="#1456b8" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="494" y="975" font-size="12" fill="#111" text-anchor="end" font-weight="normal">MOSI</text>
+<polyline points="500,970 740,970" fill="none" stroke="#1456b8" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="494" y="1005" font-size="12" fill="#111" text-anchor="end" font-weight="normal">SCK</text>
+<polyline points="500,1000 740,1000" fill="none" stroke="#1456b8" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="494" y="1035" font-size="12" fill="#111" text-anchor="end" font-weight="normal">MISO</text>
+<polyline points="500,1030 740,1030" fill="none" stroke="#1456b8" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="348" y="965" font-size="12" fill="#111" text-anchor="start" font-weight="normal">VCC</text>
+<text x="348" y="1005" font-size="12" fill="#111" text-anchor="start" font-weight="normal">GND</text>
+<polyline points="340,960 300,960" fill="none" stroke="#c0191f" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="255" y="950" font-size="14" fill="#c0191f" text-anchor="start" font-weight="bold">+5 V</text>
+<polyline points="340,1000 310,1000 310,1020" fill="none" stroke="#111" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<line x1="310" y1="1020" x2="310" y2="1030" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="292" y1="1030" x2="328" y2="1030" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="298" y1="1035" x2="322" y2="1035" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="304" y1="1040" x2="316" y2="1040" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<text x="50" y="900" font-size="11" fill="#666" text-anchor="start" font-weight="normal">Module avec régulateur : VCC à +5 V.</text>
+<text x="50" y="914" font-size="11" fill="#666" text-anchor="start" font-weight="normal">Module 3,3 V seul : VCC à +3,3 V.</text>
+<text x="50" y="1085" font-size="11" fill="#666" text-anchor="start" font-weight="normal">Carte microSD FAT32, 32 Go maximum conseillé.</text>
+<text x="50" y="1100" font-size="11" fill="#666" text-anchor="start" font-weight="normal">Sans carte : enregistrement dans la mémoire</text>
+<text x="50" y="1114" font-size="11" fill="#666" text-anchor="start" font-weight="normal">interne de l'ESP32 (quelques minutes seulement).</text>
+<rect x="30" y="1160" width="640" height="160" rx="8" fill="none" stroke="#8a93a6" stroke-width="1.5" stroke-dasharray="8 6"/>
+<text x="42" y="1152" font-size="15" fill="#333" text-anchor="start" font-weight="bold">5 · BOUTON D'ENREGISTREMENT</text>
+<polyline points="740,1210 440,1210" fill="none" stroke="#1456b8" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="440" cy="1210" r="5" fill="#fff" stroke="#1456b8" stroke-width="2"/>
+<line x1="440" y1="1210" x2="420" y2="1210" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="420" y1="1210" x2="385" y2="1194" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="380" y1="1210" x2="345" y2="1210" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<circle cx="380" cy="1210" r="4" fill="#111"/>
+<line x1="402" y1="1184" x2="402" y2="1198" stroke="#666" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="388" y1="1184" x2="416" y2="1184" stroke="#666" stroke-width="1.5" stroke-linecap="round"/>
+<polyline points="345,1210 330,1210 330,1240" fill="none" stroke="#111" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<line x1="330" y1="1240" x2="330" y2="1250" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="312" y1="1250" x2="348" y2="1250" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="318" y1="1255" x2="342" y2="1255" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="324" y1="1260" x2="336" y2="1260" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<text x="380" y="1170" font-size="12" fill="#111" text-anchor="middle" font-weight="normal">SW1 · poussoir (normalement ouvert)</text>
+<text x="50" y="1195" font-size="11" fill="#666" text-anchor="start" font-weight="normal">Un appui : démarre</text>
+<text x="50" y="1209" font-size="11" fill="#666" text-anchor="start" font-weight="normal">l'enregistrement ; un autre</text>
+<text x="50" y="1223" font-size="11" fill="#666" text-anchor="start" font-weight="normal">appui : l'arrête.</text>
+<text x="50" y="1262" font-size="11" fill="#666" text-anchor="start" font-weight="normal">Pas de résistance : la broche a</text>
+<text x="50" y="1276" font-size="11" fill="#666" text-anchor="start" font-weight="normal">une résistance interne vers +3,3 V.</text>
+<text x="50" y="1300" font-size="11" fill="#666" text-anchor="start" font-weight="normal">Pendant l'enregistrement, la LED rouge</text>
+<text x="50" y="1314" font-size="11" fill="#666" text-anchor="start" font-weight="normal">fait un éclat par seconde.</text>
+<polyline points="1135,326 1147,326 1147,586 1135,586" fill="none" stroke="#666" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+<line x1="1147" y1="456" x2="1185" y2="456" stroke="#666" stroke-width="1.5" stroke-linecap="round"/>
+<polygon points="1185,451 1195,456 1185,461" fill="#666"/>
+<text x="1205" y="461" font-size="16" fill="#111" text-anchor="start" font-weight="bold">A</text>
+<polyline points="1135,646 1147,646 1147,690 1135,690" fill="none" stroke="#666" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+<line x1="1147" y1="668" x2="1185" y2="668" stroke="#666" stroke-width="1.5" stroke-linecap="round"/>
+<polygon points="1185,663 1195,668 1185,673" fill="#666"/>
+<text x="1205" y="673" font-size="16" fill="#111" text-anchor="start" font-weight="bold">B</text>
+<polyline points="1135,786 1147,786 1147,830 1135,830" fill="none" stroke="#666" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+<line x1="1147" y1="808" x2="1185" y2="808" stroke="#666" stroke-width="1.5" stroke-linecap="round"/>
+<polygon points="1185,803 1195,808 1185,813" fill="#666"/>
+<text x="1205" y="813" font-size="16" fill="#111" text-anchor="start" font-weight="bold">C</text>
+<polyline points="1135,886 1147,886 1147,966 1135,966" fill="none" stroke="#666" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+<line x1="1147" y1="926" x2="1185" y2="926" stroke="#666" stroke-width="1.5" stroke-linecap="round"/>
+<polygon points="1185,921 1195,926 1185,931" fill="#666"/>
+<text x="1205" y="931" font-size="16" fill="#111" text-anchor="start" font-weight="bold">D</text>
+<rect x="1220" y="280" width="540" height="330" rx="8" fill="none" stroke="#8a93a6" stroke-width="1.5" stroke-dasharray="8 6"/>
+<text x="1232" y="272" font-size="15" fill="#333" text-anchor="start" font-weight="bold">A · ENTRÉE 12 V (montage identique pour ENT1 à ENT8)</text>
+<circle cx="1250" cy="440" r="5" fill="#fff" stroke="#1456b8" stroke-width="2"/>
+<text x="1250" y="340" font-size="13" fill="#111" text-anchor="start" font-weight="bold">Signal 12 V de la moto</text>
+<text x="1250" y="356" font-size="12" fill="#666" text-anchor="start" font-weight="normal">(stop, clignotant, point mort…)</text>
+<line x1="1255" y1="440" x2="1295.5" y2="440" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1339.5" y1="440" x2="1380" y2="440" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<rect x="1295.5" y="432" width="44" height="16" rx="0" fill="#fff" stroke="#111" stroke-width="2"/>
+<text x="1317.5" y="426" font-size="13" fill="#111" text-anchor="middle" font-weight="normal">R1  10 kΩ</text>
+<polyline points="1380,440 1700,440" fill="none" stroke="#1456b8" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="1430" cy="440" r="4" fill="#1456b8"/>
+<line x1="1430" y1="440" x2="1430" y2="468.0" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1430" y1="512.0" x2="1430" y2="540" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<rect x="1422" y="468.0" width="16" height="44" rx="0" fill="#fff" stroke="#111" stroke-width="2"/>
+<text x="1444" y="488.0" font-size="13" fill="#111" text-anchor="start" font-weight="normal">R2</text>
+<text x="1444" y="504.0" font-size="13" fill="#111" text-anchor="start" font-weight="normal">2,7 kΩ</text>
+<line x1="1430" y1="540" x2="1430" y2="550" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1412" y1="550" x2="1448" y2="550" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1418" y1="555" x2="1442" y2="555" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1424" y1="560" x2="1436" y2="560" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<circle cx="1520" cy="440" r="4" fill="#1456b8"/>
+<line x1="1520" y1="440" x2="1520" y2="485.0" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1520" y1="495.0" x2="1520" y2="540" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1506" y1="485.0" x2="1534" y2="485.0" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1506" y1="495.0" x2="1534" y2="495.0" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<text x="1540" y="488.0" font-size="13" fill="#111" text-anchor="start" font-weight="normal">C</text>
+<text x="1540" y="504.0" font-size="13" fill="#111" text-anchor="start" font-weight="normal">100 nF</text>
+<line x1="1520" y1="540" x2="1520" y2="550" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1502" y1="550" x2="1538" y2="550" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1508" y1="555" x2="1532" y2="555" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1514" y1="560" x2="1526" y2="560" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<circle cx="1610" cy="440" r="4" fill="#1456b8"/>
+<line x1="1610" y1="440" x2="1610" y2="478.0" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1610" y1="502.0" x2="1610" y2="540" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<polygon points="1598,478.0 1622,478.0 1610,502.0" fill="#fff" stroke="#111" stroke-width="2"/>
+<line x1="1598" y1="502.0" x2="1622" y2="502.0" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<text x="1630" y="488.0" font-size="13" fill="#111" text-anchor="start" font-weight="normal">Z</text>
+<text x="1630" y="504.0" font-size="13" fill="#111" text-anchor="start" font-weight="normal">3,3 V (option)</text>
+<line x1="1610" y1="540" x2="1610" y2="550" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1592" y1="550" x2="1628" y2="550" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1598" y1="555" x2="1622" y2="555" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1604" y1="560" x2="1616" y2="560" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<circle cx="1700" cy="440" r="5" fill="#fff" stroke="#1456b8" stroke-width="2"/>
+<text x="1700" y="424" font-size="13" fill="#1456b8" text-anchor="end" font-weight="bold">vers GPIO (ENTn)</text>
+<text x="1250" y="575" font-size="12" fill="#666" text-anchor="start" font-weight="normal">12 V → ≈ 2,6 V sur la broche ; 15 V → ≈ 3,2 V. Niveau haut ≥ 2 V reconnu.</text>
+<text x="1250" y="592" font-size="12" fill="#666" text-anchor="start" font-weight="normal">Entrée non utilisée : la laisser en l'air et la désactiver dans l'application.</text>
+<rect x="1220" y="640" width="540" height="250" rx="8" fill="none" stroke="#8a93a6" stroke-width="1.5" stroke-dasharray="8 6"/>
+<text x="1232" y="632" font-size="15" fill="#333" text-anchor="start" font-weight="bold">B · POTENTIOMÈTRES DE SUSPENSION (avant / arrière)</text>
+<circle cx="1250" cy="690" r="5" fill="#fff" stroke="#c0191f" stroke-width="2"/>
+<text x="1250" y="674" font-size="13" fill="#c0191f" text-anchor="start" font-weight="bold">+3,3 V</text>
+<polyline points="1250,690 1330,690" fill="none" stroke="#c0191f" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<line x1="1330" y1="690" x2="1330" y2="723.0" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1330" y1="767.0" x2="1330" y2="800" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<rect x="1322" y="723.0" width="16" height="44" rx="0" fill="#fff" stroke="#111" stroke-width="2"/>
+<text x="1316" y="743.0" font-size="13" fill="#111" text-anchor="end" font-weight="normal">P</text>
+<text x="1316" y="759.0" font-size="13" fill="#111" text-anchor="end" font-weight="normal">10 kΩ lin.</text>
+<polyline points="1330,800 1330,812" fill="none" stroke="#111" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<line x1="1330" y1="812" x2="1330" y2="822" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1312" y1="822" x2="1348" y2="822" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1318" y1="827" x2="1342" y2="827" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1324" y1="832" x2="1336" y2="832" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1360" y1="745" x2="1338" y2="745" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<polygon points="1338,745 1350,739 1350,751" fill="#111"/>
+<text x="1366" y="728" font-size="12" fill="#666" text-anchor="start" font-weight="normal">curseur</text>
+<polyline points="1360,745 1400,745" fill="none" stroke="#1456b8" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<line x1="1400" y1="745" x2="1428.0" y2="745" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1472.0" y1="745" x2="1500" y2="745" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<rect x="1428.0" y="737" width="44" height="16" rx="0" fill="#fff" stroke="#111" stroke-width="2"/>
+<text x="1450.0" y="731" font-size="13" fill="#111" text-anchor="middle" font-weight="normal">R3  1 kΩ</text>
+<polyline points="1500,745 1700,745" fill="none" stroke="#1456b8" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="1550" cy="745" r="4" fill="#1456b8"/>
+<line x1="1550" y1="745" x2="1550" y2="772.5" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1550" y1="782.5" x2="1550" y2="810" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1536" y1="772.5" x2="1564" y2="772.5" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1536" y1="782.5" x2="1564" y2="782.5" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<text x="1570" y="775.5" font-size="13" fill="#111" text-anchor="start" font-weight="normal"></text>
+<text x="1570" y="791.5" font-size="13" fill="#111" text-anchor="start" font-weight="normal"></text>
+<text x="1566" y="782" font-size="13" fill="#111" text-anchor="start" font-weight="normal">100 nF</text>
+<line x1="1550" y1="810" x2="1550" y2="820" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1532" y1="820" x2="1568" y2="820" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1538" y1="825" x2="1562" y2="825" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1544" y1="830" x2="1556" y2="830" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<circle cx="1700" cy="745" r="5" fill="#fff" stroke="#1456b8" stroke-width="2"/>
+<text x="1700" y="708" font-size="13" fill="#1456b8" text-anchor="end" font-weight="bold">vers GPIO1 (avant) · GPIO2 (arrière)</text>
+<text x="1250" y="842" font-size="12" fill="#666" text-anchor="start" font-weight="normal">Un montage par potentiomètre (le même, deux fois). Linéaire, 10 kΩ, fixé sur le débattement</text>
+<text x="1250" y="858" font-size="12" fill="#666" text-anchor="start" font-weight="normal">de la fourche / de l'amortisseur. Alimenter en +3,3 V (jamais en 5 V). Fils blindés conseillés.</text>
+<text x="1250" y="874" font-size="12" fill="#666" text-anchor="start" font-weight="normal">ADC3 (GPIO6) libre : même montage, ou diviseur 10 kΩ / 20 kΩ pour un capteur 0–5 V.</text>
+<g transform="translate(0,70)">
+<rect x="1220" y="840" width="540" height="270" rx="8" fill="none" stroke="#8a93a6" stroke-width="1.5" stroke-dasharray="8 6"/>
+<text x="1232" y="832" font-size="15" fill="#333" text-anchor="start" font-weight="bold">C · SORTIE (SORTIE1, SORTIE2)</text>
+<circle cx="1250" cy="980" r="5" fill="#fff" stroke="#1456b8" stroke-width="2"/>
+<text x="1250" y="950" font-size="13" fill="#1456b8" text-anchor="start" font-weight="bold">depuis GPIO (SORTIEn)</text>
+<line x1="1255" y1="980" x2="1295.5" y2="980" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1339.5" y1="980" x2="1380" y2="980" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<rect x="1295.5" y="972" width="44" height="16" rx="0" fill="#fff" stroke="#111" stroke-width="2"/>
+<text x="1317.5" y="966" font-size="13" fill="#111" text-anchor="middle" font-weight="normal">R5  1 kΩ</text>
+<polyline points="1380,980 1480,980 1480,980" fill="none" stroke="#1456b8" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="1430" cy="980" r="4" fill="#1456b8"/>
+<line x1="1430" y1="980" x2="1430" y2="998.0" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1430" y1="1042.0" x2="1430" y2="1060" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<rect x="1422" y="998.0" width="16" height="44" rx="0" fill="#fff" stroke="#111" stroke-width="2"/>
+<text x="1416" y="1018.0" font-size="13" fill="#111" text-anchor="end" font-weight="normal">R6</text>
+<text x="1416" y="1034.0" font-size="13" fill="#111" text-anchor="end" font-weight="normal">100 kΩ</text>
+<line x1="1430" y1="1060" x2="1430" y2="1070" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1412" y1="1070" x2="1448" y2="1070" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1418" y1="1075" x2="1442" y2="1075" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1424" y1="1080" x2="1436" y2="1080" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1530" y1="940" x2="1530" y2="960" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1530" y1="1000" x2="1530" y2="1020" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1530" y1="960" x2="1516" y2="960" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1530" y1="980" x2="1516" y2="980" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1530" y1="1000" x2="1516" y2="1000" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1516" y1="954" x2="1516" y2="966" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1516" y1="974" x2="1516" y2="986" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1516" y1="994" x2="1516" y2="1006" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1508" y1="954" x2="1508" y2="1006" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1480" y1="980" x2="1508" y2="980" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<polygon points="1516,980 1526,975 1526,985" fill="#111"/>
+<polyline points="1480,980 1480,980" fill="none" stroke="#111" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<line x1="1480" y1="980" x2="1480" y2="980" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<text x="1560" y="1000" font-size="13" fill="#111" text-anchor="start" font-weight="bold">Q1</text>
+<text x="1560" y="1016" font-size="12" fill="#666" text-anchor="start" font-weight="normal">canal N, niveau logique</text>
+<text x="1560" y="1032" font-size="12" fill="#666" text-anchor="start" font-weight="normal">IRLZ44N · 2N7000 (petite charge)</text>
+<polyline points="1530,1020 1530,1060" fill="none" stroke="#111" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<line x1="1530" y1="1060" x2="1530" y2="1070" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1512" y1="1070" x2="1548" y2="1070" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1518" y1="1075" x2="1542" y2="1075" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1524" y1="1080" x2="1536" y2="1080" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<polyline points="1530,940 1530,915" fill="none" stroke="#111" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<rect x="1505" y="880" width="50" height="35" rx="0" fill="#f4f6fa" stroke="#111" stroke-width="2"/>
+<text x="1530" y="902" font-size="12" fill="#111" text-anchor="middle" font-weight="normal">Charge</text>
+<line x1="1530" y1="880" x2="1530" y2="868" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<polyline points="1530,868 1700,868" fill="none" stroke="#c0191f" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="1700" cy="868" r="5" fill="#fff" stroke="#c0191f" stroke-width="2"/>
+<text x="1700" y="852" font-size="13" fill="#c0191f" text-anchor="end" font-weight="bold">+12 V (après contact)</text>
+<circle cx="1650" cy="868" r="4" fill="#c0191f"/>
+<line x1="1650" y1="868" x2="1650" y2="892.0" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1650" y1="916.0" x2="1650" y2="940" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<polygon points="1638,916.0 1662,916.0 1650,892.0" fill="#fff" stroke="#111" stroke-width="2"/>
+<line x1="1638" y1="892.0" x2="1662" y2="892.0" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<text x="1670" y="902.0" font-size="13" fill="#111" text-anchor="start" font-weight="normal">D</text>
+<text x="1670" y="918.0" font-size="13" fill="#111" text-anchor="start" font-weight="normal">1N4007</text>
+<polyline points="1650,940 1530,940" fill="none" stroke="#111" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="1530" cy="940" r="4" fill="#111"/>
+<text x="1250" y="1090" font-size="12" fill="#666" text-anchor="start" font-weight="normal">Les sorties sont des signaux 3,3 V : ne jamais relier une charge directement à la broche.</text>
+</g>
+<rect x="1220" y="1210" width="540" height="250" rx="8" fill="none" stroke="#8a93a6" stroke-width="1.5" stroke-dasharray="8 6"/>
+<text x="1232" y="1202" font-size="15" fill="#333" text-anchor="start" font-weight="bold">D · VOYANTS DU TABLEAU DE BORD (LED verte, rouge, bleue)</text>
+<circle cx="1250" cy="1265" r="5" fill="#fff" stroke="#1456b8" stroke-width="2"/>
+<text x="1250" y="1287" font-size="12" fill="#1456b8" text-anchor="start" font-weight="bold">GPIO21</text>
+<line x1="1255" y1="1265" x2="1278.0" y2="1265" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1322.0" y1="1265" x2="1345" y2="1265" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<rect x="1278.0" y="1257" width="44" height="16" rx="0" fill="#fff" stroke="#111" stroke-width="2"/>
+<text x="1300.0" y="1251" font-size="13" fill="#111" text-anchor="middle" font-weight="normal">R7  330 Ω</text>
+<line x1="1345" y1="1265" x2="1370" y2="1265" stroke="#1456b8" stroke-width="2" stroke-linecap="round"/>
+<polygon points="1370,1253 1370,1277 1394,1265" fill="#1f9d3a" stroke="#111" stroke-width="2"/>
+<line x1="1394" y1="1253" x2="1394" y2="1277" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1394" y1="1265" x2="1430" y2="1265" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1430" y1="1265" x2="1430" y2="1275" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1412" y1="1275" x2="1448" y2="1275" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1418" y1="1280" x2="1442" y2="1280" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1424" y1="1285" x2="1436" y2="1285" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<text x="1460" y="1261" font-size="13" fill="#111" text-anchor="start" font-weight="bold">Verte · liaison</text>
+<text x="1460" y="1279" font-size="11.5" fill="#666" text-anchor="start" font-weight="normal">fixe = PC connecté, clignote = Wi-Fi prêt</text>
+<circle cx="1250" cy="1325" r="5" fill="#fff" stroke="#1456b8" stroke-width="2"/>
+<text x="1250" y="1347" font-size="12" fill="#1456b8" text-anchor="start" font-weight="bold">GPIO22</text>
+<line x1="1255" y1="1325" x2="1278.0" y2="1325" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1322.0" y1="1325" x2="1345" y2="1325" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<rect x="1278.0" y="1317" width="44" height="16" rx="0" fill="#fff" stroke="#111" stroke-width="2"/>
+<text x="1300.0" y="1311" font-size="13" fill="#111" text-anchor="middle" font-weight="normal">R8  330 Ω</text>
+<line x1="1345" y1="1325" x2="1370" y2="1325" stroke="#1456b8" stroke-width="2" stroke-linecap="round"/>
+<polygon points="1370,1313 1370,1337 1394,1325" fill="#d62828" stroke="#111" stroke-width="2"/>
+<line x1="1394" y1="1313" x2="1394" y2="1337" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1394" y1="1325" x2="1430" y2="1325" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1430" y1="1325" x2="1430" y2="1335" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1412" y1="1335" x2="1448" y2="1335" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1418" y1="1340" x2="1442" y2="1340" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1424" y1="1345" x2="1436" y2="1345" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<text x="1460" y="1321" font-size="13" fill="#111" text-anchor="start" font-weight="bold">Rouge · défaut / enreg.</text>
+<text x="1460" y="1339" font-size="11.5" fill="#666" text-anchor="start" font-weight="normal">fixe = défaut CAN · 1 éclat/s = enreg.</text>
+<circle cx="1250" cy="1385" r="5" fill="#fff" stroke="#1456b8" stroke-width="2"/>
+<text x="1250" y="1407" font-size="12" fill="#1456b8" text-anchor="start" font-weight="bold">GPIO17</text>
+<line x1="1255" y1="1385" x2="1278.0" y2="1385" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1322.0" y1="1385" x2="1345" y2="1385" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<rect x="1278.0" y="1377" width="44" height="16" rx="0" fill="#fff" stroke="#111" stroke-width="2"/>
+<text x="1300.0" y="1371" font-size="13" fill="#111" text-anchor="middle" font-weight="normal">R9  47 Ω</text>
+<line x1="1345" y1="1385" x2="1370" y2="1385" stroke="#1456b8" stroke-width="2" stroke-linecap="round"/>
+<polygon points="1370,1373 1370,1397 1394,1385" fill="#1456b8" stroke="#111" stroke-width="2"/>
+<line x1="1394" y1="1373" x2="1394" y2="1397" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1394" y1="1385" x2="1430" y2="1385" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1430" y1="1385" x2="1430" y2="1395" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1412" y1="1395" x2="1448" y2="1395" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1418" y1="1400" x2="1442" y2="1400" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<line x1="1424" y1="1405" x2="1436" y2="1405" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<text x="1460" y="1381" font-size="13" fill="#111" text-anchor="start" font-weight="bold">Bleue · activité CAN</text>
+<text x="1460" y="1399" font-size="11.5" fill="#666" text-anchor="start" font-weight="normal">éclat à chaque trame reçue</text>
+<text x="1250" y="1432" font-size="11.5" fill="#666" text-anchor="start" font-weight="normal">LED déportées près du tableau de bord : 2 fils chacune (signal + GND). Anode côté GPIO.</text>
+<text x="1250" y="1448" font-size="11.5" fill="#666" text-anchor="start" font-weight="normal">LED bleue : Vf ≈ 3 V → LED haute luminosité, ou la piloter par un BSS138 comme la sortie C.</text>
+<g transform="translate(0,440)">
+<rect x="30" y="940" width="1160" height="300" rx="8" fill="none" stroke="#8a93a6" stroke-width="1.5" stroke-dasharray="8 6"/>
+<text x="42" y="932" font-size="15" fill="#333" text-anchor="start" font-weight="bold">AFFECTATION DES BROCHES (réglage par défaut de l'application)</text>
+<text x="50" y="975" font-size="14" fill="#111" text-anchor="start" font-weight="bold">CAN</text>
+<text x="50" y="1000" font-size="13" fill="#222" text-anchor="start" font-weight="normal">GPIO5  → TXD du transceiver</text>
+<text x="50" y="1020" font-size="13" fill="#222" text-anchor="start" font-weight="normal">GPIO4  ← RXD du transceiver</text>
+<text x="50" y="1040" font-size="13" fill="#222" text-anchor="start" font-weight="normal">Débit CAN : 250 kbit/s (réglable)</text>
+<text x="50" y="1060" font-size="13" fill="#222" text-anchor="start" font-weight="normal">Mode : écoute seule, jamais d'émission</text>
+<text x="50" y="1080" font-size="13" fill="#222" text-anchor="start" font-weight="normal">Trames standard 11 bits</text>
+<text x="335" y="975" font-size="14" fill="#111" text-anchor="start" font-weight="bold">GPS</text>
+<text x="335" y="1000" font-size="13" fill="#222" text-anchor="start" font-weight="normal">GPIO16 ← TX du module GPS</text>
+<text x="335" y="1020" font-size="13" fill="#222" text-anchor="start" font-weight="normal">RX du GPS : non utilisé</text>
+<text x="335" y="1040" font-size="13" fill="#222" text-anchor="start" font-weight="normal">NMEA : trames RMC et GGA</text>
+<text x="335" y="1060" font-size="13" fill="#222" text-anchor="start" font-weight="normal">Cadence : 10 Hz (réglée au démarrage)</text>
+<text x="620" y="975" font-size="14" fill="#111" text-anchor="start" font-weight="bold">Entrées numériques</text>
+<text x="620" y="1000" font-size="13" fill="#222" text-anchor="start" font-weight="normal">ENT1 GPIO7   ENT2 GPIO8</text>
+<text x="620" y="1020" font-size="13" fill="#222" text-anchor="start" font-weight="normal">ENT3 GPIO9   ENT4 GPIO14</text>
+<text x="620" y="1040" font-size="13" fill="#222" text-anchor="start" font-weight="normal">ENT5 GPIO40   ENT6 GPIO41</text>
+<text x="620" y="1060" font-size="13" fill="#222" text-anchor="start" font-weight="normal">ENT7 GPIO42   ENT8 GPIO47</text>
+<text x="620" y="1080" font-size="13" fill="#222" text-anchor="start" font-weight="normal">Lues 10 fois par seconde</text>
+<text x="905" y="975" font-size="14" fill="#111" text-anchor="start" font-weight="bold">Analogiques / sorties / LED</text>
+<text x="905" y="1000" font-size="13" fill="#222" text-anchor="start" font-weight="normal">SUSP AV GPIO1 · SUSP AR GPIO2</text>
+<text x="905" y="1020" font-size="13" fill="#222" text-anchor="start" font-weight="normal">ADC3 GPIO6 libre (0–3,3 V, 12 bits)</text>
+<text x="905" y="1040" font-size="13" fill="#222" text-anchor="start" font-weight="normal">SORTIE1 GPIO38 · SORTIE2 GPIO39</text>
+<text x="905" y="1060" font-size="13" fill="#222" text-anchor="start" font-weight="normal">LED verte 21 · rouge 18 · bleue 17</text>
+<text x="905" y="1080" font-size="13" fill="#222" text-anchor="start" font-weight="normal">Bouton GPIO15 · SD 10, 11, 12, 13</text>
+<text x="50" y="1135" font-size="13" fill="#111" text-anchor="start" font-weight="normal">Réseau Wi-Fi créé par l'ESP32 : « RSV4-CAN » (mot de passe par défaut à changer) · adresse 192.168.4.1 · port TCP 2323.</text>
+<text x="50" y="1157" font-size="13" fill="#111" text-anchor="start" font-weight="normal">Le PC se connecte à ce réseau, puis l'application se connecte à 192.168.4.1:2323 (menu Connexion → Wi-Fi ESP32).</text>
+<text x="50" y="1179" font-size="13" fill="#111" text-anchor="start" font-weight="normal">Fichiers : firmware/esp32_can_wifi/ (esp32_can_wifi.ino + rsv4_config.h généré par la page Paramétrage ESP32).</text>
+<text x="50" y="1215" font-size="13" fill="#c0191f" text-anchor="start" font-weight="bold">Firmware non testé sur matériel : essayer d'abord sur table (alimentation 5 V, sans la moto), puis lecture seule sur la moto.</text>
+</g>
+<rect x="30" y="1715" width="1160" height="130" rx="6" fill="#fff6f0" stroke="#c0191f" stroke-width="2"/>
+<text x="45" y="1739" font-size="14" fill="#c0191f" text-anchor="start" font-weight="bold">À RESPECTER</text>
+<text x="45" y="1761" font-size="12.5" fill="#222" text-anchor="start" font-weight="normal">• Pas de résistance de terminaison 120 Ω : le bus de la moto est déjà terminé (retirer ou couper celle du module transceiver).</text>
+<text x="45" y="1778" font-size="12.5" fill="#222" text-anchor="start" font-weight="normal">• Masse commune obligatoire entre moto, convertisseur et ESP32 (et GND des potentiomètres et des LED).</text>
+<text x="45" y="1795" font-size="12.5" fill="#222" text-anchor="start" font-weight="normal">• Fusible au plus près de la batterie (+12 V après contact), câble court.</text>
+<text x="45" y="1812" font-size="12.5" fill="#222" text-anchor="start" font-weight="normal">• Aucun fil connecté à la prise CAN en dehors de CAN H, CAN L et GND.</text>
+<text x="45" y="1829" font-size="12.5" fill="#222" text-anchor="start" font-weight="normal">• Potentiomètres alimentés en +3,3 V uniquement : un curseur à 5 V détruirait l'entrée de l'ESP32.</text>
+<text x="1760" y="1866" font-size="12" fill="#666" text-anchor="end" font-weight="normal">TrackLab Electronics · schéma de raccordement ESP32 · rév. 3</text>
+</svg>

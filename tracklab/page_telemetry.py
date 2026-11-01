@@ -177,6 +177,7 @@ class TelemetryMixin:
             ("rx", "Trames CAN"),
             ("gps", "GPS"),
             ("wifi", "Signal Wi-Fi"),
+            ("rec", "Enregistrement ESP32"),
             ("val", "Validation"),
         ]:
             row = tk.Frame(st, bg=CARD)

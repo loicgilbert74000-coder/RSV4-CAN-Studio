@@ -41,3 +41,12 @@ Toutes les 5 s (réglable par `CAN_STATS_PERIOD_MS`), le moniteur série (115200
 
 ## GPS à 10 Hz
 Dès que le module GPS est lisible, le firmware le règle sur 10 Hz (commandes u-blox UBX-CFG-RATE pour M8 et UBX-CFG-VALSET pour M9) et coupe les phrases GLL, GSA, GSV et VTG pour que le débit série suffise. Les trames GPS sont envoyées à l'application à la même cadence. Le réglage est refait à chaque démarrage (rien n'est écrit dans la mémoire du module). Changer la cadence : `#define GPS_RATE_HZ` (1, 5 ou 10) en tête du fichier `.ino`. Le rapport série affiche la cadence mesurée (« cadence=10.0 Hz »).
+
+## Enregistrement (v2.2)
+- **Bouton :** un poussoir entre `REC_BTN_PIN` (15 par défaut) et GND. Un appui démarre l'enregistrement, un autre l'arrête.
+- **LED rouge :** un éclat par seconde pendant l'enregistrement (rouge fixe = défaut du contrôleur CAN).
+- **Stockage :** carte SD (module SPI : CS, MOSI, SCK, MISO, broches dans le réglage) ; sans carte, mémoire interne (LittleFS), quelques minutes seulement. Carte FAT32 conseillée.
+- **Fichiers :** `/rec/0001.trk`, `/rec/0002.trk`… (en-tête « TRK1 » puis enregistrements de 16 octets : temps, identifiant, DLC, 8 octets, contrôle XOR).
+- **Depuis TrackLab :** démarrer / arrêter, liste, téléchargement et suppression des fichiers par la liaison Wi-Fi (commandes `REC 1`, `REC 0`, `LIST`, `GET n`, `DEL n`).
+- **Rapport série :** ligne « Enreg. » (état, stockage, espace libre, taille du fichier).
+- Avec une carte ESP32-S3, utiliser `rsv4_config_ESP32-S3.h` (renommé `rsv4_config.h`).
