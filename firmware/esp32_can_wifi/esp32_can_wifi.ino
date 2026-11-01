@@ -660,8 +660,8 @@ static void printReport(uint32_t now) {
     twai_status_info_t st = {};
     bool ok = twai_get_status_info(&st) == ESP_OK;
     const char* etat = !ok ? "inconnu" : st.state == TWAI_STATE_BUS_OFF ? "BUS-OFF" : st.state == TWAI_STATE_STOPPED ? "ARRÊTÉ" : "en marche";
-    Serial.printf("CAN    : contrôleur %s · trames/s=%lu · total=%lu · erreurs_rx=%u · perdues=%u · %s\n", etat,
-                  (unsigned long)rate, (unsigned long)canTotal, (unsigned)st.rx_error_counter, (unsigned)st.rx_missed_count,
+    Serial.printf("CAN    : contrôleur %s à %d kbit/s · trames/s=%lu · total=%lu · erreurs_rx=%u · erreurs_bus=%u · perdues=%u · %s\n", etat, (int)CAN_BITRATE_KBPS,
+                  (unsigned long)rate, (unsigned long)canTotal, (unsigned)st.rx_error_counter, (unsigned)st.bus_error_count, (unsigned)st.rx_missed_count,
                   (canSeen && now - lastCanRx < 3000) ? "bus actif" : "aucune trame (bus non raccordé ?)");
   }
   // GPS
