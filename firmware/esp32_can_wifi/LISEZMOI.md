@@ -9,7 +9,7 @@ Relais CAN (écoute seule) + GPS + entrées/sorties vers l'application, par Wi-F
 4. Téléverser, ouvrir le moniteur série à 115200 bauds : bannière « TrackLab Electronics … v2.1 » et statistiques CAN toutes les 5 s.
 
 ## Utilisation
-- L'ESP32 crée le réseau Wi-Fi `RSV4-CAN` (mot de passe par défaut `rsv4-can-2026` — à changer dans `rsv4_config.h`).
+- L'ESP32 crée le réseau Wi-Fi `TrackLab` (mot de passe par défaut `rsv4-can-2026` — à changer dans `rsv4_config.h`).
 - Se connecter avec le PC, puis dans l'application : Connexion → Wi-Fi ESP32 → `192.168.4.1`, port `2323`.
 - Trame émise : 20 octets `A5 5A | t(4) | id(4) | dlc | 8 données | XOR`.
 - Broches par défaut : CAN TX=GPIO5, RX=GPIO4 ; GPS RX=GPIO16 (reçoit le TX du module) ; GPS TX=GPIO12 (S3 : GPIO6) vers le RX du module GPS, nécessaire pour le régler à 10 Hz ; voir `docs/raccordement_esp32.md`.

@@ -480,7 +480,7 @@
 <text x="905" y="1040" font-size="13" fill="#222" text-anchor="start" font-weight="normal">SORTIE1 GPIO2 · SORTIE2 GPIO23</text>
 <text x="905" y="1060" font-size="13" fill="#222" text-anchor="start" font-weight="normal">LED verte 21 · rouge 22 · bleue 17</text>
 <text x="905" y="1080" font-size="13" fill="#222" text-anchor="start" font-weight="normal">Sorties : niveau initial seulement</text>
-<text x="50" y="1135" font-size="13" fill="#111" text-anchor="start" font-weight="normal">Réseau Wi-Fi créé par l'ESP32 : « RSV4-CAN » (mot de passe par défaut à changer) · adresse 192.168.4.1 · port TCP 2323.</text>
+<text x="50" y="1135" font-size="13" fill="#111" text-anchor="start" font-weight="normal">Réseau Wi-Fi créé par l'ESP32 : « TrackLab » (mot de passe par défaut à changer) · adresse 192.168.4.1 · port TCP 2323.</text>
 <text x="50" y="1157" font-size="13" fill="#111" text-anchor="start" font-weight="normal">Le PC se connecte à ce réseau, puis l'application se connecte à 192.168.4.1:2323 (menu Connexion → Wi-Fi ESP32).</text>
 <text x="50" y="1179" font-size="13" fill="#111" text-anchor="start" font-weight="normal">Fichiers : firmware/esp32_can_wifi/ (esp32_can_wifi.ino + rsv4_config.h généré par la page Paramétrage ESP32).</text>
 <text x="50" y="1215" font-size="13" fill="#c0191f" text-anchor="start" font-weight="bold">Firmware non testé sur matériel : essayer d'abord sur table (alimentation 5 V, sans la moto), puis lecture seule sur la moto.</text>

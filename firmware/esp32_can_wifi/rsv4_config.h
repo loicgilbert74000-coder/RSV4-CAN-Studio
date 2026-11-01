@@ -1,6 +1,6 @@
 // Fichier généré par TrackLab Electronics (Paramétrage ESP32). Ne pas modifier à la main.
 #pragma once
-#define AP_SSID "RSV4-CAN"
+#define AP_SSID "TrackLab"
 #define AP_PASS "rsv4-can-2026"
 #define AP_CHANNEL 6
 #define TCP_PORT 2323

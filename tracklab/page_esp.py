@@ -17,7 +17,7 @@ class EspMixin:
     def build_esp_vars(self):
         sv = lambda k, v: self.cv.__setitem__(k, tk.StringVar(value=str(v)))
         bv = lambda k, v: self.cv.__setitem__(k, tk.BooleanVar(value=v))
-        sv("ssid", "RSV4-CAN")
+        sv("ssid", "TrackLab")
         sv("password", "rsv4-can-2026")
         sv("channel", 6)
         self.cv["tcp_port"] = self.tcp_port
