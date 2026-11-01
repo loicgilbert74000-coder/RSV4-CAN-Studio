@@ -12,7 +12,7 @@ Relais CAN (écoute seule) + GPS + entrées/sorties vers l'application, par Wi-F
 - L'ESP32 crée le réseau Wi-Fi `RSV4-CAN` (mot de passe par défaut `rsv4-can-2026` — à changer dans `rsv4_config.h`).
 - Se connecter avec le PC, puis dans l'application : Connexion → Wi-Fi ESP32 → `192.168.4.1`, port `2323`.
 - Trame émise : 20 octets `A5 5A | t(4) | id(4) | dlc | 8 données | XOR`.
-- Broches par défaut : CAN TX=GPIO5, RX=GPIO4 ; GPS RX=GPIO16 ; voir `docs/raccordement_esp32.md`.
+- Broches par défaut : CAN TX=GPIO5, RX=GPIO4 ; GPS RX=GPIO16 (reçoit le TX du module) ; GPS TX=GPIO12 (S3 : GPIO6) vers le RX du module GPS, nécessaire pour le régler à 10 Hz ; voir `docs/raccordement_esp32.md`.
 
 ## Potentiomètres et voyants
 - ADC1 (GPIO32) = suspension avant, ADC2 (GPIO34) = suspension arrière, activés par défaut (0–3,3 V).
@@ -50,3 +50,6 @@ Dès que le module GPS est lisible, le firmware le règle sur 10 Hz (commandes u
 - **Depuis TrackLab :** démarrer / arrêter, liste, téléchargement et suppression des fichiers par la liaison Wi-Fi (commandes `REC 1`, `REC 0`, `LIST`, `GET n`, `DEL n`).
 - **Rapport série :** ligne « Enreg. » (état, stockage, espace libre, taille du fichier).
 - Avec une carte ESP32-S3, utiliser `rsv4_config_ESP32-S3.h` (renommé `rsv4_config.h`).
+
+## GPS à 10 Hz
+Le rapport série affiche « cadence=… Hz ». Si elle reste à 1 Hz, vérifiez le fil entre la broche GPS TX de l'ESP32 et l'entrée RX du module GPS : sans lui, les commandes de réglage ne partent pas. Le firmware retente le réglage jusqu'à 3 fois si la cadence mesurée est inférieure à 70 % de l'objectif.

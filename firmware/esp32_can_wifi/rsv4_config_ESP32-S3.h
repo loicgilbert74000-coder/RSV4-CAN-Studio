@@ -10,12 +10,13 @@
 #define CAN_BITRATE_KBPS 250
 #define GPS_ENABLED 1
 #define GPS_RX_PIN 16
+#define GPS_TX_PIN 6
 #define GPS_BAUD 38400
 #define DIG_COUNT 8
 static const int DIG_PIN[DIG_COUNT] = {7, 8, 9, 14, 40, 41, 42, 47};
 static const bool DIG_ON[DIG_COUNT] = {0, 0, 0, 0, 0, 0, 0, 0};
 #define ANA_COUNT 3
-static const int ANA_PIN[ANA_COUNT] = {1, 2, 6};
+static const int ANA_PIN[ANA_COUNT] = {1, 2, 3};
 static const bool ANA_ON[ANA_COUNT] = {1, 1, 0};
 #define OUT_COUNT 2
 static const int OUT_PIN[OUT_COUNT] = {38, 39};

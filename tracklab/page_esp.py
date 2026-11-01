@@ -27,6 +27,7 @@ class EspMixin:
         sv("can_rx", 4)
         bv("gps_on", True)
         sv("gps_rx", 16)
+        sv("gps_tx", -1)
         sv("gps_baud", 115200)
         for i, (pin, name, on) in enumerate(DIG_DEFAULT):
             sv(f"dig{i}_pin", pin)
@@ -105,6 +106,7 @@ class EspMixin:
         v["can_tx"].set(b["can"][0])
         v["can_rx"].set(b["can"][1])
         v["gps_rx"].set(b["gps"])
+        v["gps_tx"].set(b.get("gps_tx", -1))
         for n, pin in enumerate(b["dig"]):
             v[f"dig{n}_pin"].set(pin)
         for n, pin in enumerate(b["ana"]):
@@ -129,7 +131,7 @@ class EspMixin:
                 "tcp_port": int(self.tcp_port.get().strip()),
             },
             "can": {"enabled": v["can_on"].get(), "bitrate_kbps": i("can_bitrate"), "tx_pin": i("can_tx"), "rx_pin": i("can_rx")},
-            "gps": {"enabled": v["gps_on"].get(), "rx_pin": i("gps_rx"), "baud": i("gps_baud")},
+            "gps": {"enabled": v["gps_on"].get(), "rx_pin": i("gps_rx"), "tx_pin": i("gps_tx"), "baud": i("gps_baud")},
             "digital_inputs": [
                 {
                     "pin": i(f"dig{n}_pin"), "name": v[f"dig{n}_name"].get(), "enabled": v[f"dig{n}_on"].get()
@@ -165,6 +167,7 @@ class EspMixin:
         v["can_rx"].set(c["rx_pin"])
         v["gps_on"].set(bool(g["enabled"]))
         v["gps_rx"].set(g["rx_pin"])
+        v["gps_tx"].set(g.get("tx_pin", -1))
         v["gps_baud"].set(g["baud"])
         for n, e in enumerate(cfg["digital_inputs"]):
             v[f"dig{n}_pin"].set(e["pin"])
@@ -279,6 +282,7 @@ class EspMixin:
         c = self.esp_card(left, "GPS (UART)")
         self.echeck(c, "GPS activé (trames 0x7F0 et 0x7F8)", "gps_on")
         self.efield(c, "Broche RX (depuis le module GPS)", "gps_rx", 8)
+        self.efield(c, "Broche TX (vers le RX du GPS, -1 = non câblée)", "gps_tx", 8)
         self.ecombo(c, "Débit (bauds)", "gps_baud", ["9600", "38400", "115200"])
         c = self.esp_card(right, "Entrées numériques (trame 0x7F9, bit par entrée)")
         self.io_header(c, ["Entrée", "Broche", "Nom", "Active"])

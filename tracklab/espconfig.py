@@ -22,13 +22,13 @@ OUT_DEFAULT = [(2, "Sortie 1", "Bas", False), (23, "Sortie 2", "Bas", False)]
 # Broches proposées selon la carte (les broches d'un ESP32 classique ne conviennent pas à un ESP32-S3)
 BOARDS = {
     "ESP32 classique (DevKit 38 broches)": {
-        "can": (5, 4), "gps": 16, "dig": [14, 27, 26, 25, 33, 36, 39, 12],
+        "can": (5, 4), "gps": 16, "gps_tx": 12, "dig": [14, 27, 26, 25, 33, 36, 39, 0],
         "ana": [32, 34, 35], "out": [2, 0], "leds": {"green": 21, "red": 22, "blue": 17},
         "rec": {"button": 15, "sd": True, "cs": 13, "mosi": 23, "miso": 19, "sck": 18},
     },
     "ESP32-S3 (DevKitC-1)": {
-        "can": (5, 4), "gps": 16, "dig": [7, 8, 9, 14, 40, 41, 42, 47],
-        "ana": [1, 2, 6], "out": [38, 39], "leds": {"green": 21, "red": 18, "blue": 17},
+        "can": (5, 4), "gps": 16, "gps_tx": 6, "dig": [7, 8, 9, 14, 40, 41, 42, 47],
+        "ana": [1, 2, 3], "out": [38, 39], "leds": {"green": 21, "red": 18, "blue": 17},
         "rec": {"button": 15, "sd": True, "cs": 10, "mosi": 11, "miso": 13, "sck": 12},
     },
 }
@@ -62,6 +62,8 @@ def validate_cfg(cfg):
     pins = [cfg["can"]["tx_pin"], cfg["can"]["rx_pin"]] if cfg["can"].get("enabled", True) else []
     if cfg["gps"]["enabled"]:
         pins.append(cfg["gps"]["rx_pin"])
+        if cfg["gps"].get("tx_pin", -1) >= 0:
+            pins.append(cfg["gps"]["tx_pin"])
     for grp in ("digital_inputs", "analog_inputs", "outputs"):
         for e in cfg[grp]:
             if e["enabled"]:
@@ -72,8 +74,8 @@ def validate_cfg(cfg):
     if rec["sd"]:
         pins += [rec["cs"], rec["mosi"], rec["miso"], rec["sck"]]
     for p in pins:
-        if not 0 <= p <= 39:
-            raise ValueError(f"Broche {p} hors plage (0 à 39).")
+        if not 0 <= p <= 48:
+            raise ValueError(f"Broche {p} hors plage (0 à 48).")
     if cfg["can"]["bitrate_kbps"] not in (250, 500):
         raise ValueError("Le débit CAN doit être 250 ou 500 kbit/s.")
 
@@ -99,6 +101,7 @@ def make_header(cfg):
         f"#define CAN_BITRATE_KBPS {int(c['bitrate_kbps'])}",
         f"#define GPS_ENABLED {(1 if g['enabled'] else 0)}",
         f"#define GPS_RX_PIN {int(g['rx_pin'])}",
+        f"#define GPS_TX_PIN {int(g.get('tx_pin', -1))}",
         f"#define GPS_BAUD {int(g['baud'])}",
         f"#define DIG_COUNT {len(dig)}",
         f"static const int DIG_PIN[DIG_COUNT] = {arr([e['pin'] for e in dig], 'int')};",

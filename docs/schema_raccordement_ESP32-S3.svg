@@ -131,7 +131,7 @@
 <text x="388" y="770" font-size="12" fill="#111" text-anchor="start" font-weight="normal">VCC</text>
 <text x="388" y="800" font-size="12" fill="#111" text-anchor="start" font-weight="normal">GND</text>
 <text x="544" y="770" font-size="12" fill="#111" text-anchor="end" font-weight="normal">TX</text>
-<text x="544" y="800" font-size="12" fill="#111" text-anchor="end" font-weight="normal">RX (libre)</text>
+<text x="544" y="800" font-size="12" fill="#111" text-anchor="end" font-weight="normal">RX</text>
 <polyline points="380,765 340,765" fill="none" stroke="#c0191f" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
 <text x="290" y="755" font-size="14" fill="#c0191f" text-anchor="start" font-weight="bold">+3,3 V</text>
 <polyline points="380,795 350,795 350,815" fill="none" stroke="#111" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
@@ -144,7 +144,9 @@
 <text x="50" y="739" font-size="11" fill="#666" text-anchor="start" font-weight="normal">vue dégagée vers le ciel.</text>
 <text x="50" y="790" font-size="11" fill="#666" text-anchor="start" font-weight="normal">Module 5 V ? relier VCC à +5 V.</text>
 <text x="50" y="806" font-size="11" fill="#666" text-anchor="start" font-weight="normal">Débit d'usine du M9N : 38400 bauds ; le firmware</text>
-<text x="50" y="820" font-size="11" fill="#666" text-anchor="start" font-weight="normal">détecte le débit et règle le GPS à 10 Hz.</text>
+<text x="50" y="820" font-size="11" fill="#666" text-anchor="start" font-weight="normal">détecte le débit et règle le GPS à 10 Hz</text>
+<text x="50" y="834" font-size="11" fill="#666" text-anchor="start" font-weight="normal">(fil GPIO6 → RX du GPS obligatoire).</text>
+<polyline points="550,795 660,795 660,580 740,580" fill="none" stroke="#1456b8" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
 <rect x="760" y="250" width="240" height="1070" rx="6" fill="#eef3ff" stroke="#111" stroke-width="3"/>
 <text x="880.0" y="278" font-size="18" fill="#111" text-anchor="middle" font-weight="bold">ESP32-S3 DevKitC-1</text>
 <text x="880.0" y="298" font-size="12" fill="#666" text-anchor="middle" font-weight="normal">(carte « ESP32S3 Dev Module »)</text>
@@ -161,6 +163,8 @@
 <text x="770" y="525" font-size="13" fill="#111" text-anchor="start" font-weight="normal">GPIO4  ← RXD</text>
 <line x1="740" y1="550" x2="760" y2="550" stroke="#1456b8" stroke-width="2.5" stroke-linecap="round"/>
 <text x="770" y="555" font-size="13" fill="#111" text-anchor="start" font-weight="normal">GPIO16 ← TX GPS</text>
+<line x1="740" y1="580" x2="760" y2="580" stroke="#1456b8" stroke-width="2.5" stroke-linecap="round"/>
+<text x="770" y="585" font-size="13" fill="#111" text-anchor="start" font-weight="normal">GPIO6  → RX GPS</text>
 <line x1="740" y1="940" x2="760" y2="940" stroke="#1456b8" stroke-width="2.5" stroke-linecap="round"/>
 <text x="770" y="945" font-size="13" fill="#111" text-anchor="start" font-weight="normal">GPIO10  → CS</text>
 <line x1="740" y1="970" x2="760" y2="970" stroke="#1456b8" stroke-width="2.5" stroke-linecap="round"/>
@@ -223,7 +227,7 @@
 <circle cx="1040" cy="686" r="5" fill="#fff" stroke="#1456b8" stroke-width="2"/>
 <text x="1052" y="691" font-size="13" fill="#1456b8" text-anchor="start" font-weight="bold">SUSP AR</text>
 <line x1="1000" y1="722" x2="1040" y2="722" stroke="#1456b8" stroke-width="2.5" stroke-linecap="round"/>
-<text x="990" y="727" font-size="13" fill="#111" text-anchor="end" font-weight="normal">GPIO6</text>
+<text x="990" y="727" font-size="13" fill="#111" text-anchor="end" font-weight="normal">GPIO3</text>
 <circle cx="1040" cy="722" r="5" fill="#fff" stroke="#1456b8" stroke-width="2"/>
 <text x="1052" y="727" font-size="13" fill="#1456b8" text-anchor="start" font-weight="bold">ADC3 (libre)</text>
 <line x1="1000" y1="790" x2="1040" y2="790" stroke="#1456b8" stroke-width="2.5" stroke-linecap="round"/>
@@ -402,7 +406,7 @@
 <text x="1700" y="708" font-size="13" fill="#1456b8" text-anchor="end" font-weight="bold">vers GPIO1 (avant) · GPIO2 (arrière)</text>
 <text x="1250" y="842" font-size="12" fill="#666" text-anchor="start" font-weight="normal">Un montage par potentiomètre (le même, deux fois). Linéaire, 10 kΩ, fixé sur le débattement</text>
 <text x="1250" y="858" font-size="12" fill="#666" text-anchor="start" font-weight="normal">de la fourche / de l'amortisseur. Alimenter en +3,3 V (jamais en 5 V). Fils blindés conseillés.</text>
-<text x="1250" y="874" font-size="12" fill="#666" text-anchor="start" font-weight="normal">ADC3 (GPIO6) libre : même montage, ou diviseur 10 kΩ / 20 kΩ pour un capteur 0–5 V.</text>
+<text x="1250" y="874" font-size="12" fill="#666" text-anchor="start" font-weight="normal">ADC3 (GPIO3) libre : même montage, ou diviseur 10 kΩ / 20 kΩ pour un capteur 0–5 V.</text>
 <g transform="translate(0,70)">
 <rect x="1220" y="840" width="540" height="270" rx="8" fill="none" stroke="#8a93a6" stroke-width="1.5" stroke-dasharray="8 6"/>
 <text x="1232" y="832" font-size="15" fill="#333" text-anchor="start" font-weight="bold">C · SORTIE (SORTIE1, SORTIE2)</text>
@@ -481,7 +485,7 @@
 <text x="1460" y="1261" font-size="13" fill="#111" text-anchor="start" font-weight="bold">Verte · liaison</text>
 <text x="1460" y="1279" font-size="11.5" fill="#666" text-anchor="start" font-weight="normal">fixe = PC connecté, clignote = Wi-Fi prêt</text>
 <circle cx="1250" cy="1325" r="5" fill="#fff" stroke="#1456b8" stroke-width="2"/>
-<text x="1250" y="1347" font-size="12" fill="#1456b8" text-anchor="start" font-weight="bold">GPIO22</text>
+<text x="1250" y="1347" font-size="12" fill="#1456b8" text-anchor="start" font-weight="bold">GPIO18</text>
 <line x1="1255" y1="1325" x2="1278.0" y2="1325" stroke="#111" stroke-width="2" stroke-linecap="round"/>
 <line x1="1322.0" y1="1325" x2="1345" y2="1325" stroke="#111" stroke-width="2" stroke-linecap="round"/>
 <rect x="1278.0" y="1317" width="44" height="16" rx="0" fill="#fff" stroke="#111" stroke-width="2"/>
@@ -525,7 +529,7 @@
 <text x="50" y="1080" font-size="13" fill="#222" text-anchor="start" font-weight="normal">Trames standard 11 bits</text>
 <text x="335" y="975" font-size="14" fill="#111" text-anchor="start" font-weight="bold">GPS</text>
 <text x="335" y="1000" font-size="13" fill="#222" text-anchor="start" font-weight="normal">GPIO16 ← TX du module GPS</text>
-<text x="335" y="1020" font-size="13" fill="#222" text-anchor="start" font-weight="normal">RX du GPS : non utilisé</text>
+<text x="335" y="1020" font-size="13" fill="#222" text-anchor="start" font-weight="normal">GPIO6 → RX du module GPS</text>
 <text x="335" y="1040" font-size="13" fill="#222" text-anchor="start" font-weight="normal">NMEA : trames RMC et GGA</text>
 <text x="335" y="1060" font-size="13" fill="#222" text-anchor="start" font-weight="normal">Cadence : 10 Hz (réglée au démarrage)</text>
 <text x="620" y="975" font-size="14" fill="#111" text-anchor="start" font-weight="bold">Entrées numériques</text>
@@ -536,7 +540,7 @@
 <text x="620" y="1080" font-size="13" fill="#222" text-anchor="start" font-weight="normal">Lues 10 fois par seconde</text>
 <text x="905" y="975" font-size="14" fill="#111" text-anchor="start" font-weight="bold">Analogiques / sorties / LED</text>
 <text x="905" y="1000" font-size="13" fill="#222" text-anchor="start" font-weight="normal">SUSP AV GPIO1 · SUSP AR GPIO2</text>
-<text x="905" y="1020" font-size="13" fill="#222" text-anchor="start" font-weight="normal">ADC3 GPIO6 libre (0–3,3 V, 12 bits)</text>
+<text x="905" y="1020" font-size="13" fill="#222" text-anchor="start" font-weight="normal">ADC3 GPIO3 libre (0–3,3 V, 12 bits)</text>
 <text x="905" y="1040" font-size="13" fill="#222" text-anchor="start" font-weight="normal">SORTIE1 GPIO38 · SORTIE2 GPIO39</text>
 <text x="905" y="1060" font-size="13" fill="#222" text-anchor="start" font-weight="normal">LED verte 21 · rouge 18 · bleue 17</text>
 <text x="905" y="1080" font-size="13" fill="#222" text-anchor="start" font-weight="normal">Bouton GPIO15 · SD 10, 11, 12, 13</text>
@@ -552,5 +556,5 @@
 <text x="45" y="1795" font-size="12.5" fill="#222" text-anchor="start" font-weight="normal">• Fusible au plus près de la batterie (+12 V après contact), câble court.</text>
 <text x="45" y="1812" font-size="12.5" fill="#222" text-anchor="start" font-weight="normal">• Aucun fil connecté à la prise CAN en dehors de CAN H, CAN L et GND.</text>
 <text x="45" y="1829" font-size="12.5" fill="#222" text-anchor="start" font-weight="normal">• Potentiomètres alimentés en +3,3 V uniquement : un curseur à 5 V détruirait l'entrée de l'ESP32.</text>
-<text x="1760" y="1866" font-size="12" fill="#666" text-anchor="end" font-weight="normal">TrackLab Electronics · schéma de raccordement ESP32 · rév. 3</text>
+<text x="1760" y="1866" font-size="12" fill="#666" text-anchor="end" font-weight="normal">TrackLab Electronics · schéma de raccordement ESP32 · rév. 4</text>
 </svg>

@@ -24,7 +24,8 @@ Schéma : `schema_raccordement.svg` (aussi `.png` et `.pdf`).
 | Fonction | GPIO |
 |---|---|
 | CAN TXD / RXD | 5 / 4 |
-| GPS (TX du module) | 16 |
+| GPS (TX du module → ESP32) | 16 |
+| GPS (RX du module ← ESP32) | 12 |
 | ENT1–8 | 13, 14, 27, 26, 25, 33, 18, 19 |
 | ADC1 = suspension avant | 32 |
 | ADC2 = suspension arrière | 34 |
@@ -48,13 +49,14 @@ L'application affiche les valeurs brutes (0–4095) « Suspension avant / arriè
 - Rouge : fixe = contrôleur CAN en défaut ; clignote = aucune trame CAN depuis 3 s.
 - Test au démarrage : les trois s'allument à tour de rôle.
 
-## ESP32-S3 : schéma rév. 3 (`schema_raccordement_ESP32-S3.*`)
+## ESP32-S3 : schéma rév. 4 (`schema_raccordement_ESP32-S3.*`)
 | Fonction | GPIO (ESP32-S3 DevKitC-1) |
 |---|---|
 | CAN TXD / RXD | 5 / 4 |
-| GPS (TX du module) | 16 |
+| GPS (TX du module → ESP32) | 16 |
+| GPS (RX du module ← ESP32) | 6 |
 | ENT1–8 | 7, 8, 9, 14, 40, 41, 42, 47 |
-| Suspension avant / arrière / ADC3 libre | 1 / 2 / 6 |
+| Suspension avant / arrière / ADC3 libre | 1 / 2 / 3 |
 | SORTIE1–2 | 38, 39 |
 | LED verte / rouge / bleue | 21 / 18 / 17 |
 | Bouton d'enregistrement (vers GND) | 15 |
@@ -64,3 +66,6 @@ L'application affiche les valeurs brutes (0–4095) « Suspension avant / arriè
 - Un appui sur le bouton (ou « ● Enreg. » dans TrackLab) démarre l'enregistrement, un autre l'arrête. La LED rouge fait un éclat par seconde pendant l'enregistrement.
 - Fichiers `/rec/NNNN.trk` sur la carte SD (sinon mémoire interne, quelques minutes seulement) : trames CAN, GPS et E/S avec leur horodatage.
 - TrackLab, page Paramétrage ESP32, carte « Enregistrement » : liste, « Récupérer et ouvrir », « Récupérer », « Supprimer ». Les fichiers sont sauvegardés dans `Documents\\TrackLab\\Enregistrements` ; le bouton « Ouvrir un fichier » de TrackLab lit aussi les `.trk`.
+
+## GPS à 10 Hz : fil ESP32 → RX du GPS
+Pour régler le GPS à 10 Hz, le firmware doit envoyer des commandes au module : il faut donc relier la broche GPS TX de l'ESP32 (S3 : GPIO6 ; ESP32 classique : GPIO12) à l'entrée RX du module GPS (logique 3,3 V). Sans ce fil, le GPS fonctionne mais reste à 1 Hz.

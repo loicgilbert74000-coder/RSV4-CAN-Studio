@@ -82,6 +82,10 @@ static bool checkPin(const char* what, int p) {
 #endif
 #define GPS_SEND_MS (1000 / GPS_RATE_HZ)
 
+#ifndef GPS_TX_PIN
+#define GPS_TX_PIN -1                     // broche TX de l'ESP32 vers le RX du GPS (-1 : non câblée, cadence non réglable)
+#endif
+
 #ifndef REC_BTN_PIN
 #define REC_BTN_PIN 15                    // bouton poussoir d'enregistrement (entre la broche et GND)
 #endif
@@ -212,7 +216,17 @@ static void ubxSend(uint8_t cls, uint8_t id, const uint8_t* payload, uint16_t le
   delay(30);
 }
 
+static uint32_t gpsCfgLast = 0;
+static uint8_t gpsCfgTries = 0;
+static uint8_t gpsHz = 0;                                  // cadence mesurée (phrases RMC par seconde)
+
 static void gpsConfigure() {
+  if (GPS_TX_PIN < 0) {
+    Serial.println("GPS : fil ESP32 -> RX du GPS non câblé (GPS_TX_PIN), cadence non réglable");
+    return;
+  }
+  gpsCfgLast = millis();
+  gpsCfgTries++;
   const uint16_t ms = 1000 / GPS_RATE_HZ;
   // M8 : UBX-CFG-RATE (mesure en ms, navigation 1, référence GPS)
   const uint8_t rate[6] = {(uint8_t)(ms & 0xFF), (uint8_t)(ms >> 8), 1, 0, 1, 0};
@@ -257,7 +271,7 @@ static void pollGps() {
         bool relock = !lastNmeaMs || millis() - lastNmeaMs > 5000;
         lastNmeaMs = millis();
         gpsSentences++;
-        if (relock) gpsConfigure();
+        if (relock) { gpsCfgTries = 0; gpsConfigure(); }
       }
       parseNmea(nmea);
       nlen = 0;
@@ -533,6 +547,9 @@ static int8_t wifiRssi(uint8_t* stations) {
 }
 
 static void sendStatus(uint32_t now) {
+  static uint32_t lastRmcCount = 0;
+  gpsHz = (uint8_t)(gpsRmc - lastRmcCount);
+  lastRmcCount = gpsRmc;
   uint8_t d[7] = {0};
   if (CAN_ENABLED) d[0] |= 1;
   if (CAN_ENABLED && canOk) d[0] |= 2;
@@ -711,7 +728,7 @@ void setup() {
   setupCan();
   setupIo();
 #if GPS_ENABLED
-  gpsSerial.begin(GPS_BAUD, SERIAL_8N1, GPS_RX_PIN, -1);
+  gpsSerial.begin(GPS_BAUD, SERIAL_8N1, GPS_RX_PIN, (GPS_TX_PIN >= 0 && pinOk(GPS_TX_PIN)) ? GPS_TX_PIN : -1);
 #endif
 }
 
@@ -741,6 +758,9 @@ void loop() {
 #if GPS_ENABLED
   pollGps();
   autoBaud(millis());
+  // le module n'a pas pris la cadence demandée : nouvel essai (3 fois au plus)
+  if (GPS_TX_PIN >= 0 && lastNmeaMs && gpsHz && gpsHz * 10 < GPS_RATE_HZ * 7 && gpsCfgTries < 3 && millis() - gpsCfgLast > 8000)
+    gpsConfigure();
 #endif
   pollCommands();
   pollButton(millis());
