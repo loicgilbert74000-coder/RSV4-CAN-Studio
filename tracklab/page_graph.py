@@ -419,6 +419,8 @@ class GraphMixin:
     def cursor_ms(self):
         """Instant du curseur, continu : horloge de lecture (fichier) ou horloge réelle (direct), pas la date de la dernière trame
         traitée, qui avance par à-coups."""
+        if self._cursor_override is not None:
+            return self._cursor_override
         if self.playing and self.frames:
             t = self.start_frame + (time.monotonic() - self.start_wall) * 1000 * self.speed.get()
             return min(t, float(self.frames[-1][0]))
@@ -426,8 +428,26 @@ class GraphMixin:
             return float(int(time.monotonic() * 1000))
         return float(self.t_now)
 
+    def scrolling(self):
+        """Lecture d'une vue zoomée : le curseur reste fixe à l'écran et ce sont les courbes qui défilent.
+        (Si le fichier est affiché en entier, c'est au contraire le curseur qui avance.)"""
+        on = bool(
+            self.playing and self.frames and not self.live and self.view_end is not None
+            and self.span_ms < self.frames[-1][0] * 0.98
+        )
+        if on and not self._scroll_on:  # début du défilement : le curseur garde sa place actuelle à l'écran
+            start = self.view_end - self.span_ms
+            f = (self.cursor_ms() - start) / self.span_ms
+            self.cur_frac = min(0.95, max(0.05, f)) if 0 <= f <= 1 else 0.3
+        self._scroll_on = on
+        return on
+
     def view_start(self):
         """Début de la fenêtre affichée : vue libre, ou page de `span` ms qui contient le curseur (la 1re page commence à 0)."""
+        if self.scrolling():
+            start = self.cursor_ms() - self.cur_frac * self.span_ms
+            self.view_end = start + self.span_ms  # la vue reste où elle est quand on arrête la lecture
+            return start
         if self.view_end is not None:
             return self.view_end - self.span_ms
         return math.floor(max(0.0, self.cursor_ms()) / self.span_ms) * self.span_ms
@@ -461,8 +481,13 @@ class GraphMixin:
         ta.delete("cur")
         t = self.cursor_ms()
         self._cur_shown = t
-        if g["start"] <= t <= g["start"] + g["span"]:
+        if self._scroll_on:  # défilement : curseur fixe à l'écran
+            x = g["L"] + g["pw"] * self.cur_frac
+            inside = True
+        else:
             x = g["L"] + g["pw"] * (t - g["start"]) / g["span"]
+            inside = g["start"] <= t <= g["start"] + g["span"]
+        if inside:
             for y0, y1 in self.cur_spans:
                 c.create_line(x, y0, x, y1, fill=YELLOW, width=2, tags="cur")
             ta.create_line(x, 0, x, 8, fill=YELLOW, width=3, tags="cur")
@@ -715,6 +740,15 @@ class GraphMixin:
             y += bh
         self.draw_zsel()
 
+    def _seek_to(self, t, total):
+        keep = self.view_end
+        try:
+            self.seek(t / total if total else 0.0)
+        finally:
+            self._cursor_override = None
+        self.view_end = keep  # la vue ne saute pas
+        self.draw_chart()
+
     def draw_close(self, x, y, key):
         """Petite croix de suppression d'un signal, dans la légende de droite."""
         c = self.chart
@@ -738,17 +772,19 @@ class GraphMixin:
     def paint_chart(self):
         """Boucle d'affichage (30 images/s) : redessine seulement si la vue a changé, sinon déplace juste le curseur."""
         try:
-            if self.current_page == "graph":
+            if self.current_page == "graph" and not self.loading:
                 now = time.monotonic()
                 if now - self._sl_t > 0.5:
                     self._sl_t = now
                     self.signal_list.set_groups(self.signal_groups(), self.sel)
-                if self.chart_sig() != self._chart_sig:
+                sig = self.chart_sig()
+                if sig != self._chart_sig and (not self._scroll_on or now - self._last_draw >= 0.025):
+                    self._last_draw = now
                     self.draw_chart()
                 elif self.cursor_ms() != self._cur_shown:
                     self.move_cursor()
         finally:
-            self.root.after(33, self.paint_chart)
+            self.root.after(16, self.paint_chart)
 
     # ---- souris sur le graphique : séparateurs, légende, croix, sélection d'une zone
     def grip_at(self, e):
@@ -824,10 +860,10 @@ class GraphMixin:
             elif self.geom and self.frames and not self.live:  # simple clic : le curseur de lecture va à cet endroit
                 total = self.frames[-1][0]
                 t = max(0.0, min(float(total), self.time_at((a + b) / 2)))
-                keep = self.view_end
-                self.seek(t / total if total else 0.0)
-                self.view_end = keep  # la vue ne saute pas
-                self.draw_chart()
+                self._cursor_override = t  # le curseur apparaît tout de suite ; le saut (plus long) se fait juste après
+                self.move_cursor()
+                self.chart.update_idletasks()
+                self.root.after(1, lambda: self._seek_to(t, total))
             return
         self.drag = None
         self.draw_chart()

@@ -54,6 +54,12 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
         self.experimental = tk.BooleanVar(value=True)
         self.filter_on = tk.BooleanVar(value=True)
         self._table_stale = False
+        self.loading = False  # chargement de fichier en cours (barre de progression)
+        self._prog = None
+        self._scroll_on = False  # lecture d'une vue zoomée : curseur fixe, courbes qui défilent
+        self.cur_frac = 0.3  # position (fraction de la largeur) du curseur fixe
+        self._cursor_override = None  # curseur placé par un clic, avant que le saut soit fait
+        self._last_draw = 0.0
         self.card_state = {}  # cartes de la télémétrie : [valeur affichée, valeur reçue, décimales]
         self.tile_state = {}  # tuiles analogiques : idem
         self._anim_t = time.monotonic()
@@ -201,6 +207,8 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
     def set_styles(self):
         s = ttk.Style()
         s.theme_use("clam")
+        s.configure("Tracklab.Horizontal.TProgressbar", troughcolor=CARD2, background=RED, bordercolor=BORDER,
+                    lightcolor=RED, darkcolor=RED, thickness=14)
         s.configure(
             "Treeview",
             background=CARD,
@@ -680,8 +688,36 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
         finally:
             self.root.after(16, self.anim_tele)
 
+    def progress_show(self, text, pct):
+        """Barre de progression au centre de la fenêtre (chargement d'un fichier)."""
+        if self._prog is None:
+            f = tk.Frame(self.root, bg=CARD, highlightbackground=RED, highlightthickness=2)
+            lbl = tk.Label(f, text="", fg=TEXT, bg=CARD, font=(FONT, 11, "bold"))
+            lbl.pack(padx=34, pady=(20, 10))
+            bar = ttk.Progressbar(f, length=380, mode="determinate", maximum=100, style="Tracklab.Horizontal.TProgressbar")
+            bar.pack(padx=34)
+            pc = tk.Label(f, text="", fg=SUB, bg=CARD, font=(FONT, 9))
+            pc.pack(pady=(6, 18))
+            f.place(relx=0.5, rely=0.4, anchor="center")
+            self._prog = (f, lbl, bar, pc)
+        f, lbl, bar, pc = self._prog
+        f.lift()
+        lbl.config(text=text)
+        bar["value"] = pct
+        pc.config(text=f"{int(pct)} %")
+        self.root.update()
+
+    def progress_hide(self):
+        if self._prog is not None:
+            self._prog[0].destroy()
+            self._prog = None
+            self.root.update_idletasks()
+
     def tick(self):
         """Boucle principale (25 fois par seconde) : lecture, réception, mise à jour de ce qui est visible."""
+        if self.loading:  # pendant le chargement, l'affichage de la barre traite les évènements : on ne joue rien
+            self.root.after(40, self.tick)
+            return
         if self.playing and self.frames:
             elapsed = (time.monotonic() - self.start_wall) * 1000 * self.speed.get()
             limit = self.start_frame + elapsed

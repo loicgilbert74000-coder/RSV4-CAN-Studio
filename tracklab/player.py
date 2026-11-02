@@ -51,7 +51,6 @@ class PlayerMixin:
         self.card_state.clear()
         self.tile_state.clear()
         self.track.clear()
-        self.view_end = None
         self.yr_live = {}
         self.pan = None
         self.zsel = None
@@ -66,11 +65,21 @@ class PlayerMixin:
         self.board.reset()
 
     def load(self, path):
+        self.loading = True
         try:
-            res = load_any(path)
-        except Exception as exc:
-            messagebox.showerror("Fichier non lu", str(exc))
-            return
+            self.progress_show(f"Lecture de {os.path.basename(path)}…", 3)
+            try:
+                res = load_any(path)
+            except Exception as exc:
+                self.progress_hide()
+                messagebox.showerror("Fichier non lu", str(exc))
+                return
+            self._load_result(path, res)
+        finally:
+            self.progress_hide()
+            self.loading = False
+
+    def _load_result(self, path, res):
         frames = res.frames
         self.pause()
         self.frames = frames
@@ -91,8 +100,12 @@ class PlayerMixin:
         else:
             info = f" · {res.info}" if res.info else ""
             self.set_state(f"{res.label} · {len(frames):,} trames{info}".replace(",", " "), SUB)
-            self.prebuild()
+            self.view_end = None
+            self.prebuild(own=False)
+            self.progress_show("Choix des courbes…", 97)
             self.choose_curves()
+            self.fit_all()  # le fichier entier, curseur à zéro
+            self.progress_show("Terminé", 100)
             if res.dyn:
                 self.show_page("graph")
 
@@ -186,7 +199,7 @@ class PlayerMixin:
         if was and self.frames and (self.idx < len(self.frames)):
             self.set_state("En pause", YELLOW)
 
-    def prebuild(self, keep=0):
+    def prebuild(self, keep=0, own=True):
         """Décode toute la capture une fois pour toutes : les courbes montrent alors la fenêtre entière autour de l'instant courant."""
         self.full_t = {}
         self.full_v = {}
@@ -196,16 +209,22 @@ class PlayerMixin:
         keep = keep or self.idx
         self.playing = False
         self.set_state("Analyse de la capture…", YELLOW)
-        self.root.update_idletasks()
+        if own:
+            self.loading = True
         self.clear_data()
         self.hist_max = None
         self.bulk = True
+        frames = self.frames[:1500000]
+        n = max(1, len(frames))
         try:
-            for fr in self.frames[:1500000]:
-                self.ingest(*fr)
+            for i in range(0, len(frames), 6000):
+                for fr in frames[i:i + 6000]:
+                    self.ingest(*fr)
+                self.progress_show("Analyse des trames…", 5 + 85 * min(1.0, (i + 6000) / n))
         finally:
             self.bulk = False
             self.hist_max = 20000
+        self.progress_show("Préparation des courbes…", 92)
         for k, d in self.hist.items():
             self.full_t[k] = [p[0] for p in d]
             self.full_v[k] = [p[1] for p in d]
@@ -225,6 +244,9 @@ class PlayerMixin:
             self.seek(self.frames[keep - 1][0] / max(1, self.frames[-1][0]))
         else:
             self.set_state(f"{len(self.frames):,} trames chargées".replace(",", " "), SUB)
+        if own:
+            self.progress_hide()
+            self.loading = False
 
     SEEK_REPLAY = 2500  # trames rejouées juste avant l'instant visé (remplit tableau et jauges) ; le reste vient des tableaux complets
 
@@ -239,7 +261,8 @@ class PlayerMixin:
         target = bisect.bisect_right(self.frame_times, frac * total)
         target = max(0, min(len(self.frames), target))
         fast = bool(self.full_t)
-        begin = max(0, target - (self.SEEK_REPLAY if fast else SEEK_BACK))
+        replay = 300 if self.current_page == "graph" else self.SEEK_REPLAY  # sur les courbes : seulement de quoi remplir les jauges
+        begin = max(0, target - (replay if fast else SEEK_BACK))
         tt = self.frames[target - 1][0] if target > 0 else 0
         self.clear_data()
         if fast:

@@ -28,6 +28,8 @@ class ConnectionMixin:
 
     def set_conn_ui(self, live, text):
         self._conn_shown = None
+        if live:
+            self.view_end = None  # en direct, la vue suit les courbes
         set_dot(self.conn_dot, GREEN if live else MUTED)
         self.conn_lbl.config(text=text, fg=GREEN if live else SUB)
         self.conn_btn.set_look(
