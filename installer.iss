@@ -2,6 +2,8 @@
 #define MyAppVersion "0.5"
 #define MyAppExeName "TrackLab_Electronics.exe"
 [Setup]
+SetupIconFile=assets\icon.ico
+UninstallDisplayIcon={app}\{#MyAppExeName}
 AppId={{DA30B624-91CE-40A6-B6D4-0D7AAB1729B0}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}

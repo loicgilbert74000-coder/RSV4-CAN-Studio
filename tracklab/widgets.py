@@ -394,3 +394,92 @@ class SignalList(ScrollCanvas):
             on = key in selected
             self.canvas.itemconfig(rect, fill=color if on else CARD2)
             self.canvas.itemconfig(text, fill=BG if on else SUB)
+
+
+class GroupedSignalList(ScrollCanvas):
+    """Liste de signaux classés par type (GPS, CAN, capteurs…) ; un clic sur un signal ajoute ou retire sa courbe,
+    un clic sur un titre replie ou déplie son type."""
+
+    ROW, HEAD = 26, 28
+
+    def __init__(self, parent, on_toggle, color_of):
+        super().__init__(parent, CARD, width=190)
+        self.on_toggle = on_toggle
+        self.color_of = color_of
+        self.collapsed = set()
+        self.groups = []  # [(titre, [(clé, libellé)])]
+        self.selected = set()
+        self._sig = None
+        self.rows = {}  # clé -> (rectangle, texte)
+        self.hits = []  # (y0, y1, "head" | "row", titre ou clé)
+        self.canvas.configure(cursor="hand2")
+        self.canvas.bind("<Configure>", lambda e: self._layout(e.width))
+        self.canvas.bind("<Button-1>", self._click)
+
+    def set_groups(self, groups, selected):
+        """Met à jour la liste (reconstruite seulement si son contenu a changé) et l'état de sélection."""
+        sig = (tuple((t, tuple(k for k, _ in items)) for t, items in groups), tuple(sorted(self.collapsed)))
+        self.selected = set(selected)
+        if sig != self._sig:
+            self._sig = sig
+            self.groups = groups
+            self._draw()
+        else:
+            self.refresh(selected)
+
+    def _draw(self):
+        c = self.canvas
+        c.delete("all")
+        self.rows, self.hits = {}, []
+        y = 0
+        w = max(c.winfo_width(), 190)
+        for title, items in self.groups:
+            n_sel = sum(1 for k, _ in items if k in self.selected)
+            arrow = "▸" if title in self.collapsed else "▾"
+            c.create_rectangle(0, y + 1, w, y + self.HEAD - 1, fill=BG, outline="", tags="bg")
+            c.create_text(
+                8, y + self.HEAD // 2, text=f"{arrow}  {title.upper()}", anchor="w", fill=MUTED, font=(FONT, 8, "bold")
+            )
+            c.create_text(
+                w - 10, y + self.HEAD // 2, text=f"{n_sel}/{len(items)}" if n_sel else str(len(items)),
+                anchor="e", fill=SUB if n_sel else MUTED, font=(FONT, 8), tags="count"
+            )
+            self.hits.append((y, y + self.HEAD, "head", title))
+            y += self.HEAD
+            if title in self.collapsed:
+                continue
+            for key, label in items:
+                rect = c.create_rectangle(0, y + 1, w, y + self.ROW - 1, fill=CARD2, outline="", tags="row")
+                text = c.create_text(14, y + self.ROW // 2, text=label, anchor="w", fill=SUB, font=(FONT, 9, "bold"))
+                self.rows[key] = (rect, text)
+                self.hits.append((y, y + self.ROW, "row", key))
+                y += self.ROW
+        c.configure(scrollregion=(0, 0, 1, y))
+        self.refresh(self.selected)
+
+    def _layout(self, width):
+        for item in self.canvas.find_withtag("row") + self.canvas.find_withtag("bg"):
+            x0, y0, _x1, y1 = self.canvas.coords(item)
+            self.canvas.coords(item, 0, y0, width, y1)
+        for item in self.canvas.find_withtag("count"):
+            _x, y = self.canvas.coords(item)
+            self.canvas.coords(item, width - 10, y)
+
+    def refresh(self, selected):
+        self.selected = set(selected)
+        for key, (rect, text) in self.rows.items():
+            on = key in self.selected
+            self.canvas.itemconfig(rect, fill=self.color_of(key) if on else CARD2)
+            self.canvas.itemconfig(text, fill=BG if on else SUB)
+
+    def _click(self, event):
+        y = self.canvas.canvasy(event.y)
+        for y0, y1, kind, ref in self.hits:
+            if y0 <= y < y1:
+                if kind == "head":
+                    self.collapsed.symmetric_difference_update({ref})
+                    self._sig = None
+                    self.set_groups(self.groups, self.selected)
+                else:
+                    self.on_toggle(ref)
+                return

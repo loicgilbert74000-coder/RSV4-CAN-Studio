@@ -41,3 +41,10 @@ python tests/smoke_test.py CAPTURE.txt            # sous Linux : xvfb-run -a pyt
 ## Compilation Windows
 
 Le workflow GitHub Actions `windows-exe.yml` produit l'exécutable et l'installateur (Inno Setup).
+
+## Fichiers ouverts, courbes et téléchargement ESP32
+
+- **Ouvrir un fichier** reconnaît tout seul le contenu : capture USB-CAN (TXT), moniteur série de l'ESP32, enregistrement `.trk`, RaceChrono (CSV/VBO), RaceBox (CSV) ou tout CSV avec position GPS. Le type détecté s'affiche à côté du nom du fichier.
+- **Courbes** : signaux classés par type (GPS, CAN moto, capteurs, inertiel…), petite croix à droite pour retirer un signal, abscisse en mm:ss:ms. Molette : zoom (haut) / dézoom (bas) ; clic molette + glisser : déplacement ; clic gauche + glisser : zoom sur la zone ; double-clic : tout voir.
+- **Trames CAN** : bouton « Arrêter le direct » / « Reprendre le direct » (la réception continue).
+- **Paramétrage ESP32** : « Enregistrements de l'ESP32 » → Télécharger (et ouvrir) un fichier enregistré sur la carte SD.

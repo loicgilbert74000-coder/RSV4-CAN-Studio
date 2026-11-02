@@ -6,7 +6,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from .widgets import make_dot, set_dot
-from .espconfig import BOARDS, ANA_DEFAULT, DIG_DEFAULT, LED_DEFAULT, OUT_DEFAULT, REC_DEFAULT, make_header, validate_cfg
+from .espconfig import ANA_DEFAULT, DIG_DEFAULT, GPS_TX_DEFAULT, LED_DEFAULT, OUT_DEFAULT, REC_DEFAULT, make_header, validate_cfg
 from .theme import BG, BORDER, CARD, CARD2, CYAN, FONT, GREEN, LIME, MUTED, RED, SUB, TEXT, YELLOW
 
 
@@ -27,8 +27,8 @@ class EspMixin:
         sv("can_rx", 4)
         bv("gps_on", True)
         sv("gps_rx", 16)
-        sv("gps_tx", -1)
-        sv("gps_baud", 115200)
+        sv("gps_tx", GPS_TX_DEFAULT)
+        sv("gps_baud", 38400)
         for i, (pin, name, on) in enumerate(DIG_DEFAULT):
             sv(f"dig{i}_pin", pin)
             sv(f"dig{i}_name", name)
@@ -99,25 +99,6 @@ class EspMixin:
             bar.itemconfigure(self.wifi_marker, state="normal")
         else:
             bar.itemconfigure(self.wifi_marker, state="hidden")
-
-    def apply_board(self, name):
-        """Remplit toutes les broches avec celles de la carte choisie."""
-        b, v = BOARDS[name], self.cv
-        v["can_tx"].set(b["can"][0])
-        v["can_rx"].set(b["can"][1])
-        v["gps_rx"].set(b["gps"])
-        v["gps_tx"].set(b.get("gps_tx", -1))
-        for n, pin in enumerate(b["dig"]):
-            v[f"dig{n}_pin"].set(pin)
-        for n, pin in enumerate(b["ana"]):
-            v[f"ana{n}_pin"].set(pin)
-        for n, pin in enumerate(b["out"]):
-            v[f"out{n}_pin"].set(pin)
-        for color, pin in b["leds"].items():
-            v[f"led_{color}"].set(pin)
-        for key, val in {**REC_DEFAULT, **b.get("rec", {})}.items():
-            if key != "sd":
-                v[f"rec_{key}"].set(val)
 
     def cfg_from_vars(self):
         """Construit la configuration ESP32 à partir des champs ; lève ValueError si un champ est invalide."""
@@ -243,7 +224,7 @@ class EspMixin:
             bar, text="Paramétrage de l'ESP32", fg=TEXT, bg=BG, font=(FONT, 13, "bold")
         ).pack(side="left")
         tk.Label(
-            bar, text="Réseau, bus CAN, GPS et entrées/sorties", fg=SUB, bg=BG, font=(FONT, 9)
+            bar, text="Enregistrements, bus CAN, GPS et entrées/sorties (ESP32-S3 DevKitC-1)", fg=SUB, bg=BG, font=(FONT, 9)
         ).pack(side="left", padx=12)
         self.button(
             bar, "Appliquer à l'application", self.apply_esp, TEXT, CARD2, font=9
@@ -259,21 +240,8 @@ class EspMixin:
         left.pack(side="left", fill="y", anchor="n")
         right = tk.Frame(inner, bg=BG)
         right.pack(side="left", fill="both", expand=True, anchor="n")
-        self.build_esp_live(left)
         self.build_rec_card(left)
-        c = self.esp_card(left, "Carte")
-        self.board_var = tk.StringVar(value=list(BOARDS)[0])
-        r = tk.Frame(c, bg=CARD)
-        r.pack(fill="x", pady=2)
-        tk.Label(r, text="Modèle (applique les broches adaptées)", bg=CARD, fg=SUB, font=(FONT, 9), anchor="w", width=38).pack(side="left")
-        box = ttk.Combobox(r, textvariable=self.board_var, values=list(BOARDS), state="readonly", width=34)
-        box.pack(side="left")
-        box.bind("<<ComboboxSelected>>", lambda e: self.apply_board(self.board_var.get()))
-        c = self.esp_card(left, "Réseau Wi-Fi (point d'accès de l'ESP32)")
-        self.efield(c, "Nom du réseau (SSID)", "ssid", 22)
-        self.efield(c, "Mot de passe (8 caractères min.)", "password", 22)
-        self.ecombo(c, "Canal Wi-Fi", "channel", [str(n) for n in range(1, 14)])
-        self.efield(c, "Port TCP (applications)", "tcp_port", 10)
+        self.build_esp_live(left)
         c = self.esp_card(left, "Bus CAN")
         self.echeck(c, "Bus CAN activé (désactiver pour tester sans moto)", "can_on")
         self.ecombo(c, "Débit (kbit/s)", "can_bitrate", ["250", "500"])

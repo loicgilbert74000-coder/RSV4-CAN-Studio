@@ -3,7 +3,7 @@
 import tkinter as tk
 from tkinter import ttk
 
-from .theme import BORDER, CARD, CARD2, CYAN, FONT, MUTED, RED, SUB, TEXT
+from .theme import BORDER, CARD, CARD2, CYAN, FONT, GREEN, MUTED, RED, SUB, TEXT, YELLOW
 from .util import parse_ids
 
 
@@ -20,6 +20,10 @@ class FramesMixin:
             hdr, text="Trames CAN en direct", fg=TEXT, bg=CARD, font=(FONT, 12, "bold")
         ).pack(side="left")
         self.button(hdr, "Vider", self.clear_table, SUB, CARD2, font=9).pack(side="right")
+        self.pause_btn = self.button(hdr, "⏸  Arrêter le direct", self.toggle_table_pause, YELLOW, CARD2, font=9)
+        self.pause_btn.pack(side="right", padx=8)
+        self.pause_lbl = tk.Label(hdr, text="", fg=YELLOW, bg=CARD, font=(FONT, 9, "bold"))
+        self.pause_lbl.pack(side="left", padx=12)
         tk.Checkbutton(
             hdr,
             text="Trames décodées seulement",
@@ -90,6 +94,17 @@ class FramesMixin:
         self.table.pack(side="left", fill="both", expand=True)
         sb.pack(side="right", fill="y")
 
+    def toggle_table_pause(self):
+        """Fige ou reprend l'affichage du tableau ; les trames continuent d'être reçues et mémorisées."""
+        self.table_paused = not self.table_paused
+        if self.table_paused:
+            self.pause_btn.config(text="▶  Reprendre le direct", fg=GREEN)
+            self.pause_lbl.config(text="Affichage arrêté · la réception continue")
+        else:
+            self.pause_btn.config(text="⏸  Arrêter le direct", fg=YELLOW)
+            self.pause_lbl.config(text="")
+            self.rebuild_table()
+
     # filtrage : les trames récentes sont gardées en mémoire (self.rows), le tableau n'en montre que 400 qui correspondent
     def schedule_filter(self):
         if self._fid:
@@ -146,7 +161,9 @@ class FramesMixin:
         self.refresh_count()
 
     def refresh_count(self):
-        self.count_lbl.config(text=f"{self.matched} trames correspondent · {len(self.rows)} en mémoire")
+        self.count_lbl.config(
+            text=f"{len(self.rows)} en mémoire" if self.table_paused else f"{self.matched} trames correspondent · {len(self.rows)} en mémoire"
+        )
 
     def clear_table(self):
         for row in self.table.get_children():

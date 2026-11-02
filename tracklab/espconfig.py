@@ -1,33 +1,28 @@
 """Paramétrage de l'ESP32 : valeurs par défaut, contrôle et génération de l'en-tête C du firmware."""
 
-# Paramétrage ESP32 : valeurs par défaut (broches d'un ESP32 DevKit)
+# Paramétrage ESP32 : valeurs par défaut. La carte est toujours un ESP32-S3 DevKitC-1.
 DIG_DEFAULT = [
-    (13, "Entrée 1", False),
-    (14, "Entrée 2", False),
-    (27, "Entrée 3", False),
-    (26, "Entrée 4", False),
-    (25, "Entrée 5", False),
-    (33, "Entrée 6", False),
-    (18, "Entrée 7", False),
-    (19, "Entrée 8", False),
+    (7, "Entrée 1", False),
+    (8, "Entrée 2", False),
+    (9, "Entrée 3", False),
+    (14, "Entrée 4", False),
+    (40, "Entrée 5", False),
+    (41, "Entrée 6", False),
+    (42, "Entrée 7", False),
+    (47, "Entrée 8", False),
 ]
-ANA_DEFAULT = [(32, "Suspension avant", True), (34, "Suspension arrière", True), (35, "ADC 3", False)]
+ANA_DEFAULT = [(1, "Suspension avant", True), (2, "Suspension arrière", True), (3, "ADC 3", False)]
 # Voyants à côté du tableau de bord : (broche, couleur)
-LED_DEFAULT = {"green": 21, "red": 22, "blue": 17}
+LED_DEFAULT = {"green": 21, "red": 18, "blue": 17}
 # Enregistrement : bouton poussoir (vers GND) et module carte SD (SPI)
 REC_DEFAULT = {"button": 15, "sd": True, "cs": 10, "mosi": 11, "miso": 13, "sck": 12}
-OUT_DEFAULT = [(2, "Sortie 1", "Bas", False), (23, "Sortie 2", "Bas", False)]
+OUT_DEFAULT = [(38, "Sortie 1", "Bas", False), (39, "Sortie 2", "Bas", False)]
+GPS_TX_DEFAULT = 6  # broche de l'ESP32 reliée au RX du module GPS (réglage à 10 Hz)
 
-
-# Broches proposées selon la carte (les broches d'un ESP32 classique ne conviennent pas à un ESP32-S3)
+# Carte unique : ESP32-S3 DevKitC-1
 BOARDS = {
-    "ESP32 classique (DevKit 38 broches)": {
-        "can": (5, 4), "gps": 16, "gps_tx": 12, "dig": [14, 27, 26, 25, 33, 36, 39, 0],
-        "ana": [32, 34, 35], "out": [2, 0], "leds": {"green": 21, "red": 22, "blue": 17},
-        "rec": {"button": 15, "sd": True, "cs": 13, "mosi": 23, "miso": 19, "sck": 18},
-    },
     "ESP32-S3 (DevKitC-1)": {
-        "can": (5, 4), "gps": 16, "gps_tx": 6, "dig": [7, 8, 9, 14, 40, 41, 42, 47],
+        "can": (5, 4), "gps": 16, "gps_tx": GPS_TX_DEFAULT, "dig": [7, 8, 9, 14, 40, 41, 42, 47],
         "ana": [1, 2, 3], "out": [38, 39], "leds": {"green": 21, "red": 18, "blue": 17},
         "rec": {"button": 15, "sd": True, "cs": 10, "mosi": 11, "miso": 13, "sck": 12},
     },

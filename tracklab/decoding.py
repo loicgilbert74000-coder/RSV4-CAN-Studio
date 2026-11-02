@@ -3,7 +3,11 @@
 import tkinter as tk
 from collections import deque
 
+import math
+import struct
+
 from .config import BY_CID, HAND_ALWAYS, HAND_EXPERIMENTAL
+from .formats import DYN_BASE
 from .names import fr
 from .protocol import ESP_IDS, extract_bits
 from .util import disp_unit, fmt_ms, fmt_val, wifi_quality
@@ -96,6 +100,17 @@ class DecodingMixin:
 
     def decode_virtual(self, t, cid, data):
         """Trames de l'ESP32 : GPS (0x7F0, 0x7F8) et entrées/sorties (0x7F9). Renvoie le texte affiché, ou None."""
+        if cid >= DYN_BASE:  # voies d'un fichier RaceBox / RaceChrono… : deux flottants par trame
+            ents = self.dyn.get(cid)
+            if not ents or len(data) < 8:
+                return None
+            vals = struct.unpack("<ff", bytes(data[:8]))
+            parts = []
+            for ent, v in zip(ents, vals):
+                if ent and not math.isnan(v):
+                    self.put(cid, ent[0], v, t, "file")
+                    parts.append(f"{ent[0]} {fmt_val(v)}{(' ' + ent[1]) if ent[1] else ''}")
+            return " | ".join(parts) or None
         if cid == 2032 and len(data) >= 8:
             lat = int.from_bytes(data[0:4], "little", signed=True) / 10000000.0
             lon = int.from_bytes(data[4:8], "little", signed=True) / 10000000.0
@@ -156,7 +171,7 @@ class DecodingMixin:
         self.count[cid] += 1
         self.ingested += 1
         self.t_last = t
-        if cid not in ESP_IDS:  # seules les vraies trames CAN comptent dans le débit affiché
+        if cid not in ESP_IDS and cid < DYN_BASE:  # seules les vraies trames CAN comptent dans le débit affiché
             self.recent.append(t)
         if self.live:
             self.link_t = t
@@ -186,7 +201,7 @@ class DecodingMixin:
             dec,
         )
         self.rows.append(row)
-        if not self.bulk and self.row_match(row):
+        if not self.bulk and not self.table_paused and self.row_match(row):
             self.matched += 1
             try:
                 if self.last_row is not None:

@@ -103,7 +103,7 @@ class RecordingMixin:
     def rec_selected(self):
         sel = self.rec_box.curselection()
         if not sel or sel[0] >= len(self.rec_client.files):
-            messagebox.showinfo("Enregistrement ESP32", "Choisissez d'abord un enregistrement dans la liste.")
+            messagebox.showinfo("Enregistrement ESP32", "Choisissez d'abord un enregistrement dans la liste, puis cliquez sur Télécharger.")
             return None
         return self.rec_client.files[sel[0]]
 
@@ -177,7 +177,7 @@ class RecordingMixin:
             self.rec_info.config(text=text)
 
     def build_rec_card(self, parent):
-        c = self.esp_card(parent, "Enregistrement sur l'ESP32 (bouton physique ou TrackLab)")
+        c = self.esp_card(parent, "Enregistrements de l'ESP32 (bouton physique ou TrackLab)")
         top = tk.Frame(c, bg=CARD)
         top.pack(fill="x", pady=(0, 6))
         self.rec_dot = make_dot(top, MUTED, CARD, 10)
@@ -194,8 +194,8 @@ class RecordingMixin:
         row = tk.Frame(c, bg=CARD)
         row.pack(fill="x", pady=(6, 0))
         for text, cmd in (
-            ("Récupérer et ouvrir", lambda: self.rec_download(True)),
-            ("Récupérer", lambda: self.rec_download(False)),
+            ("Télécharger et ouvrir", lambda: self.rec_download(True)),
+            ("Télécharger", lambda: self.rec_download(False)),
             ("Supprimer", self.rec_delete),
             ("Actualiser", self.rec_list),
         ):

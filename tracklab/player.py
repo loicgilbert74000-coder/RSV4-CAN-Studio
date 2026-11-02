@@ -6,7 +6,7 @@ import time
 from tkinter import filedialog, messagebox
 
 from .config import SEEK_BACK
-from .protocol import load_capture
+from .formats import load_any
 from .theme import GREEN, RED, SUB, YELLOW
 from .util import fmt_time
 
@@ -16,8 +16,11 @@ class PlayerMixin:
 
     def open_file(self):
         p = filedialog.askopenfilename(
-            title="Choisir une capture USB-CAN ou un enregistrement TrackLab (.trk)",
-            filetypes=[("Captures et enregistrements", "*.txt *.log *.trk"), ("Tous fichiers", "*.*")],
+            title="Ouvrir un fichier (trames CAN, RaceBox, RaceChrono, TrackLab…) : le type est reconnu automatiquement",
+            filetypes=[
+                ("Tous les fichiers pris en charge", "*.txt *.log *.trk *.csv *.vbo *.tsv"),
+                ("Tous fichiers", "*.*"),
+            ],
         )
         if p:
             self.load(p)
@@ -42,6 +45,8 @@ class PlayerMixin:
         self.flash_until.clear()
         self.track.clear()
         self.view_end = None
+        self.pan = None
+        self.zsel = None
         self.clear_table()
         for key in self.cards:
             self.show(key, None)
@@ -54,27 +59,47 @@ class PlayerMixin:
 
     def load(self, path):
         try:
-            frames = load_capture(path)
+            res = load_any(path)
         except Exception as exc:
-            messagebox.showerror("Erreur de lecture", str(exc))
+            messagebox.showerror("Fichier non lu", str(exc))
             return
+        frames = res.frames
         self.pause()
         self.frames = frames
         self.frame_times = [f[0] for f in frames]
         self.idx = 0
         self.full_t = {}
         self.full_v = {}
+        self.dyn = dict(res.dyn)
         self.clear_data()
-        self.file_name.set(os.path.basename(path))
+        self.file_name.set(f"{os.path.basename(path)}  ·  {res.label}")
         if not frames:
-            self.set_state("0 trame · format non reconnu", RED)
-            messagebox.showwarning(
-                "0 trame",
-                "Le fichier ne contient pas de trames USB-CAN reconnaissables. Vérifiez qu'il s'agit d'un export TXT du logiciel USBCAN.",
-            )
+            self.set_state("0 trame · fichier vide", RED)
+            messagebox.showwarning("Fichier vide", f"Format reconnu ({res.label}) mais aucune donnée exploitable n'a été trouvée.")
         else:
-            self.set_state(f"{len(frames):,} trames chargées".replace(",", " "), SUB)
+            info = f" · {res.info}" if res.info else ""
+            self.set_state(f"{res.label} · {len(frames):,} trames{info}".replace(",", " "), SUB)
             self.prebuild()
+            self.choose_curves()
+            self.fit_all()
+            if res.dyn:
+                self.seek(1.0)  # on montre tout de suite le fichier en entier
+                self.fit_all()
+                self.show_page("graph")
+
+    def choose_curves(self):
+        """Après l'ouverture : ne garde que les signaux présents dans le fichier ; à défaut, en propose quelques-uns."""
+        present = set(self.full_t)
+        keep = {k for k in self.sel if k in present}
+        if not keep:
+            pri = [k for k in present if k[0] == 2040 and k[1] == "GPS Vitesse"]
+            skip = {"GPS Latitude", "GPS Longitude", "Satellites", "Qualité fix"}
+            pri += sorted((k for k in present if k not in pri and k[1] not in skip), key=lambda k: (k[0], k[1]))
+            keep = set(pri[:5])
+        self.sel = keep
+        for k in sorted(keep):
+            self.assign_color(k)
+        self.signal_list.set_groups(self.signal_groups(), self.sel)
 
     def play(self):
         if not self.frames:
@@ -95,7 +120,7 @@ class PlayerMixin:
         """Décode toute la capture une fois pour toutes : les courbes montrent alors la fenêtre entière autour de l'instant courant."""
         self.full_t = {}
         self.full_v = {}
-        if not self.frames or self.decoder is None:
+        if not self.frames:
             return
         keep = keep or self.idx
         self.playing = False
@@ -105,7 +130,7 @@ class PlayerMixin:
         self.hist_max = None
         self.bulk = True
         try:
-            for fr in self.frames[:300000]:
+            for fr in self.frames[:1500000]:
                 self.ingest(*fr)
         finally:
             self.bulk = False

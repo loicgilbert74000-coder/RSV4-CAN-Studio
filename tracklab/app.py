@@ -29,6 +29,13 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
         self.root.title("TrackLab Electronics · Diagnostic & Télémétrie CAN")
         self.root.geometry("1536x960")
         self.root.minsize(1280, 860)
+        try:  # icône de la fenêtre et de la barre des tâches
+            from .icon_data import ICON_PNG_B64
+
+            self._icon = tk.PhotoImage(data=ICON_PNG_B64)
+            self.root.iconphoto(True, self._icon)
+        except Exception:
+            pass
         self.root.configure(bg=BG)
         self.frames = []
         self.idx = 0
@@ -44,9 +51,16 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
         self.tcp_port = tk.StringVar(value="2323")
         self.experimental = tk.BooleanVar(value=True)
         self.filter_on = tk.BooleanVar(value=True)
-        self.window = tk.IntVar(value=60)
+        self.table_paused = False  # affichage des trames figé (la réception continue en arrière-plan)
+        self.span_ms = 60000.0  # durée de la fenêtre des courbes (ms)
         self.stack = tk.BooleanVar(value=False)
         self.sel = set(DEFAULT_CURVES)
+        self.dyn = {}  # voies d'un fichier RaceBox / RaceChrono… {identifiant: [(nom, unité, type), …]}
+        self.color_map = {}
+        self.geom = None
+        self.zsel = None
+        self.close_hits = []
+        self.pan = None
         self._srow_shown = {}
         self._footer_shown = {}
         self._map_state = None
@@ -111,6 +125,8 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
         self.current_page = "tele"
         self._conn_win = None
         self.cv = {}
+        for _k in sorted(self.sel):
+            self.assign_color(_k)
         self.build_esp_vars()
         self.set_styles()
         self.build_footer()

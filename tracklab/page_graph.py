@@ -6,10 +6,31 @@ import tkinter as tk
 from tkinter import ttk
 
 from .config import BAND_MAX, BAND_MIN, CURVE_INDEX, CURVE_KEYS, UNIT_OF, WINDOWS
+from .formats import TYPE_CAN, TYPE_GPS, TYPE_IMU, TYPE_OTHER, TYPE_SENS
 from .names import fr
 from .theme import BG, BORDER, CARD, CARD2, CYAN, FONT, GREEN, MUTED, PALETTE, SUB, TEXT, YELLOW
 from .util import disp_unit, fmt_val, nice_ticks
-from .widgets import SignalList
+from .widgets import GroupedSignalList
+
+TYPE_ORDER = (TYPE_GPS, TYPE_CAN, TYPE_SENS, TYPE_IMU, TYPE_OTHER)
+MIN_SPAN = 20.0  # fenêtre de temps la plus petite (ms)
+MAX_SPAN = 6 * 3600 * 1000.0  # la plus grande (ms)
+TIME_STEPS = (0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600)
+
+
+def time_ticks(lo, hi, n):
+    """Graduations de temps (secondes) tombant sur des valeurs « rondes » : 0,05 s … 1 s … 1 min."""
+    span = max(hi - lo, 1e-9)
+    step = next((st for st in TIME_STEPS if span / st <= max(n, 2)), TIME_STEPS[-1])
+    first = math.ceil(lo / step - 1e-9)
+    out, i = [], 0
+    while True:
+        v = (first + i) * step
+        if v > hi + 1e-9:
+            break
+        out.append(round(v, 6))
+        i += 1
+    return out
 
 
 class GraphMixin:
@@ -27,16 +48,11 @@ class GraphMixin:
         selc = self.card(left)
         selc.pack(fill="both", expand=True)
         tk.Label(
-            selc, text="Signaux tracés · cliquer pour ajouter", fg=SUB, bg=CARD, font=(FONT, 9, "bold")
+            selc, text="Signaux · cliquer pour tracer ou retirer", fg=SUB, bg=CARD, font=(FONT, 9, "bold")
         ).pack(anchor="w", padx=10, pady=(8, 4))
-        entries = [
-            (
-                key, f"{fr(key[1])}  ·  0x{key[0]:03X}", PALETTE[CURVE_INDEX[key] % len(PALETTE)]
-            ) for key in CURVE_KEYS
-        ]
-        self.signal_list = SignalList(selc, entries, self.toggle_curve)
+        self.signal_list = GroupedSignalList(selc, self.toggle_curve, self.color_of)
         self.signal_list.pack(fill="both", expand=True, padx=6, pady=(0, 6))
-        self.signal_list.refresh(self.sel)
+        self.signal_list.set_groups(self.signal_groups(), self.sel)
 
         right = self.card(parent)
         right.pack(side="left", fill="both", expand=True)
@@ -51,14 +67,13 @@ class GraphMixin:
         self.btn_st.pack(side="left", padx=2)
         self.hint = tk.Label(bar, text="", fg=MUTED, bg=CARD, font=(FONT, 8))
         self.hint.pack(side="left", padx=12)
-        wc = ttk.Combobox(bar, values=[f"{w} s" for w in WINDOWS], state="readonly", width=7)
-        wc.set(f"{self.window.get()} s")
-        wc.pack(side="right")
-        wc.bind(
-            "<<ComboboxSelected>>", lambda e: (self.window.set(int(wc.get().split()[0])), self.draw_chart())
-        )
+        self.span_cb = ttk.Combobox(bar, values=[f"{w} s" for w in WINDOWS], state="readonly", width=9)
+        self.span_cb.pack(side="right")
+        self.span_cb.bind("<<ComboboxSelected>>", self.on_span_choice)
+        self._span_shown = None
         tk.Label(bar, text="Fenêtre", fg=SUB, bg=CARD, font=(FONT, 9)).pack(side="right", padx=(10, 6))
-        self.button(bar, "Suivre le direct ▸▸", self.follow, GREEN, CARD2, font=9).pack(side="right", padx=6)
+        self.button(bar, "Suivre ▸▸", self.follow, GREEN, CARD2, font=9).pack(side="right", padx=6)
+        self.button(bar, "Tout voir", self.fit_all, CYAN, CARD2, font=9).pack(side="right", padx=2)
         cw = tk.Frame(right, bg=CARD)
         cw.pack(fill="both", expand=True, padx=6, pady=(0, 6))
         cw.rowconfigure(0, weight=1)
@@ -72,31 +87,108 @@ class GraphMixin:
         self.taxis.grid(row=1, column=0, sticky="ew")
         self.chart_hsb = ttk.Scrollbar(cw, orient="horizontal", command=self.on_hscroll)
         self.chart_hsb.grid(row=2, column=0, sticky="ew")
-        def wheel(e):
+        def zoom_wheel(e):
+            # molette vers le haut : zoom avant ; vers le bas : zoom arrière (centré sur le curseur)
+            up = e.delta > 0 if getattr(e, "num", None) not in (4, 5) else e.num == 4
+            self.zoom_at(e.x, 0.8 if up else 1.25)
+        def vwheel(e):
             self.chart.yview_scroll(int(-e.delta / 120), "units")
         def hwheel(e):
-            self.on_hscroll("scroll", str(int(-e.delta / 120)), "units")
+            self.pan_by(-self.span_ms * 0.1 if e.delta > 0 else self.span_ms * 0.1)
         def enter(e):
-            self.chart.bind_all("<MouseWheel>", wheel)
+            self.chart.bind_all("<MouseWheel>", zoom_wheel)
+            self.chart.bind_all("<Control-MouseWheel>", vwheel)
             self.chart.bind_all("<Shift-MouseWheel>", hwheel)
         def leave(e):
             self.chart.unbind_all("<MouseWheel>")
+            self.chart.unbind_all("<Control-MouseWheel>")
             self.chart.unbind_all("<Shift-MouseWheel>")
         self.chart.bind("<Enter>", enter)
         self.chart.bind("<Leave>", leave)
+        self.chart.bind("<Button-4>", zoom_wheel)  # Linux
+        self.chart.bind("<Button-5>", zoom_wheel)
         self.chart.bind("<ButtonPress-1>", self.chart_press)
         self.chart.bind("<B1-Motion>", self.chart_drag)
         self.chart.bind("<ButtonRelease-1>", self.chart_release)
+        self.chart.bind("<Double-Button-1>", lambda e: self.fit_all() if self.in_plot(e.x) else None)
+        self.chart.bind("<ButtonPress-2>", self.pan_press)
+        self.chart.bind("<B2-Motion>", self.pan_drag)
+        self.chart.bind("<ButtonRelease-2>", self.pan_release)
         self.chart.bind("<Motion>", self.chart_motion)
         self.chart.bind("<Configure>", lambda e: self.draw_chart())
         self.refresh_mode_buttons()
 
+    # ---------- signaux : types, noms, couleurs ----------
+    def dyn_keys(self):
+        """Voies issues d'un fichier RaceBox / RaceChrono… : [(identifiant, nom)]."""
+        return [(cid, ent[0]) for cid, ents in self.dyn.items() for ent in ents if ent]
+
+    def curve_keys(self):
+        return CURVE_KEYS + self.dyn_keys()
+
+    def dyn_entry(self, key):
+        for ent in self.dyn.get(key[0], ()):
+            if ent and ent[0] == key[1]:
+                return ent
+        return None
+
+    def signal_type(self, key):
+        """Type d'un signal : GPS, CAN moto, Capteurs (ESP32), Inertiel ou Autres."""
+        cid = key[0]
+        if cid in (2032, 2040):
+            return TYPE_GPS
+        if cid in (2041, 2042):
+            return TYPE_SENS
+        ent = self.dyn_entry(key)
+        if ent:
+            return ent[2]
+        return TYPE_CAN
+
+    def unit_of(self, key):
+        ent = self.dyn_entry(key)
+        return disp_unit(ent[1]) if ent else disp_unit(UNIT_OF.get(key, ""))
+
+    def label_of(self, key):
+        cid, name = key
+        if self.dyn_entry(key) or cid in (2032, 2040, 2041, 2042):
+            return fr(name)
+        return f"{fr(name)}  ·  0x{cid:03X}"
+
+    def color_of(self, key):
+        return self.color_map.get(key) or PALETTE[CURVE_INDEX.get(key, 0) % len(PALETTE)]
+
+    def assign_color(self, key):
+        used = {self.color_map[k] for k in self.sel if k in self.color_map}
+        free = [c for c in PALETTE if c not in used]
+        self.color_map[key] = free[0] if free else PALETTE[len(self.color_map) % len(PALETTE)]
+
+    def signal_groups(self):
+        """Signaux proposés, classés par type : ceux qui ont des données, ou tous les signaux connus s'il n'y en a pas encore."""
+        have = set(self.full_t) | set(self.hist)
+        keys = [k for k in self.curve_keys() if k in have or k in self.sel] if have else list(CURVE_KEYS)
+        groups = {t: [] for t in TYPE_ORDER}
+        for k in keys:
+            groups[self.signal_type(k)].append((k, self.label_of(k)))
+        return [(t, groups[t]) for t in TYPE_ORDER if groups[t]]
+
     def toggle_curve(self, key):
         if key in self.sel:
-            self.sel.discard(key)
-        else:
-            self.sel.add(key)
+            self.remove_curve(key)
+            return
+        self.assign_color(key)
+        self.sel.add(key)
         self.signal_list.refresh(self.sel)
+        self.draw_chart()
+
+    def remove_curve(self, key):
+        """Retire une courbe du graphique (petite croix de la légende ou clic dans la liste)."""
+        self.sel.discard(key)
+        self.color_map.pop(key, None)
+        self.band_h.pop(key, None)
+        if self.ref_key == key:
+            self.ref_key = None
+        self.signal_list.refresh(self.sel)
+        self.draw_chart()
 
     def set_stack(self, stacked):
         self.stack.set(stacked)
@@ -107,6 +199,76 @@ class GraphMixin:
     def follow(self):
         self.view_end = None
         self.draw_chart()
+
+    # ---------- fenêtre de temps : zoom, déplacement, sélection ----------
+    def data_bounds(self):
+        """(début, fin) en ms des données disponibles."""
+        if self.full_t and self.frames:
+            return (0, self.frames[-1][0])
+        ts = [self.hist[k][0][0] for k in self.sel if k in self.hist and self.hist[k]]
+        return (min(ts) if ts else 0, max(self.t_now, 1))
+
+    def max_span(self):
+        lo, hi = self.data_bounds()
+        return max(WINDOWS[-1] * 1000.0, (hi - lo) * 1.2) if hi > lo else WINDOWS[-1] * 1000.0
+
+    def set_view(self, start, span):
+        """Fixe la fenêtre affichée (début et durée en ms) : la vue ne suit plus la lecture."""
+        span = max(MIN_SPAN, min(min(MAX_SPAN, self.max_span()), span))
+        lo, hi = self.data_bounds()
+        start = max(lo - span * 0.25, min(hi + span * 0.25 - span, start)) if hi + span * 0.5 > lo else start
+        self.span_ms = span
+        self.view_end = start + span
+        self.draw_chart()
+
+    def in_plot(self, x):
+        g = self.geom
+        return bool(g) and g["L"] <= x <= g["L"] + g["pw"]
+
+    def time_at(self, x):
+        g = self.geom
+        return g["start"] + (x - g["L"]) / g["pw"] * g["span"]
+
+    def zoom_at(self, x, factor):
+        """Zoom centré sur la position x du curseur : le point sous le curseur ne bouge pas."""
+        g = self.geom
+        if not g:
+            return
+        frac = min(1.0, max(0.0, (x - g["L"]) / g["pw"]))
+        centre = g["start"] + frac * g["span"]
+        new = max(MIN_SPAN, min(min(MAX_SPAN, self.max_span()), g["span"] * factor))
+        self.set_view(centre - frac * new, new)
+
+    def pan_by(self, dt):
+        g = self.geom
+        if g:
+            self.set_view(g["start"] + dt, g["span"])
+
+    def pan_press(self, e):
+        g = self.geom
+        if g and self.in_plot(e.x):
+            self.pan = (e.x, g["start"], g["span"])
+            self.chart.config(cursor="fleur")
+
+    def pan_drag(self, e):
+        if self.pan and self.geom:
+            x0, start0, span0 = self.pan
+            self.set_view(start0 - (e.x - x0) / self.geom["pw"] * span0, span0)
+
+    def pan_release(self, e):
+        self.pan = None
+        self.chart.config(cursor="")
+
+    def fit_all(self):
+        lo, hi = self.data_bounds()
+        span = max(MIN_SPAN * 5, (hi - lo) * 1.04)
+        self.set_view(lo - (span - (hi - lo)) / 2, span)
+
+    def on_span_choice(self, e=None):
+        sec = float(self.span_cb.get().split()[0].replace(",", "."))
+        g = self.geom
+        centre = g["start"] + g["span"] / 2 if g else self.t_now
+        self.set_view(centre - sec * 500, sec * 1000.0)
 
     def refresh_mode_buttons(self):
         for b, on in ((self.btn_ov, not self.stack.get()), (self.btn_st, self.stack.get())):
@@ -168,14 +330,12 @@ class GraphMixin:
     # ---- gestion de la fenêtre temporelle (ascenseur horizontal)
     def scroll_range(self):
         """Bornes (début, fin) de ce que l'ascenseur horizontal peut atteindre."""
-        half = self.window.get() * 500
-        if self.full_t:
-            return (-half, self.frames[-1][0] + half)
-        ts = [self.hist[k][0][0] for k in self.sel if k in self.hist and self.hist[k]]
-        return (min(ts + [0]) if ts else 0, self.t_now + half)
+        lo, hi = self.data_bounds()
+        half = self.span_ms / 2
+        return (lo - half, hi + half)
 
     def on_hscroll(self, *a):
-        span = self.window.get() * 1000
+        span = self.span_ms
         t0, tmax = self.scroll_range()
         if tmax - t0 <= span:
             return
@@ -186,7 +346,7 @@ class GraphMixin:
             step = span * (0.9 if a[2] == "pages" else 0.1)
             end = cur + int(a[1]) * step
         end = min(tmax, max(t0 + span, end))
-        self.view_end = None if end >= tmax - 1 else end
+        self.view_end = None if end >= tmax - 1 and not self.full_t else end
         self.draw_chart()
 
     def axis_for(self, mn, mx):
@@ -204,13 +364,10 @@ class GraphMixin:
         return (lo, hi, [round(lo + i * step, 10) for i in range(n + 1)])
 
     def tlabel(self, sec, step):
-        sg = "-" if sec < -1e-09 else ""
-        sec = abs(sec)
-        if step < 1:
-            m = int(sec // 60)
-            return f"{sg}{m:02d}:{sec - 60 * m:04.1f}"
-        sec = int(round(sec))
-        return f"{sg}{sec // 60:02d}:{sec % 60:02d}"
+        """Temps au format mm:ss:ms (minutes, secondes, millisecondes)."""
+        sg = "-" if sec < -1e-9 else ""
+        total = int(round(abs(sec) * 1000))
+        return f"{sg}{total // 60000:02d}:{total // 1000 % 60:02d}:{total % 1000:03d}"
 
     def draw_chart(self):
         c = self.chart
@@ -219,19 +376,24 @@ class GraphMixin:
         ta.delete("all")
         self.grips = []
         self.legend_hits = []
+        self.close_hits = []
         w = c.winfo_width()
         h = c.winfo_height()
         if w <= 300 or h <= 100:
             return
-        win = self.window.get()
-        span = win * 1000
+        span = self.span_ms
         tmax = self.t_now
         half = span / 2
         end = self.view_end if self.view_end is not None else tmax + half
         start = end - span
-        sel = [k for k in CURVE_KEYS if k in self.sel]
+        sel = [k for k in self.curve_keys() if k in self.sel]
         L, R, T = (70, 250, 10)
         pw = w - L - R
+        self.geom = {"L": L, "pw": pw, "start": start, "span": span}
+        shown = f"{round(span / 1000, 2):g} s"
+        if shown != self._span_shown:  # la liste « Fenêtre » reflète la fenêtre réelle, même après un zoom à la souris
+            self._span_shown = shown
+            self.span_cb.set(shown)
         # ascenseur horizontal
         t0, tmx = self.scroll_range()
         tot = tmx - t0
@@ -240,7 +402,7 @@ class GraphMixin:
         else:
             self.chart_hsb.set(0, 1)
         # axe du temps (fixe, sous la zone de courbes)
-        ticks = nice_ticks(start / 1000, end / 1000, max(2, pw // 110))
+        ticks = time_ticks(start / 1000, end / 1000, max(2, pw // 115))
         tstep = ticks[1] - ticks[0] if len(ticks) > 1 else 1
         xs = []
         ta.create_line(L, 0, L + pw, 0, fill=BORDER)
@@ -287,8 +449,7 @@ class GraphMixin:
                 co.extend((L + pw * (tt - start) / span, ymap(v)))
             if len(co) >= 4:
                 c.create_line(*co, fill=color, width=2)
-        def unit_of(key):
-            return disp_unit(UNIT_OF.get(key, ""))
+        unit_of = self.unit_of
         def cur_of(key, pts):
             if self.full_t and self.full_t.get(key):
                 i = bisect.bisect_right(self.full_t[key], tmax)
@@ -326,7 +487,7 @@ class GraphMixin:
                 (k for k in sel if k in data and data[k][2] > data[k][1]), sel[0]
             )
             self.ref_key = ref
-            rcol = PALETTE[CURVE_INDEX[ref] % len(PALETTE)]
+            rcol = self.color_of(ref)
             c.create_rectangle(L, T, L + pw, T + ph, outline=BORDER)
             if ref in data:
                 lo, hi, tks = self.axis_for(data[ref][1], data[ref][2])
@@ -350,27 +511,28 @@ class GraphMixin:
                 poly(
                     pts,
                     lambda v, lo=lo, hi=hi: T + ph * (1 - (v - lo) / (hi - lo)),
-                    PALETTE[CURVE_INDEX[key] % len(PALETTE)],
+                    self.color_of(key),
                 )
             lx = L + pw + 16
             c.create_text(
                 lx, T, text="Signal · min · max · actuel", anchor="nw", fill=SUB, font=(FONT, 8, "bold")
             )
             for i, key in enumerate(sel):
-                color = PALETTE[CURVE_INDEX[key] % len(PALETTE)]
-                cid, name = key
+                color = self.color_of(key)
                 y0 = T + 22 + i * 48
                 if key == ref:
                     c.create_rectangle(lx - 6, y0 - 4, w - 6, y0 + 42, outline=color)
                 self.legend_hits.append((lx - 6, y0 - 4, w - 6, y0 + 42, key))
+                self.draw_close(w - 18, y0 + 4, key)
                 c.create_line(lx, y0 + 7, lx + 18, y0 + 7, fill=color, width=3)
                 c.create_text(
                     lx + 26,
                     y0,
-                    text=f"{fr(name)} · 0x{cid:03X}",
+                    text=self.label_of(key),
                     anchor="nw",
                     fill=TEXT,
                     font=(FONT, 8, "bold"),
+                    width=max(60, w - lx - 56),
                 )
                 if key in data:
                     _p, mn, mx, cur = data[key]
@@ -394,6 +556,7 @@ class GraphMixin:
                     c.create_text(
                         lx + 26, y0 + 14, text="pas de donnée", anchor="nw", fill=MUTED, font=(FONT, 8)
                     )
+            self.draw_zsel()
             return
 
         # ---- empilées
@@ -407,13 +570,14 @@ class GraphMixin:
             bh = self.band_h[key]
             y0 = y
             y1 = y + bh - 8
-            color = PALETTE[CURVE_INDEX[key] % len(PALETTE)]
-            cid, name = key
+            color = self.color_of(key)
             c.create_rectangle(L, y0, L + pw, y1, outline=BORDER, fill=BG)
             vgrid(y0, y1)
             lx = L + pw + 16
+            self.draw_close(w - 18, y0 + 4, key)
             c.create_text(
-                lx, y0 + 2, text=f"{fr(name)} · 0x{cid:03X}", anchor="nw", fill=color, font=(FONT, 9, "bold")
+                lx, y0 + 2, text=self.label_of(key), anchor="nw", fill=color, font=(FONT, 9, "bold"),
+                width=max(60, w - lx - 30),
             )
             pts = window_pts(key)
             if len(pts) < 2:
@@ -454,15 +618,37 @@ class GraphMixin:
             cx = L + pw / 2
             c.create_line(cx - 16, gy, cx + 16, gy, fill=BG if active else SUB, width=2)
             y += bh
+        self.draw_zsel()
+
+    def draw_close(self, x, y, key):
+        """Petite croix de suppression d'un signal, dans la légende de droite."""
+        c = self.chart
+        c.create_rectangle(x - 2, y - 2, x + 12, y + 12, fill=CARD2, outline="")
+        c.create_line(x + 1, y + 1, x + 9, y + 9, fill=SUB, width=2)
+        c.create_line(x + 9, y + 1, x + 1, y + 9, fill=SUB, width=2)
+        self.close_hits.append((x - 3, y - 3, x + 13, y + 13, key))
+
+    def draw_zsel(self):
+        """Rectangle de sélection d'une zone à agrandir (glisser avec le bouton gauche)."""
+        c = self.chart
+        c.delete("zsel")
+        if self.zsel and self.geom:
+            x0, x1 = sorted(self.zsel)
+            g = self.geom
+            x0, x1 = max(g["L"], x0), min(g["L"] + g["pw"], x1)
+            if x1 - x0 >= 1:
+                h = max(c.winfo_height(), int(float(str(c.cget("scrollregion")).split()[3])) if c.cget("scrollregion") else 0)
+                c.create_rectangle(x0, 0, x1, h, fill=CYAN, outline=CYAN, stipple="gray25", tags="zsel")
 
     def paint_chart(self):
         try:
             if self.current_page == "graph":
+                self.signal_list.set_groups(self.signal_groups(), self.sel)
                 self.draw_chart()
         finally:
             self.root.after(180, self.paint_chart)
 
-    # ---- souris sur le graphique : séparateurs et légende
+    # ---- souris sur le graphique : séparateurs, légende, croix, sélection d'une zone
     def grip_at(self, e):
         if not self.stack.get():
             return None
@@ -473,7 +659,14 @@ class GraphMixin:
         return None
 
     def chart_motion(self, e):
-        self.chart.config(cursor="sb_v_double_arrow" if self.grip_at(e) is not None else "")
+        if self.grip_at(e) is not None:
+            self.chart.config(cursor="sb_v_double_arrow")
+        elif self.pan:
+            self.chart.config(cursor="fleur")
+        else:
+            x, y = self.chart.canvasx(e.x), self.chart.canvasy(e.y)
+            on_x = any(x0 <= x <= x1 and y0 <= y <= y1 for x0, y0, x1, y1, _k in self.close_hits)
+            self.chart.config(cursor="hand2" if on_x else ("crosshair" if self.in_plot(e.x) else ""))
 
     def chart_press(self, e):
         i = self.grip_at(e)
@@ -482,18 +675,28 @@ class GraphMixin:
             return
         x = self.chart.canvasx(e.x)
         y = self.chart.canvasy(e.y)
+        for x0, y0, x1, y1, key in self.close_hits:  # petite croix : retire le signal
+            if x0 <= x <= x1 and y0 <= y <= y1:
+                self.remove_curve(key)
+                return
         for x0, y0, x1, y1, key in self.legend_hits:
             if x0 <= x <= x1 and y0 <= y <= y1:
                 self.ref_key = key
                 self.draw_chart()
                 return
+        if self.in_plot(e.x):
+            self.zsel = [e.x, e.x]
 
     def chart_drag(self, e):
+        if self.zsel is not None:
+            self.zsel[1] = e.x
+            self.draw_zsel()
+            return
         if not self.drag:
             return
         i, y0, start = self.drag
         dy = self.chart.canvasy(e.y) - y0
-        sel = [k for k in CURVE_KEYS if k in self.sel]
+        sel = [k for k in self.curve_keys() if k in self.sel]
         if i >= len(sel):
             return
         k = sel[i]
@@ -509,5 +712,13 @@ class GraphMixin:
         self.draw_chart()
 
     def chart_release(self, e):
+        if self.zsel is not None:
+            a, b = sorted(self.zsel)
+            self.zsel = None
+            self.chart.delete("zsel")
+            if b - a >= 6 and self.geom:  # zone assez large : on zoome dessus
+                ta, tb = self.time_at(a), self.time_at(b)
+                self.set_view(ta, tb - ta)
+            return
         self.drag = None
         self.draw_chart()

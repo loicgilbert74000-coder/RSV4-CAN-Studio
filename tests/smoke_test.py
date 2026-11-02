@@ -82,9 +82,30 @@ def main(capture, shots=None):
     app.chart_drag(Event(300, int(grip_y) + 40))
     app.chart_release(Event())
     assert app.band_h[[k for k in CURVE_KEYS if k in app.sel][0]] != heights[0], "séparateur sans effet"
-    app.window.set(10)
+    app.set_view(0, 10000)
+    pump(0.2)
     app.on_hscroll("scroll", "-3", "units")
     assert app.view_end is not None
+    # molette : zoom avant puis arrière, centré sur le curseur
+    sp = app.span_ms
+    app.zoom_at(app.geom["L"] + app.geom["pw"] / 2, 0.8)
+    assert app.span_ms < sp
+    app.zoom_at(app.geom["L"] + app.geom["pw"] / 2, 1.25)
+    # sélection d'une zone à la souris : le relâché zoome
+    a = int(app.geom["L"] + app.geom["pw"] * 0.25)
+    b = int(app.geom["L"] + app.geom["pw"] * 0.5)
+    sp = app.span_ms
+    app.chart_press(Event(a, 5))
+    app.chart_drag(Event(b, 5))
+    app.chart_release(Event(b, 5))
+    pump(0.2)
+    assert app.span_ms < sp * 0.5, "zoom sur zone sans effet"
+    # petite croix : retire le signal
+    n = len(app.sel)
+    x0, y0, x1, y1, k = app.close_hits[0]
+    app.chart_press(Event(int((x0 + x1) / 2), int((y0 + y1) / 2)))
+    assert len(app.sel) == n - 1 and k not in app.sel
+    shot("courbes_zoom")
     app.follow()
     app.set_stack(False)
     pump(0.2)
