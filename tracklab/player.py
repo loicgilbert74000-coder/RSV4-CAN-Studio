@@ -76,6 +76,8 @@ class PlayerMixin:
         self.idx = 0
         self.full_t = {}
         self.full_v = {}
+        self.full_src = {}
+        self.track_full, self.track_full_t = [], []
         self.dyn = dict(res.dyn)
         self.span_ms = 30000.0  # fenêtre par défaut : 30 s, à partir de 0
         self.yr_cache = {}
@@ -205,6 +207,16 @@ class PlayerMixin:
         for k, d in self.hist.items():
             self.full_t[k] = [p[0] for p in d]
             self.full_v[k] = [p[1] for p in d]
+        self.full_src = {k: v[1] for k, v in self.vals.items()}
+        # tracé GPS complet (avec les instants) : un saut dans le fichier le retrouve sans rejouer les trames
+        self.track_full = []
+        for fr in self.frames:
+            if fr[1] == 2032 and len(fr[2]) >= 8:
+                la = int.from_bytes(fr[2][0:4], "little", signed=True) / 10000000.0
+                lo = int.from_bytes(fr[2][4:8], "little", signed=True) / 10000000.0
+                if la or lo:
+                    self.track_full.append((fr[0], la, lo))
+        self.track_full_t = [p[0] for p in self.track_full]
         self.clear_data()
         self.idx = 0
         if keep:
@@ -212,8 +224,11 @@ class PlayerMixin:
         else:
             self.set_state(f"{len(self.frames):,} trames chargées".replace(",", " "), SUB)
 
+    SEEK_REPLAY = 2500  # trames rejouées juste avant l'instant visé (remplit tableau et jauges) ; le reste vient des tableaux complets
+
     def seek(self, frac):
-        """Saute à un instant de la capture : on rejoue les trames qui précèdent pour reconstituer les valeurs et les courbes."""
+        """Saute à un instant de la capture. Les valeurs de tous les signaux et le tracé GPS viennent des tableaux
+        pré-calculés (instantané, même sur un très gros fichier) ; on ne rejoue que les dernières trames."""
         if not self.frames:
             return
         was = self.playing
@@ -221,14 +236,25 @@ class PlayerMixin:
         total = self.frames[-1][0]
         target = bisect.bisect_right(self.frame_times, frac * total)
         target = max(0, min(len(self.frames), target))
-        begin = max(0, target - SEEK_BACK)
+        fast = bool(self.full_t)
+        begin = max(0, target - (self.SEEK_REPLAY if fast else SEEK_BACK))
+        tt = self.frames[target - 1][0] if target > 0 else 0
         self.clear_data()
-        for fr in self.frames[:begin]:  # le tracé du circuit est reconstitué sur toute la partie sautée
-            if fr[1] == 2032 and len(fr[2]) >= 8:
-                la = int.from_bytes(fr[2][0:4], "little", signed=True) / 10000000.0
-                lo = int.from_bytes(fr[2][4:8], "little", signed=True) / 10000000.0
-                if la or lo:
-                    self.track.append((la, lo))
+        if fast:
+            for key, ts in self.full_t.items():  # dernière valeur connue de chaque signal à cet instant
+                i = bisect.bisect_right(ts, tt) - 1
+                if i >= 0:
+                    self.vals[key] = (self.full_v[key][i], self.full_src.get(key, "def"))
+                    self.dirty.add(key)
+            n = bisect.bisect_right(self.track_full_t, self.frames[begin][0] if begin < len(self.frames) else tt)
+            self.track.extend((p[1], p[2]) for p in self.track_full[:n])
+        else:
+            for fr in self.frames[:begin]:  # le tracé du circuit est reconstitué sur toute la partie sautée
+                if fr[1] == 2032 and len(fr[2]) >= 8:
+                    la = int.from_bytes(fr[2][0:4], "little", signed=True) / 10000000.0
+                    lo = int.from_bytes(fr[2][4:8], "little", signed=True) / 10000000.0
+                    if la or lo:
+                        self.track.append((la, lo))
         self.bulk = True
         try:
             for i in range(begin, target):
@@ -237,7 +263,10 @@ class PlayerMixin:
             self.bulk = False
         self.idx = target
         self.ingested = target
-        self.rebuild_table()
+        if self.current_page == "frames":
+            self.rebuild_table()
+        else:
+            self._table_stale = True  # reconstruit à l'ouverture de la page (inutile de remplir un tableau caché)
         if target > 0:
             self.t_now = self.frames[target - 1][0]
         if was and target < len(self.frames):

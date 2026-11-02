@@ -147,8 +147,10 @@ class FramesMixin:
         return self.table.insert("", where, values=vals, tags=("new",) if where == 0 else ())
 
     def rebuild_table(self):
-        for it in self.table.get_children():
-            self.table.delete(it)
+        self._table_stale = False
+        kids = self.table.get_children()
+        if kids:
+            self.table.delete(*kids)
         shown = 0
         self.matched = 0
         for row in reversed(self.rows):
@@ -166,8 +168,9 @@ class FramesMixin:
         )
 
     def clear_table(self):
-        for row in self.table.get_children():
-            self.table.delete(row)
+        kids = self.table.get_children()
+        if kids:
+            self.table.delete(*kids)
         self.rows.clear()
         self.matched = 0
         self.last_row = None

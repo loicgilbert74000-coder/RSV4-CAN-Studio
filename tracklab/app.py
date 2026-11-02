@@ -53,6 +53,9 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
         self.tcp_port = tk.StringVar(value="2323")
         self.experimental = tk.BooleanVar(value=True)
         self.filter_on = tk.BooleanVar(value=True)
+        self._table_stale = False
+        self.full_src = {}
+        self.track_full, self.track_full_t = [], []
         self.table_paused = False  # affichage des trames figé (la réception continue en arrière-plan)
         self.span_ms = 30000.0  # durée de la fenêtre des courbes (ms) : 30 s par défaut
         self.yr_cache = {}  # échelles des courbes (fichier ouvert)
@@ -144,7 +147,7 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
         self.set_conn_ui(False, "Déconnecté")
         self.set_state("Prêt · ouvrez une capture", MUTED)
         self.root.after(40, self.tick)
-        self.root.after(33, self.paint_chart)
+        self.root.after(16, self.paint_chart)
         self.root.after(400, self.paint_map)
 
     # ---------- modèle ----------
@@ -421,7 +424,7 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
                 info = f"{fmt_size(self.esp.get('rec_bytes', 0))} · {kind} · {rate} trames/s"
             self.lcd.show(
                 mode="live", mode_text=mode_text, mode_color=color, view=view,
-                source="Wi-Fi ESP32" if wifi else "USB-CAN", cur=dur, total=0,
+                source="Wi-Fi ESP32" if wifi else "USB-CAN", cur=dur // 100 * 100, total=0,
                 name=name, info=info, frac=min(1.0, rate / 1500), seekable=False, rec=rec,
             )
             self.key_play.set_look(lit=False)
@@ -430,7 +433,7 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
         if self.frames:
             n = len(self.frames)
             total = self.frames[-1][0]
-            cur = self.frames[self.idx - 1][0] if self.idx > 0 else 0
+            cur = int(self.cursor_ms()) if self.idx > 0 or self.playing else 0
             if self.playing:
                 mode, text, color = "play", "▶ LECTURE", GREEN
             elif self.idx >= n:
@@ -441,9 +444,9 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
                 mode, text, color = "pause", "❚❚ PAUSE", YELLOW
             name, _, label = self.file_name.get().partition("  ·  ")
             self.lcd.show(
-                mode=mode, mode_text=text, mode_color=color, view=view, source="FICHIER", cur=cur, total=total,
+                mode=mode, mode_text=text, mode_color=color, view=view, source="FICHIER", cur=cur // 100 * 100, total=total,
                 name=name, info=f"{label + ' · ' if label else ''}{n:,} trames".replace(",", " "),
-                frac=cur / total if total else 0.0, seekable=True, rec=False,
+                frac=round(cur / total, 3) if total else 0.0, seekable=True, rec=False,
             )
             self.key_play.set_look(lit=mode == "play")
             self.key_pause.set_look(lit=mode == "pause")
@@ -462,6 +465,8 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
                 page.grid()
             else:
                 page.grid_remove()
+        if key == "frames" and self._table_stale:
+            self.rebuild_table()
         for name, (row, underline, label, icon) in self.nav.items():
             on = name == key
             bg = HOVER if on else SIDE

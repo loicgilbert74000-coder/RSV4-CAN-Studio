@@ -385,11 +385,21 @@ class GraphMixin:
         total = int(round(abs(sec) * 1000))
         return f"{sg}{total // 60000:02d}:{total // 1000 % 60:02d}:{total % 1000:03d}"
 
+    def cursor_ms(self):
+        """Instant du curseur, continu : horloge de lecture (fichier) ou horloge réelle (direct), pas la date de la dernière trame
+        traitée, qui avance par à-coups."""
+        if self.playing and self.frames:
+            t = self.start_frame + (time.monotonic() - self.start_wall) * 1000 * self.speed.get()
+            return min(t, float(self.frames[-1][0]))
+        if self.live and self.link_t is not None:
+            return float(int(time.monotonic() * 1000))
+        return float(self.t_now)
+
     def view_start(self):
         """Début de la fenêtre affichée : vue libre, ou page de `span` ms qui contient le curseur (la 1re page commence à 0)."""
         if self.view_end is not None:
             return self.view_end - self.span_ms
-        return math.floor(max(0.0, self.t_now) / self.span_ms) * self.span_ms
+        return math.floor(max(0.0, self.cursor_ms()) / self.span_ms) * self.span_ms
 
     def chart_sig(self):
         c = self.chart
@@ -418,8 +428,8 @@ class GraphMixin:
         c, ta = self.chart, self.taxis
         c.delete("cur")
         ta.delete("cur")
-        self._cur_shown = self.t_now
-        t = self.t_now
+        t = self.cursor_ms()
+        self._cur_shown = t
         if g["start"] <= t <= g["start"] + g["span"]:
             x = g["L"] + g["pw"] * (t - g["start"]) / g["span"]
             for y0, y1 in self.cur_spans:
@@ -439,7 +449,7 @@ class GraphMixin:
         if w <= 300 or h <= 100:
             return
         span = self.span_ms
-        tmax = self.t_now
+        tmax = self.cursor_ms()
         start = self.view_start()
         end = start + span
         self.cur_spans = []
@@ -717,7 +727,7 @@ class GraphMixin:
                     self.signal_list.set_groups(self.signal_groups(), self.sel)
                 if self.chart_sig() != self._chart_sig:
                     self.draw_chart()
-                elif self.t_now != self._cur_shown:
+                elif self.cursor_ms() != self._cur_shown:
                     self.move_cursor()
         finally:
             self.root.after(33, self.paint_chart)
