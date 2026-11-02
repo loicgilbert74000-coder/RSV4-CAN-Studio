@@ -18,7 +18,8 @@ from .recording import RecordingMixin
 from .player import PlayerMixin
 from .theme import BG, BORDER, CARD, CARD2, CYAN, FONT, GREEN, HOVER, LIME, MUTED, RED, SIDE, SUB, TEXT, YELLOW
 from .util import fmt_time, wifi_quality
-from .widgets import NavIcon, SeekBar, make_dot, set_dot
+from .deck import DeckButton, DeckLcd
+from .widgets import NavIcon, make_dot, set_dot
 
 
 class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, DecodingMixin, ConnectionMixin, RecordingMixin):
@@ -351,29 +352,92 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
         self.build_esp(self.page_esp)
 
     def build_playbar(self, main):
+        """Platine façon lecteur CD : touches, afficheur LCD avec bargraph, puis enregistrement et connexion."""
         bar = tk.Frame(main, bg=CARD, highlightbackground=BORDER, highlightthickness=1)
         bar.pack(fill="x", padx=18, pady=(4, 8))
         inner = tk.Frame(bar, bg=CARD)
-        inner.pack(fill="x", padx=12, pady=8)
-        self.button(
-            inner, "Ouvrir un fichier", self.open_file, TEXT, CARD2, font=9
-        ).pack(side="left", padx=2)
-        self.button(inner, "Lecture", self.play, GREEN, CARD2, font=9).pack(side="left", padx=2)
-        self.button(inner, "Pause", self.pause, YELLOW, CARD2, font=9).pack(side="left", padx=2)
-        self.button(inner, "Début", self.reset, SUB, CARD2, font=9).pack(side="left", padx=2)
-        tk.Label(inner, text="Vitesse", bg=CARD, fg=SUB, font=(FONT, 9)).pack(side="left", padx=(14, 4))
-        cb = ttk.Combobox(inner, values=list(SPEEDS), state="readonly", width=6)
-        cb.set("x1")
-        cb.pack(side="left")
-        cb.bind("<<ComboboxSelected>>", lambda e: self.speed.set(SPEEDS[cb.get()]))
-        tk.Label(
-            inner, textvariable=self.file_name, bg=CARD, fg=SUB, font=(FONT, 9), anchor="w"
-        ).pack(side="left", padx=(14, 0))
-        tk.Label(
-            inner, textvariable=self.clock, bg=CARD, fg=TEXT, font=(FONT, 9, "bold")
-        ).pack(side="right", padx=(8, 0))
-        self.seekbar = SeekBar(inner, on_seek=self.seek, on_drag=self.on_seek_drag, width=360)
-        self.seekbar.pack(side="right", padx=8)
+        inner.pack(fill="x", padx=10, pady=8)
+
+        def sep():
+            tk.Frame(inner, bg=BORDER, width=1, height=44).pack(side="left", padx=8)
+
+        self.key_open = DeckButton(inner, "eject", "OUVRIR", self.open_file, color=CYAN)
+        self.key_open.pack(side="left", padx=2)
+        sep()
+        self.key_start = DeckButton(inner, "start", "DÉBUT", self.reset, color=CYAN)
+        self.key_start.pack(side="left", padx=2)
+        self.key_play = DeckButton(inner, "play", "LECTURE", self.play, color=GREEN)
+        self.key_play.pack(side="left", padx=2)
+        self.key_pause = DeckButton(inner, "pause", "PAUSE", self.pause, color=YELLOW)
+        self.key_pause.pack(side="left", padx=2)
+        self.key_speed = DeckButton(inner, "text", "VITESSE", self.cycle_speed, color=CYAN, text="x1")
+        self.key_speed.pack(side="left", padx=2)
+        sep()
+        # à droite : connexion puis enregistrement (empilés de droite à gauche), l'afficheur prend la place restante
+        self.conn_btn = DeckButton(inner, "plug", "CONNEXION", self.on_conn_button, color=GREEN)
+        self.conn_btn.pack(side="right", padx=2)
+        self.rec_btn = DeckButton(inner, "rec", "ENREG.", self.rec_toggle, color=RED)
+        self.rec_btn.set_look(enabled=False)
+        self.rec_btn.pack(side="right", padx=2)
+        tk.Frame(inner, bg=BORDER, width=1, height=44).pack(side="right", padx=8)
+        self.lcd = DeckLcd(inner, on_seek=self.seek)
+        self.lcd.pack(side="left", fill="x", expand=True, padx=2)
+
+    def cycle_speed(self):
+        names = list(SPEEDS)
+        cur = min(names, key=lambda n: abs(SPEEDS[n] - self.speed.get()))
+        nxt = names[(names.index(cur) + 1) % len(names)]
+        self.speed.set(SPEEDS[nxt])
+        self.key_speed.set_look(text=nxt)
+
+    PAGE_NAMES = {"tele": "TÉLÉMÉTRIE", "graph": "COURBES", "frames": "TRAMES CAN", "esp": "PARAMÉTRAGE ESP32"}
+
+    def update_deck(self, now, rate, dur, link):
+        """Afficheur et touches : ce qui est lu, en direct ou à l'arrêt, et la vue affichée."""
+        view = self.PAGE_NAMES.get(self.current_page, "")
+        rec = bool(self.esp and self.esp.get("rec") and link == "ok")
+        if self.live:
+            wifi = self.transport.get().startswith("Wi-Fi")
+            mode_text, color = {
+                "ok": ("● EN DIRECT", GREEN),
+                "attente": ("◌ ATTENTE DES TRAMES", YELLOW),
+            }.get(link, ("◌ LIAISON PERDUE", RED))
+            self.lcd.show(
+                mode="live", mode_text=mode_text, mode_color=color, view=view,
+                source="Wi-Fi ESP32" if wifi else "USB-CAN", cur=dur, total=0,
+                name=self.model["label"], info=f"{rate} trames/s · {len(self.count)} ID · {self.ingested} reçues",
+                frac=min(1.0, rate / 1500), seekable=False, rec=rec,
+            )
+            self.key_play.set_look(lit=False)
+            self.key_pause.set_look(lit=False)
+            return
+        if self.frames:
+            n = len(self.frames)
+            total = self.frames[-1][0]
+            cur = self.frames[self.idx - 1][0] if self.idx > 0 else 0
+            if self.playing:
+                mode, text, color = "play", "▶ LECTURE", GREEN
+            elif self.idx >= n:
+                mode, text, color = "end", "■ FIN DU FICHIER", CYAN
+            elif self.idx == 0:
+                mode, text, color = "stop", "■ ARRÊT", SUB
+            else:
+                mode, text, color = "pause", "❚❚ PAUSE", YELLOW
+            name, _, label = self.file_name.get().partition("  ·  ")
+            self.lcd.show(
+                mode=mode, mode_text=text, mode_color=color, view=view, source="FICHIER", cur=cur, total=total,
+                name=name, info=f"{label + ' · ' if label else ''}{n:,} trames".replace(",", " "),
+                frac=cur / total if total else 0.0, seekable=True, rec=False,
+            )
+            self.key_play.set_look(lit=mode == "play")
+            self.key_pause.set_look(lit=mode == "pause")
+        else:
+            self.lcd.show(
+                mode="idle", mode_text="■ PRÊT", mode_color=MUTED, view=view, source="", cur=0, total=0,
+                name="Aucun fichier", info="Ouvrez un fichier ou connectez-vous", frac=0.0, seekable=False, rec=False,
+            )
+            self.key_play.set_look(lit=False)
+            self.key_pause.set_look(lit=False)
 
     def show_page(self, key):
         self.current_page = key
@@ -425,11 +489,6 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
         gear = NavIcon(inner, "settings", SIDE)
         gear.pack(side="right", padx=(12, 0))
         gear.bind("<Button-1>", lambda e: self.settings())
-        self.conn_btn = self.button(inner, "Connexion", self.on_conn_button, "#ffffff", RED, font=9)
-        self.conn_btn.pack(side="right", padx=(12, 0))
-        self.rec_btn = self.button(inner, "● Enreg.", self.rec_toggle, TEXT, CARD2, font=9)
-        self.rec_btn.config(state="disabled")
-        self.rec_btn.pack(side="right", padx=(12, 0))
         self.conn_lbl = tk.Label(inner, text="Déconnecté", bg=SIDE, fg=SUB, font=(FONT, 9, "bold"))
         self.conn_lbl.pack(side="right")
         self.conn_dot = make_dot(inner, MUTED, SIDE, 10)
@@ -465,12 +524,11 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
         if self.frames:
             total = self.frames[-1][0]
             cur = self.frames[self.idx - 1][0] if self.idx > 0 else 0
-            self.seekbar.set(cur / total if total else 0)
-            self.clock.set(f"{fmt_time(cur)} / {fmt_time(total)}")
             dur = cur
         else:
             dur = now - self.t0 if self.live else 0
         self.show_footer("dur", fmt_time(dur))
+        self.update_deck(now, rate, dur, self.link_state(now))
         self.show_footer("ids", str(len(self.count)))
         self.show_footer("rate", str(rate) if rate else "—")
         self.show_footer("frames", f"{self.ingested:,}".replace(",", " "))

@@ -30,10 +30,8 @@ class ConnectionMixin:
         self._conn_shown = None
         set_dot(self.conn_dot, GREEN if live else MUTED)
         self.conn_lbl.config(text=text, fg=GREEN if live else SUB)
-        self.conn_btn.config(
-            text="Déconnecter" if live else "Connexion",
-            bg=CARD2 if live else RED,
-            activebackground=HOVER if live else "#ff3b44",
+        self.conn_btn.set_look(
+            lit=live, kind="unplug" if live else "plug", caption="DÉCONNEXION" if live else "CONNEXION"
         )
         if self._conn_win is not None and self._conn_win.winfo_exists() and live:
             self._conn_win.destroy()

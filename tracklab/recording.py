@@ -244,8 +244,8 @@ class RecordingMixin:
             set_dot(self.rec_dot, color)
             self.rec_state.config(text=text)
             self.rec_btn2.config(text=label, bg=CARD2 if on else RED, state="normal" if enabled else "disabled")
-            self.rec_btn.config(text="■ Arrêter" if on else "● Enreg.", bg=RED if on else CARD2,
-                                state="normal" if enabled else "disabled")
+            self.rec_btn.set_look(lit=on, kind="stop" if on else "rec", caption="STOP" if on else "ENREG.",
+                                  enabled=enabled)
         # la liste se met à jour toute seule : à la connexion et quand un enregistrement se termine
         if link_ok and esp:
             if not self._rec_listed or (self._rec_was_on and not on):

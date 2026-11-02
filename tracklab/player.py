@@ -145,11 +145,6 @@ class PlayerMixin:
         else:
             self.set_state(f"{len(self.frames):,} trames chargées".replace(",", " "), SUB)
 
-    def on_seek_drag(self, frac):
-        if self.frames:
-            total = self.frames[-1][0]
-            self.clock.set(f"{fmt_time(frac * total)} / {fmt_time(total)}")
-
     def seek(self, frac):
         """Saute à un instant de la capture : on rejoue les trames qui précèdent pour reconstituer les valeurs et les courbes."""
         if not self.frames:

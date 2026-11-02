@@ -46,10 +46,25 @@ def main(capture, shots=None):
     app.seek(0.6)
     assert 0 < app.idx < len(app.frames)
     pump(0.2)
-    bar = app.seekbar
-    bar.press(Event(8 + int((bar.winfo_width() - 16) * 0.25)))
-    bar.release(Event(8 + int((bar.winfo_width() - 16) * 0.25)))
+    app.update_status()
+    bar = app.lcd
+    ev = Event(12 + int((bar.winfo_width() - 24) * 0.25), 70)
+    bar.press(ev)
+    bar.release(ev)
     assert abs(app.idx / len(app.frames) - 0.25) < 0.1
+
+    # platine : modes affichés et touches allumées
+    app.play()
+    pump(0.2)
+    assert app.lcd.s["mode"] == "play" and app.key_play.lit and not app.key_pause.lit
+    app.pause()
+    pump(0.2)
+    assert app.lcd.s["mode"] == "pause" and app.key_pause.lit
+    app.cycle_speed()
+    assert app.key_speed.text != "x1"
+    app.reset()
+    pump(0.2)
+    assert app.lcd.s["mode"] == "stop"
 
     # changement de page
     timings = {}
