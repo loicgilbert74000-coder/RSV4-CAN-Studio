@@ -431,6 +431,7 @@ class GraphMixin:
     def scrolling(self):
         """Lecture d'une vue zoomée : le curseur reste fixe à l'écran et ce sont les courbes qui défilent.
         (Si le fichier est affiché en entier, c'est au contraire le curseur qui avance.)"""
+        return False
         on = bool(
             self.playing and self.frames and not self.live and self.view_end is not None
             and self.span_ms < self.frames[-1][0] * 0.98
@@ -449,6 +450,10 @@ class GraphMixin:
             self.view_end = start + self.span_ms  # la vue reste où elle est quand on arrête la lecture
             return start
         if self.view_end is not None:
+            if self.playing and self.span_ms > 0:  # vue zoomée : on tourne la page quand le curseur en sort
+                cur = self.cursor_ms()
+                if cur >= self.view_end:
+                    self.view_end += math.floor((cur - self.view_end) / self.span_ms + 1) * self.span_ms
             return self.view_end - self.span_ms
         return math.floor(max(0.0, self.cursor_ms()) / self.span_ms) * self.span_ms
 
@@ -457,8 +462,8 @@ class GraphMixin:
         tick = 0
         if self.live:
             tick = int(time.monotonic() * 6)  # en direct : les courbes grandissent, redessin ~6 fois par seconde
-        elif self.playing:
-            tick = int(time.monotonic() * 4)  # en lecture : seules les valeurs « actuel » changent
+        elif self.playing and not self.full_t:
+            tick = int(time.monotonic() * 4)  # lecture sans tableaux pré-calculés : les valeurs « actuel » changent
         return (
             round(self.view_start(), 3), round(self.span_ms, 3), c.winfo_width(), c.winfo_height(),
             tuple(sorted(self.sel)), self.stack.get(), tuple(sorted(self.band_h.items())), self.ref_key,
@@ -481,6 +486,12 @@ class GraphMixin:
         ta.delete("cur")
         t = self.cursor_ms()
         self._cur_shown = t
+        if self.full_t and self.val_items:  # valeurs « actuel » de la légende : simple changement de texte, sans redessin
+            for it, key, suf in self.val_items:
+                ts = self.full_t.get(key)
+                if ts:
+                    i = bisect.bisect_right(ts, t)
+                    c.itemconfigure(it, text=f"actuel {fmt_val(self.full_v[key][max(0, i - 1)])}{suf}")
         if self._scroll_on:  # défilement : curseur fixe à l'écran
             x = g["L"] + g["pw"] * self.cur_frac
             inside = True
@@ -498,6 +509,7 @@ class GraphMixin:
         c.delete("all")
         ta.delete("all")
         self.grips = []
+        self.val_items = []
         self.legend_hits = []
         self.close_hits = []
         w = c.winfo_width()
@@ -662,8 +674,9 @@ class GraphMixin:
                     _p, mn, mx, cur = data[key]
                     c.create_text(lx + 20, ly, text=f"{fmt_val(mn)} … {fmt_val(mx)} {unit_of(key)}",
                                   anchor="nw", fill=SUB, font=(FONT, 8))
-                    c.create_text(lx + 20, ly + 13, text=f"actuel {fmt_val(cur)}" + ("  ◂ axe" if key == ref else ""),
-                                  anchor="nw", fill=color if key == ref else TEXT, font=(FONT, 8, "bold"))
+                    it = c.create_text(lx + 20, ly + 13, text=f"actuel {fmt_val(cur)}" + ("  ◂ axe" if key == ref else ""),
+                                       anchor="nw", fill=color if key == ref else TEXT, font=(FONT, 8, "bold"))
+                    self.val_items.append((it, key, "  ◂ axe" if key == ref else ""))
                     bottom = ly + 28
                 else:
                     c.create_text(lx + 20, ly, text="pas de donnée", anchor="nw", fill=MUTED, font=(FONT, 8))
@@ -723,7 +736,7 @@ class GraphMixin:
                     fill=SUB,
                     font=(FONT, 8),
                 )
-                c.create_text(
+                it = c.create_text(
                     lx,
                     ly + 13,
                     text=f"actuel {fmt_val(cur_of(key, pts))}",
@@ -731,6 +744,7 @@ class GraphMixin:
                     fill=TEXT,
                     font=(FONT, 8, "bold"),
                 )
+                self.val_items.append((it, key, ""))
             gy = y1 + 4
             self.grips.append((i, gy))
             active = self.drag is not None and self.drag[0] == i

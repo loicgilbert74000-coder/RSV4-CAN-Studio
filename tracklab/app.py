@@ -2,6 +2,7 @@
 
 import queue
 import threading
+import bisect
 import time
 import tkinter as tk
 from collections import Counter, deque
@@ -72,6 +73,7 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
         self.yr_live = {}  # échelles des courbes (en direct : ne font que s'élargir)
         self._chart_sig = None
         self._cur_shown = None
+        self.val_items = []
         self._sl_t = 0.0
         self.cur_spans = []
         self.stack = tk.BooleanVar(value=False)
@@ -722,11 +724,30 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
             elapsed = (time.monotonic() - self.start_wall) * 1000 * self.speed.get()
             limit = self.start_frame + elapsed
             batch = 0
-            while self.idx < len(self.frames) and self.frames[self.idx][0] <= limit and (batch < 1200):
-                self.ingest(*self.frames[self.idx])
-                self.idx += 1
-                batch += 1
+            if self.full_t and self.current_page == "graph":
+                # Courbes : tout vient des tableaux pré-calculés et de l'horloge de lecture, inutile de rejouer les trames
+                # (c'est ce qui faisait saccader le curseur quand il y a beaucoup de courbes).
+                self._skipped = True
+                self.idx = bisect.bisect_right(self.frame_times, limit)
+                n = bisect.bisect_right(self.track_full_t, limit)  # le tracé du circuit suit le curseur
+                have = len(self.track)
+                if have < 30000 and n != have:
+                    if n < have:
+                        self.track.clear()
+                        have = 0
+                    self.track.extend((p[1], p[2]) for p in self.track_full[have:n])
+            else:
+                if getattr(self, "_skipped", False):
+                    self._skipped = False
+                    self.resync()
+                    limit = self.start_frame + (time.monotonic() - self.start_wall) * 1000 * self.speed.get()
+                while self.idx < len(self.frames) and self.frames[self.idx][0] <= limit and (batch < 1200):
+                    self.ingest(*self.frames[self.idx])
+                    self.idx += 1
+                    batch += 1
             if self.idx >= len(self.frames):
+                if getattr(self, "_skipped", False):
+                    self.resync()
                 self.playing = False
                 self.set_state("Lecture terminée", CYAN)
         budget, started = 400, time.monotonic()

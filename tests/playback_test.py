@@ -40,7 +40,7 @@ def main(capture):
     app.pause()
     assert calls["cursor"] > 20, calls  # le curseur bouge à chaque image
     assert calls["draw"] <= 14, calls  # mais les courbes ne sont pas redessinées à chaque image
-    assert not app._scroll_on, "fichier entier affiché : le curseur avance, pas de défilement"
+    assert not app._scroll_on
     assert all(app.yr_cache.get(k) == v for k, v in axes0.items()), "échelle modifiée pendant la lecture"
     # clic dans la fenêtre : le curseur va à cet endroit
     g = app.geom
@@ -50,22 +50,19 @@ def main(capture):
     pump(0.3)
     want = g["start"] + g["span"] * 0.5
     assert abs(app.t_now - want) < max(400, want * 0.1), (app.t_now, want)
-    # zoom puis lecture : le curseur reste fixe, les courbes défilent
-    app.span_ms = min(30000, total / 4)
+    # zoom puis lecture : le curseur avance, la page tourne quand il sort de la vue
+    app.span_ms = min(5000, total / 8)
     app.view_end = app.span_ms * 1.0
     app.seek(0.0)
     pump(0.3)
     app.draw_chart()
-    starts = []
+    app.speed.set(8)
     app.play()
-    for _ in range(8):
-        pump(0.15)
-        starts.append(app.geom["start"])
-    assert app._scroll_on, "défilement attendu"
-    assert starts[-1] > starts[0], starts
+    pump(1.5)
+    assert app.cursor_ms() > app.span_ms and app.view_start() <= app.cursor_ms() <= app.view_start() + app.span_ms
     app.pause()
     pump(0.2)
-    assert app.view_end is not None
+    assert app.idx > 0 and app.t_now > 0, "valeurs resynchronisées à la pause"
     # latence du clic : le curseur est déplacé avant le saut
     t0 = time.time()
     app.chart_press(Event(x, 5))

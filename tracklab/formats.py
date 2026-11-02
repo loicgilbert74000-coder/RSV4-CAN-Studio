@@ -107,7 +107,7 @@ def detect(path):
     if hi is not None:
         cells = [c.lower() for c in _split(lines[hi], delim)]
         joined = " ".join(cells)
-        if "racebox" in low_all or "gforcex" in joined or "gforce" in joined:
+        if "racebox" in low_all or "gforcex" in joined or "gforce" in joined or "leanangle" in joined:
             return ("racebox", "RaceBox (CSV)")
         if "lap_number" in joined or "elapsed_time" in joined or "x_acc" in joined:
             return ("racechrono", "RaceChrono (CSV)")
@@ -188,7 +188,7 @@ def guess_speed_factor(t, lat, lon, speed):
 _ROLES = {
     "lat": ("latitude", "lat", "gps latitude", "latitude (deg)"),
     "lon": ("longitude", "lon", "long", "lng", "gps longitude", "longitude (deg)"),
-    "speed": ("speed", "gps speed", "vitesse", "velocity", "ground speed", "speed (gps)"),
+    "speed": ("kph", "speed", "gps speed", "vitesse", "velocity", "ground speed", "speed (gps)"),
     "head": ("bearing", "heading", "course", "cap", "heading (deg)"),
     "sats": ("satellites", "sats", "satellite count", "num sats", "numsats"),
     "fix": ("fix_type", "fix", "fix type", "gnss fix"),
@@ -196,9 +196,25 @@ _ROLES = {
 _TIME_NAMES = ("timestamp", "time", "time (s)", "gps time", "utc time", "datetime", "date/time", "elapsed_time", "elapsed time", "t")
 
 
+# unités des colonnes connues quand l'en-tête n'en donne pas (export « RaceBox Track Session » : Record,Time,Latitude,…)
+_KNOWN_UNITS = {
+    "kph": "km/h", "altitude": "m", "x": "g", "y": "g", "z": "g", "leanangle": "°", "lean angle": "°",
+    "gyrox": "°/s", "gyroy": "°/s", "gyroz": "°/s", "gforcex": "g", "gforcey": "g", "gforcez": "g",
+}
+
+
+def _bearing(la1, lo1, la2, lo2):
+    p1, p2, dl = math.radians(la1), math.radians(la2), math.radians(lo2 - lo1)
+    y = math.sin(dl) * math.cos(p2)
+    x = math.cos(p1) * math.sin(p2) - math.sin(p1) * math.cos(p2) * math.cos(dl)
+    return math.degrees(math.atan2(y, x)) % 360
+
+
 def _channel_type(name):
     """Type de signal (GPS, inertiel, capteur…) deviné d'après le nom de la colonne."""
     n = name.lower()
+    if n in ("x", "y", "z", "leanangle", "lean angle", "lean"):
+        return TYPE_IMU
     if any(k in n for k in ("accuracy", "update_rate", "update rate", "alt", "height", "elevation", "satell", "distance", "hdop", "pdop", "bearing", "heading", "course")):
         return TYPE_GPS
     if any(k in n for k in ("gyro", "pitch", "roll", "yaw")) or n.endswith("rate"):
@@ -216,6 +232,7 @@ def _table_to_loaded(kind, label, names, units, rows):
     if not cols or len(cols) != len(names):
         return None
     low = [re.sub(r"\s+", " ", n.lower()) for n in names]
+    units = [u or _KNOWN_UNITS.get(low[i], "") for i, u in enumerate(units)]
     # colonne de temps
     ti = next((i for n in _TIME_NAMES for i, c in enumerate(low) if c == n), None)
     if ti is None:
@@ -265,13 +282,26 @@ def _table_to_loaded(kind, label, names, units, rows):
     frames = []
     nan = float("nan")
     last_fix = 3
+    calc_head, ref = {}, None
+    if "head" not in roles:  # pas de cap dans le fichier : on le déduit du tracé (utile pour la carte)
+        cur_h = 0.0
+        for r in keep:
+            la, lo = lat[r], lon[r]
+            if la is None or lo is None:
+                continue
+            if ref is None:
+                ref = (la, lo)
+            elif _haversine_kmh(ref[0], ref[1], la, lo, 1.0) / 3.6 >= 1.5:  # au moins 1,5 m parcourus
+                cur_h = _bearing(ref[0], ref[1], la, lo)
+                ref = (la, lo)
+            calc_head[r] = cur_h
     for r in keep:
         ms = int(round((t[r] - t0) * 1000))
         la, lo = lat[r], lon[r]
         if la is not None and lo is not None and (la or lo) and abs(la) <= 90 and abs(lo) <= 180:
             frames.append((ms, ID_GPS_POS, struct.pack("<ii", int(round(la * 1e7)), int(round(lo * 1e7)))))
         sp = vals[roles["speed"]][r] if "speed" in roles else None
-        hd = vals[roles["head"]][r] if "head" in roles else None
+        hd = vals[roles["head"]][r] if "head" in roles else calc_head.get(r)
         sa = vals[roles["sats"]][r] if "sats" in roles else None
         fx = vals[roles["fix"]][r] if "fix" in roles else None
         if sp is not None or hd is not None:

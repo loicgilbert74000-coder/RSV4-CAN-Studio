@@ -193,7 +193,18 @@ class PlayerMixin:
         self.start_frame = self.frames[self.idx][0] if self.idx < len(self.frames) else 0
         self.set_state("Lecture en cours", GREEN)
 
+    def resync(self):
+        """Remet valeurs et tracé à l'instant de lecture (après une lecture sur les courbes qui n'a rien rejoué)."""
+        self._skipped = False
+        if self.frames and self.full_t:
+            total = self.frames[-1][0]
+            self.seek(min(1.0, max(0.0, self.cursor_ms() / total)) if total else 0.0)
+
     def pause(self):
+        if getattr(self, "_skipped", False) and self.playing:
+            self.resync()
+            self.playing = False
+            return
         was = self.playing
         self.playing = False
         if was and self.frames and (self.idx < len(self.frames)):
