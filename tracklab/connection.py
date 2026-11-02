@@ -85,14 +85,12 @@ class ConnectionMixin:
             lambda parent: ttk.Combobox(
                 parent,
                 textvariable=self.transport,
-                values=["USB-CAN (série)", "Wi-Fi ESP32"],
+                values=["Wi-Fi ESP32", "USB-CAN (série)"],
                 state="readonly",
                 width=15,
             ),
         )
         source.pack(fill="x", pady=2)
-        row("Mode CAN", readonly(["Silent (écoute)"])).pack(fill="x", pady=2)
-        row("Type de trame", readonly(["Standard 11 bits"])).pack(fill="x", pady=2)
         serial_rows = [
             row("Port COM", combo(self.port, [f"COM{i}" for i in range(1, 21)])),
             row("Vitesse série", combo(self.baud, ["2000000", "1000000", "500000", "250000"])),

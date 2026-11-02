@@ -2,6 +2,7 @@
 
 import bisect
 import math
+import time
 import tkinter as tk
 from tkinter import ttk
 
@@ -338,7 +339,7 @@ class GraphMixin:
         t0, tmax = self.scroll_range()
         if tmax - t0 <= span:
             return
-        cur = self.view_end if self.view_end is not None else self.t_now + span / 2
+        cur = self.view_start() + span
         if a[0] == "moveto":
             end = t0 + float(a[1]) * (tmax - t0) + span
         else:
@@ -362,13 +363,70 @@ class GraphMixin:
         n = int(round((hi - lo) / step))
         return (lo, hi, [round(lo + i * step, 10) for i in range(n + 1)])
 
+    def axis_key(self, key, mn, mx):
+        """Échelle d'un signal, stable : d'après l'étendue de tout le fichier ; en direct, d'après le maximum déjà vu
+        (elle ne peut que s'élargir, par paliers « ronds »), donc elle ne bouge pas à chaque image."""
+        if self.full_v and key in self.full_v and self.full_v[key]:
+            r = self.yr_cache.get(key)
+            if r is None:
+                v = self.full_v[key]
+                r = self.yr_cache[key] = (min(v), max(v))
+            mn, mx = r
+        else:
+            r = self.yr_live.get(key)
+            if r:
+                mn, mx = min(mn, r[0]), max(mx, r[1])
+            self.yr_live[key] = (mn, mx)
+        return self.axis_for(mn, mx)
+
     def tlabel(self, sec, step):
         """Temps au format mm:ss:ms (minutes, secondes, millisecondes)."""
         sg = "-" if sec < -1e-9 else ""
         total = int(round(abs(sec) * 1000))
         return f"{sg}{total // 60000:02d}:{total // 1000 % 60:02d}:{total % 1000:03d}"
 
+    def view_start(self):
+        """Début de la fenêtre affichée : vue libre, ou page de `span` ms qui contient le curseur (la 1re page commence à 0)."""
+        if self.view_end is not None:
+            return self.view_end - self.span_ms
+        return math.floor(max(0.0, self.t_now) / self.span_ms) * self.span_ms
+
+    def chart_sig(self):
+        c = self.chart
+        tick = 0
+        if self.live:
+            tick = int(time.monotonic() * 6)  # en direct : les courbes grandissent, redessin ~6 fois par seconde
+        elif self.playing:
+            tick = int(time.monotonic() * 4)  # en lecture : seules les valeurs « actuel » changent
+        return (
+            round(self.view_start(), 3), round(self.span_ms, 3), c.winfo_width(), c.winfo_height(),
+            tuple(sorted(self.sel)), self.stack.get(), tuple(sorted(self.band_h.items())), self.ref_key,
+            id(self.full_t), len(self.dyn), tick,
+        )
+
     def draw_chart(self):
+        """Redessine les courbes puis replace le curseur."""
+        self._draw_chart_body()
+        self._chart_sig = self.chart_sig()
+        self.move_cursor()
+
+    def move_cursor(self):
+        """Curseur de lecture : seul élément qui bouge pendant la lecture (déplacé sans tout redessiner)."""
+        g = self.geom
+        if not g:
+            return
+        c, ta = self.chart, self.taxis
+        c.delete("cur")
+        ta.delete("cur")
+        self._cur_shown = self.t_now
+        t = self.t_now
+        if g["start"] <= t <= g["start"] + g["span"]:
+            x = g["L"] + g["pw"] * (t - g["start"]) / g["span"]
+            for y0, y1 in self.cur_spans:
+                c.create_line(x, y0, x, y1, fill=GREEN, dash=(4, 3), tags="cur")
+            ta.create_line(x, 0, x, 8, fill=GREEN, width=2, tags="cur")
+
+    def _draw_chart_body(self):
         c = self.chart
         ta = self.taxis
         c.delete("all")
@@ -382,9 +440,9 @@ class GraphMixin:
             return
         span = self.span_ms
         tmax = self.t_now
-        half = span / 2
-        end = self.view_end if self.view_end is not None else tmax + half
-        start = end - span
+        start = self.view_start()
+        end = start + span
+        self.cur_spans = []
         sel = [k for k in self.curve_keys() if k in self.sel]
         L, R, T = (70, 250, 22)
         pw = w - L - R
@@ -410,13 +468,10 @@ class GraphMixin:
             xs.append(x)
             ta.create_line(x, 0, x, 5, fill=SUB)
             ta.create_text(x, 7, text=self.tlabel(sec, tstep), fill=SUB, font=(FONT, 8), anchor="n")
-        if start <= tmax <= end:
-            xn = L + pw * (tmax - start) / span
-            ta.create_line(xn, 0, xn, 8, fill=GREEN, width=2)
         ta.create_text(
-            L + pw + 16,
+            L + pw + 48,
             7,
-            text="◂ historique" if self.view_end is not None else "en direct",
+            text="◂ vue libre" if self.view_end is not None else ("en direct" if self.live else "suivi"),
             fill=YELLOW if self.view_end is not None else GREEN,
             font=(FONT, 8, "bold"),
             anchor="nw",
@@ -469,12 +524,10 @@ class GraphMixin:
                 i = bisect.bisect_right(self.full_t[key], tmax)
                 return self.full_v[key][max(0, i - 1)]
             return pts[-1][1]
-        xnow = L + pw * (tmax - start) / span
         def vgrid(y0, y1):
             for x in xs:
                 c.create_line(x, y0, x, y1, fill=BORDER, dash=(2, 5))
-            if start <= tmax <= end:
-                c.create_line(xnow, y0, xnow, y1, fill=GREEN, dash=(4, 3))
+            self.cur_spans.append((y0, y1))
 
         if not sel:
             c.configure(scrollregion=(0, 0, w, h))
@@ -504,7 +557,7 @@ class GraphMixin:
             rcol = self.color_of(ref)
             c.create_rectangle(L, T, L + pw, T + ph, outline=BORDER)
             if ref in data:
-                lo, hi, tks = self.axis_for(data[ref][1], data[ref][2])
+                lo, hi, tks = self.axis_key(ref, data[ref][1], data[ref][2])
                 for v in tks:
                     y = T + ph * (1 - (v - lo) / (hi - lo))
                     c.create_line(L, y, L + pw, y, fill=BORDER)
@@ -521,7 +574,7 @@ class GraphMixin:
                 if key not in data:
                     continue
                 pts, mn, mx, _ = data[key]
-                lo, hi, _t = self.axis_for(mn, mx)
+                lo, hi, _t = self.axis_key(key, mn, mx)
                 poly(
                     pts,
                     lambda v, lo=lo, hi=hi: T + ph * (1 - (v - lo) / (hi - lo)),
@@ -600,7 +653,7 @@ class GraphMixin:
                 vals = [v for _, v in pts]
                 mn = min(vals)
                 mx = max(vals)
-                lo, hi, tks = self.axis_for(mn, mx)
+                lo, hi, tks = self.axis_key(key, mn, mx)
                 top = y0 + 6
                 bot = y1 - 6
                 ym = lambda v, lo=lo, hi=hi, top=top, bot=bot: bot - (bot - top) * (v - lo) / (hi - lo)
@@ -655,12 +708,19 @@ class GraphMixin:
                 c.create_rectangle(x0, 0, x1, h, fill=CYAN, outline=CYAN, stipple="gray25", tags="zsel")
 
     def paint_chart(self):
+        """Boucle d'affichage (30 images/s) : redessine seulement si la vue a changé, sinon déplace juste le curseur."""
         try:
             if self.current_page == "graph":
-                self.signal_list.set_groups(self.signal_groups(), self.sel)
-                self.draw_chart()
+                now = time.monotonic()
+                if now - self._sl_t > 0.5:
+                    self._sl_t = now
+                    self.signal_list.set_groups(self.signal_groups(), self.sel)
+                if self.chart_sig() != self._chart_sig:
+                    self.draw_chart()
+                elif self.t_now != self._cur_shown:
+                    self.move_cursor()
         finally:
-            self.root.after(180, self.paint_chart)
+            self.root.after(33, self.paint_chart)
 
     # ---- souris sur le graphique : séparateurs, légende, croix, sélection d'une zone
     def grip_at(self, e):
@@ -733,6 +793,13 @@ class GraphMixin:
             if b - a >= 6 and self.geom:  # zone assez large : on zoome dessus
                 ta, tb = self.time_at(a), self.time_at(b)
                 self.set_view(ta, tb - ta)
+            elif self.geom and self.frames and not self.live:  # simple clic : le curseur de lecture va à cet endroit
+                total = self.frames[-1][0]
+                t = max(0.0, min(float(total), self.time_at((a + b) / 2)))
+                keep = self.view_end
+                self.seek(t / total if total else 0.0)
+                self.view_end = keep  # la vue ne saute pas
+                self.draw_chart()
             return
         self.drag = None
         self.draw_chart()

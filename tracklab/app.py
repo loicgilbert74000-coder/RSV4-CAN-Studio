@@ -46,7 +46,7 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
         self.status = tk.StringVar(value="Prêt · ouvrez une capture")
         self.file_name = tk.StringVar(value="Aucun fichier")
         self.clock = tk.StringVar(value="00:00 / 00:00")
-        self.transport = tk.StringVar(value="USB-CAN (série)")
+        self.transport = tk.StringVar(value="Wi-Fi ESP32")
         self.port = tk.StringVar(value="COM7")
         self.baud = tk.StringVar(value="2000000")
         self.host = tk.StringVar(value="192.168.4.1")
@@ -54,7 +54,13 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
         self.experimental = tk.BooleanVar(value=True)
         self.filter_on = tk.BooleanVar(value=True)
         self.table_paused = False  # affichage des trames figé (la réception continue en arrière-plan)
-        self.span_ms = 60000.0  # durée de la fenêtre des courbes (ms)
+        self.span_ms = 30000.0  # durée de la fenêtre des courbes (ms) : 30 s par défaut
+        self.yr_cache = {}  # échelles des courbes (fichier ouvert)
+        self.yr_live = {}  # échelles des courbes (en direct : ne font que s'élargir)
+        self._chart_sig = None
+        self._cur_shown = None
+        self._sl_t = 0.0
+        self.cur_spans = []
         self.stack = tk.BooleanVar(value=False)
         self.sel = set(DEFAULT_CURVES)
         self.dyn = {}  # voies d'un fichier RaceBox / RaceChrono… {identifiant: [(nom, unité, type), …]}
@@ -138,7 +144,7 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
         self.set_conn_ui(False, "Déconnecté")
         self.set_state("Prêt · ouvrez une capture", MUTED)
         self.root.after(40, self.tick)
-        self.root.after(180, self.paint_chart)
+        self.root.after(33, self.paint_chart)
         self.root.after(400, self.paint_map)
 
     # ---------- modèle ----------

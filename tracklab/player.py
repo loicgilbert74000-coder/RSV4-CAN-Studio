@@ -50,6 +50,7 @@ class PlayerMixin:
         self.flash_until.clear()
         self.track.clear()
         self.view_end = None
+        self.yr_live = {}
         self.pan = None
         self.zsel = None
         self.clear_table()
@@ -76,6 +77,8 @@ class PlayerMixin:
         self.full_t = {}
         self.full_v = {}
         self.dyn = dict(res.dyn)
+        self.span_ms = 30000.0  # fenêtre par défaut : 30 s, à partir de 0
+        self.yr_cache = {}
         self.clear_data()
         self.file_name.set(f"{os.path.basename(path)}  ·  {res.label}")
         if not frames:
@@ -86,10 +89,7 @@ class PlayerMixin:
             self.set_state(f"{res.label} · {len(frames):,} trames{info}".replace(",", " "), SUB)
             self.prebuild()
             self.choose_curves()
-            self.fit_all()
             if res.dyn:
-                self.seek(1.0)  # on montre tout de suite le fichier en entier
-                self.fit_all()
                 self.show_page("graph")
 
     # mots qui désignent en général une grandeur intéressante à regarder en premier
@@ -186,6 +186,7 @@ class PlayerMixin:
         """Décode toute la capture une fois pour toutes : les courbes montrent alors la fenêtre entière autour de l'instant courant."""
         self.full_t = {}
         self.full_v = {}
+        self.yr_cache = {}
         if not self.frames:
             return
         keep = keep or self.idx
