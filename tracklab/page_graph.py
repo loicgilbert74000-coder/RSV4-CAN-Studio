@@ -149,6 +149,10 @@ class GraphMixin:
         ent = self.dyn_entry(key)
         return disp_unit(ent[1]) if ent else disp_unit(UNIT_OF.get(key, ""))
 
+    def legend_label(self, key):
+        """Nom court pour la légende de droite (sans l'identifiant CAN, qui reste dans la liste de gauche)."""
+        return fr(key[1])
+
     def label_of(self, key):
         cid, name = key
         if self.dyn_entry(key) or cid in (2032, 2040, 2041, 2042):
@@ -363,6 +367,33 @@ class GraphMixin:
         n = int(round((hi - lo) / step))
         return (lo, hi, [round(lo + i * step, 10) for i in range(n + 1)])
 
+    @staticmethod
+    def smooth_curve(pts, pw):
+        """Léger lissage d'une courbe continue (moyenne pondérée sur 5 points, puis tracé arrondi) pour supprimer les
+        à-coups ; les signaux « en marches » (rapport, interrupteurs…) restent tels quels. Renvoie (points, arrondi)."""
+        n = len(pts)
+        if n < 6:
+            return pts, False
+        stride = max(1, n // max(60, int(pw * 0.8)))
+        if stride > 1:
+            pts = pts[::stride]
+            n = len(pts)
+        sample = pts[:: max(1, n // 200)]
+        if len({round(v, 6) for _t, v in sample}) <= 12:
+            return pts, False
+        vals = [v for _t, v in pts]
+        w = (1, 2, 3, 2, 1)
+        out = []
+        for i in range(n):
+            tot = acc = 0.0
+            for j, wj in enumerate(w):
+                k = i + j - 2
+                if 0 <= k < n:
+                    acc += wj * vals[k]
+                    tot += wj
+            out.append((pts[i][0], acc / tot))
+        return out, n <= 700
+
     def axis_key(self, key, mn, mx):
         """Échelle d'un signal, stable : d'après l'étendue de tout le fichier ; en direct, d'après le maximum déjà vu
         (elle ne peut que s'élargir, par paliers « ronds »), donc elle ne bouge pas à chaque image."""
@@ -433,8 +464,8 @@ class GraphMixin:
         if g["start"] <= t <= g["start"] + g["span"]:
             x = g["L"] + g["pw"] * (t - g["start"]) / g["span"]
             for y0, y1 in self.cur_spans:
-                c.create_line(x, y0, x, y1, fill=GREEN, dash=(4, 3), tags="cur")
-            ta.create_line(x, 0, x, 8, fill=GREEN, width=2, tags="cur")
+                c.create_line(x, y0, x, y1, fill=YELLOW, width=2, tags="cur")
+            ta.create_line(x, 0, x, 8, fill=YELLOW, width=3, tags="cur")
 
     def _draw_chart_body(self):
         c = self.chart
@@ -454,7 +485,7 @@ class GraphMixin:
         end = start + span
         self.cur_spans = []
         sel = [k for k in self.curve_keys() if k in self.sel]
-        L, R, T = (70, 250, 22)
+        L, R, T = (70, 212, 22)
         pw = w - L - R
         self.geom = {"L": L, "pw": pw, "start": start, "span": span}
         shown = f"{round(span / 1000, 2):g} s"
@@ -523,11 +554,12 @@ class GraphMixin:
             st = len(pts) // (2 * max(pw, 1)) + 1
             return pts[::st] if st > 1 else pts
         def poly(pts, ymap, color):
+            pts, soft = self.smooth_curve(pts, pw)
             co = []
             for tt, v in pts:
                 co.extend((L + pw * (tt - start) / span, ymap(v)))
             if len(co) >= 4:
-                c.create_line(*co, fill=color, width=2)
+                c.create_line(*co, fill=color, width=2, smooth=soft, splinesteps=3)
         unit_of = self.unit_of
         def cur_of(key, pts):
             if self.full_t and self.full_t.get(key):
@@ -590,49 +622,34 @@ class GraphMixin:
                     lambda v, lo=lo, hi=hi: T + ph * (1 - (v - lo) / (hi - lo)),
                     self.color_of(key),
                 )
-            lx = L + pw + 16
-            c.create_text(
-                lx, T, text="Signal · min · max · actuel", anchor="nw", fill=SUB, font=(FONT, 8, "bold")
-            )
-            for i, key in enumerate(sel):
+            lx = L + pw + 14
+            c.create_text(lx, T, text="Signal · min · max · actuel", anchor="nw", fill=SUB, font=(FONT, 8, "bold"))
+            wrap = max(60, w - lx - 34)
+            y0 = T + 22
+            for key in sel:
                 color = self.color_of(key)
-                y0 = T + 22 + i * 48
-                if key == ref:
-                    c.create_rectangle(lx - 6, y0 - 4, w - 6, y0 + 42, outline=color)
-                self.legend_hits.append((lx - 6, y0 - 4, w - 6, y0 + 42, key))
-                self.draw_close(w - 18, y0 + 4, key)
-                c.create_line(lx, y0 + 7, lx + 18, y0 + 7, fill=color, width=3)
-                c.create_text(
-                    lx + 26,
-                    y0,
-                    text=self.label_of(key),
-                    anchor="nw",
-                    fill=TEXT,
-                    font=(FONT, 8, "bold"),
-                    width=max(60, w - lx - 56),
+                c.create_line(lx, y0 + 7, lx + 14, y0 + 7, fill=color, width=3)
+                item = c.create_text(
+                    lx + 20, y0, text=self.legend_label(key), anchor="nw", fill=TEXT, font=(FONT, 8, "bold"), width=wrap
                 )
+                ly = c.bbox(item)[3] + 1
                 if key in data:
                     _p, mn, mx, cur = data[key]
-                    c.create_text(
-                        lx + 26,
-                        y0 + 14,
-                        text=f"{fmt_val(mn)} … {fmt_val(mx)} {unit_of(key)}",
-                        anchor="nw",
-                        fill=SUB,
-                        font=(FONT, 8),
-                    )
-                    c.create_text(
-                        lx + 26,
-                        y0 + 27,
-                        text=f"actuel {fmt_val(cur)}" + ("   ◂ axe de gauche" if key == ref else ""),
-                        anchor="nw",
-                        fill=color if key == ref else TEXT,
-                        font=(FONT, 8, "bold"),
-                    )
+                    c.create_text(lx + 20, ly, text=f"{fmt_val(mn)} … {fmt_val(mx)} {unit_of(key)}",
+                                  anchor="nw", fill=SUB, font=(FONT, 8))
+                    c.create_text(lx + 20, ly + 13, text=f"actuel {fmt_val(cur)}" + ("  ◂ axe" if key == ref else ""),
+                                  anchor="nw", fill=color if key == ref else TEXT, font=(FONT, 8, "bold"))
+                    bottom = ly + 28
                 else:
-                    c.create_text(
-                        lx + 26, y0 + 14, text="pas de donnée", anchor="nw", fill=MUTED, font=(FONT, 8)
-                    )
+                    c.create_text(lx + 20, ly, text="pas de donnée", anchor="nw", fill=MUTED, font=(FONT, 8))
+                    bottom = ly + 15
+                if key == ref:
+                    c.create_rectangle(lx - 6, y0 - 4, w - 6, bottom + 2, outline=color)
+                self.legend_hits.append((lx - 6, y0 - 4, w - 6, bottom + 2, key))
+                self.draw_close(w - 18, y0 + 4, key)
+                y0 = bottom + 10
+            total = max(total, int(y0 + 10))
+            c.configure(scrollregion=(0, 0, w, total))
             self.draw_zsel()
             return
 
@@ -650,12 +667,13 @@ class GraphMixin:
             color = self.color_of(key)
             c.create_rectangle(L, y0, L + pw, y1, outline=BORDER, fill=BG)
             vgrid(y0, y1)
-            lx = L + pw + 16
+            lx = L + pw + 14
             self.draw_close(w - 18, y0 + 4, key)
-            c.create_text(
-                lx, y0 + 2, text=self.label_of(key), anchor="nw", fill=color, font=(FONT, 9, "bold"),
-                width=max(60, w - lx - 30),
+            lab = c.create_text(
+                lx, y0 + 2, text=self.legend_label(key), anchor="nw", fill=color, font=(FONT, 9, "bold"),
+                width=max(60, w - lx - 34),
             )
+            ly = c.bbox(lab)[3] + 1
             pts = window_pts(key)
             if len(pts) < 2:
                 c.create_text(L + pw / 2, (y0 + y1) / 2, text="pas de donnée", fill=MUTED, font=(FONT, 8))
@@ -674,7 +692,7 @@ class GraphMixin:
                 poly(pts, ym, color)
                 c.create_text(
                     lx,
-                    y0 + 17,
+                    ly,
                     text=f"{fmt_val(mn)} … {fmt_val(mx)} {unit_of(key)}",
                     anchor="nw",
                     fill=SUB,
@@ -682,7 +700,7 @@ class GraphMixin:
                 )
                 c.create_text(
                     lx,
-                    y0 + 30,
+                    ly + 13,
                     text=f"actuel {fmt_val(cur_of(key, pts))}",
                     anchor="nw",
                     fill=TEXT,

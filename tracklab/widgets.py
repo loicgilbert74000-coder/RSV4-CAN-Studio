@@ -1,10 +1,19 @@
 """Widgets dessinés sur Canvas : jauges, barres, boîte de vitesses, icônes, barre de lecture."""
 
 import math
+import time
 import tkinter as tk
 from tkinter import ttk
 
 from .theme import BG, BORDER, CARD, CARD2, FONT, MUTED, RED, SUB, TEXT
+
+
+def ease_toward(cur, target, dt, tau=0.09):
+    """Rapproche `cur` de `target` de façon exponentielle (lissage des valeurs affichées) ; renvoie la nouvelle valeur."""
+    if cur is None or target is None:
+        return target
+    nv = cur + (target - cur) * (1 - math.exp(-dt / tau))
+    return target if abs(target - nv) <= max(1e-6, abs(target) * 2e-4) else nv
 
 
 def make_dot(parent, color, bg, size=10):
@@ -26,12 +35,16 @@ class Gauge(tk.Canvas):
         self.unit = unit
         self.ticks = ticks
         self.color_fn = color_fn
-        self.value = None
+        self.value = None  # valeur affichée (lissée)
+        self.target = None  # valeur réelle
+        self._t = time.monotonic()
         self.dirty = True
         self.bind("<Configure>", lambda e: self.render())
 
     def set(self, value):
-        self.value = value
+        self.target = value
+        if value is None or self.value is None:
+            self.value = value
         self.dirty = True
 
     def set_scale(self, maximum, ticks):
@@ -40,6 +53,11 @@ class Gauge(tk.Canvas):
         self.dirty = True
 
     def flush(self):
+        now = time.monotonic()
+        dt, self._t = min(0.2, now - self._t), now
+        if self.value != self.target:
+            self.value = ease_toward(self.value, self.target, dt)
+            self.dirty = True
         if self.dirty:
             self.dirty = False
             self.render()
@@ -108,15 +126,24 @@ class Bar(tk.Canvas):
         self.color = color
         self.lo = lo
         self.hi = hi
-        self.frac = None
+        self.frac = None  # position affichée (lissée)
+        self.target = None
+        self._t = time.monotonic()
         self.dirty = True
         self.bind("<Configure>", lambda e: self.render())
 
     def set(self, value):
-        self.frac = None if value is None else max(0, min(1, (float(value) - self.lo) / (self.hi - self.lo)))
+        self.target = None if value is None else max(0, min(1, (float(value) - self.lo) / (self.hi - self.lo)))
+        if self.target is None or self.frac is None:
+            self.frac = self.target
         self.dirty = True
 
     def flush(self):
+        now = time.monotonic()
+        dt, self._t = min(0.2, now - self._t), now
+        if self.frac != self.target:
+            self.frac = ease_toward(self.frac, self.target, dt)
+            self.dirty = True
         if self.dirty:
             self.dirty = False
             self.render()
@@ -347,8 +374,14 @@ class TileBoard(ScrollCanvas):
 
     def update_tile(self, key, text, source, source_color):
         _, _, value, _, src = self.items[key]
-        self.canvas.itemconfig(value, text=text)
+        if text is not None:
+            self.canvas.itemconfig(value, text=text)
         self.canvas.itemconfig(src, text=source, fill=source_color)
+
+    def set_text(self, key, text):
+        item = self.items[key][2]
+        if self.canvas.itemcget(item, "text") != text:
+            self.canvas.itemconfig(item, text=text)
 
     def set_value_color(self, key, color):
         self.canvas.itemconfig(self.items[key][2], fill=color)

@@ -48,6 +48,8 @@ class PlayerMixin:
         self.hist.clear()
         self.dirty.clear()
         self.flash_until.clear()
+        self.card_state.clear()
+        self.tile_state.clear()
         self.track.clear()
         self.view_end = None
         self.yr_live = {}

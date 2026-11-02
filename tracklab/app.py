@@ -54,6 +54,10 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
         self.experimental = tk.BooleanVar(value=True)
         self.filter_on = tk.BooleanVar(value=True)
         self._table_stale = False
+        self.card_state = {}  # cartes de la télémétrie : [valeur affichée, valeur reçue, décimales]
+        self.tile_state = {}  # tuiles analogiques : idem
+        self._anim_t = time.monotonic()
+        self._anim_n = 0
         self.full_src = {}
         self.track_full, self.track_full_t = [], []
         self.table_paused = False  # affichage des trames figé (la réception continue en arrière-plan)
@@ -148,6 +152,7 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
         self.set_state("Prêt · ouvrez une capture", MUTED)
         self.root.after(40, self.tick)
         self.root.after(16, self.paint_chart)
+        self.root.after(16, self.anim_tele)
         self.root.after(400, self.paint_map)
 
     # ---------- modèle ----------
@@ -312,7 +317,7 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
     # ---------- structure ----------
     def build_footer(self):
         foot = tk.Frame(self.root, bg=SIDE, highlightbackground=BORDER, highlightthickness=1)
-        foot.pack(side="bottom", fill="x")
+        foot.pack(side="bottom", fill="x", padx=18, pady=(0, 8))
         self.fl["dot"] = make_dot(foot, MUTED, SIDE, 10)
         self.fl["dot"].pack(side="left", padx=(16, 8), pady=10)
         tk.Label(foot, textvariable=self.status, fg=SUB, bg=SIDE, font=(FONT, 9, "bold")).pack(side="left")
@@ -366,12 +371,12 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
     def build_playbar(self, main):
         """Platine façon lecteur CD : touches, afficheur LCD avec bargraph, puis enregistrement et connexion."""
         bar = tk.Frame(main, bg=CARD, highlightbackground=BORDER, highlightthickness=1)
-        bar.pack(fill="x", padx=18, pady=(4, 8))
+        bar.pack(fill="x", padx=18, pady=(4, 6))
         inner = tk.Frame(bar, bg=CARD)
-        inner.pack(fill="x", padx=10, pady=5)
+        inner.pack(fill="x", padx=8, pady=3)
 
         def sep():
-            tk.Frame(inner, bg=BORDER, width=1, height=36).pack(side="left", padx=8)
+            tk.Frame(inner, bg=BORDER, width=1, height=28).pack(side="left", padx=6)
 
         self.key_open = DeckButton(inner, "eject", "OUVRIR", self.open_file, color=CYAN)
         self.key_open.pack(side="left", padx=2)
@@ -390,9 +395,9 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
         self.rec_btn.pack(side="left", padx=2)
         sep()
         # connexion à droite (réservée avant l'afficheur, qui prend toute la place restante)
-        self.conn_btn = DeckButton(inner, "plug", "CONNEXION", self.on_conn_button, color=GREEN, width=78)
+        self.conn_btn = DeckButton(inner, "plug", "CONNEXION", self.on_conn_button, color=GREEN, width=72)
         self.conn_btn.pack(side="right", padx=2)
-        tk.Frame(inner, bg=BORDER, width=1, height=36).pack(side="right", padx=8)
+        tk.Frame(inner, bg=BORDER, width=1, height=28).pack(side="right", padx=6)
         self.lcd = DeckLcd(inner, on_seek=self.seek)
         self.lcd.pack(side="left", fill="x", expand=True, padx=2)
 
@@ -479,9 +484,9 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
     def build_header(self, parent):
         """Barre du haut : logo, choix de la moto, pages, état de la connexion, paramètres."""
         bar = tk.Frame(parent, bg=SIDE, highlightbackground=BORDER, highlightthickness=1)
-        bar.pack(fill="x")
+        bar.pack(fill="x", padx=18, pady=(10, 4))  # même marge que tous les autres panneaux
         inner = tk.Frame(bar, bg=SIDE)
-        inner.pack(fill="x", padx=18, pady=6)
+        inner.pack(fill="x", padx=14, pady=5)
 
         logo = tk.Frame(inner, bg=SIDE)
         logo.pack(side="left")
@@ -660,6 +665,21 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
             self._footer_shown[key] = text
             self.fl[key].config(text=text)
 
+    def anim_tele(self):
+        """Animation de la page Télémétrie (60 images/s) : jauges, barres et nombres rejoignent leur valeur en douceur."""
+        try:
+            now = time.monotonic()
+            dt, self._anim_t = min(0.1, now - self._anim_t), now
+            if self.current_page == "tele":
+                self._anim_n += 1
+                self.smooth_cards(dt)
+                self.smooth_tiles(dt)
+                if self._anim_n % 2 == 0:  # jauges : 30 images/s suffisent (dessin plus lourd)
+                    for widget in self.flushables:
+                        widget.flush()
+        finally:
+            self.root.after(16, self.anim_tele)
+
     def tick(self):
         """Boucle principale (25 fois par seconde) : lecture, réception, mise à jour de ce qui est visible."""
         if self.playing and self.frames:
@@ -687,10 +707,8 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
             else:
                 budget -= 1
                 self.ingest(int(time.monotonic() * 1000), cid, data)
-        if self.current_page == "tele":  # les jauges et tuiles cachées se mettent à jour au retour sur la page
+        if self.current_page == "tele":  # les tuiles cachées se mettent à jour au retour sur la page
             self.refresh_tiles()
-            for widget in self.flushables:
-                widget.flush()
         self.update_status()
         self.root.after(40, self.tick)
 

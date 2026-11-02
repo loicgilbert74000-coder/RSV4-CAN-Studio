@@ -5,7 +5,7 @@ import tkinter as tk
 
 from .theme import BORDER, CARD, CARD2, CYAN, FONT, GREEN, HOVER, MUTED, RED, SUB, TEXT, YELLOW
 
-KEY_W, KEY_H = 62, 46
+KEY_W, KEY_H = 54, 38
 LCD_BG = "#04101a"
 LCD_DIM = "#0d2a3a"
 LCD_EDGE = "#1d3d52"
@@ -82,14 +82,22 @@ class DeckButton(tk.Canvas):
             col = "#c2282f"  # le point d'enregistrement reste rouge, comme sur une vraie platine
         else:
             col = self.color if self.lit else SUB
-        cx, cy = w / 2, 17 + off
+        cx, cy = w / 2, 13 + off
         self.icon(self.kind, cx, cy, col)
         self.create_text(
-            w / 2, h - 9 + off, text=self.caption, fill=col if self.lit else (MUTED if self.enabled else "#34435c"),
-            font=(FONT, 7, "bold"),
+            w / 2, h - 7 + off, text=self.caption, fill=col if self.lit else (MUTED if self.enabled else "#34435c"),
+            font=(FONT, 6, "bold"),
         )
 
     def icon(self, kind, cx, cy, col):
+        before = set(self.find_all())
+        self._ic(kind, cx, cy, col)
+        for item in set(self.find_all()) - before:  # pictogramme réduit (touches plus petites)
+            self.addtag_withtag("icon", item)
+        self.scale("icon", cx, cy, 0.78, 0.78)
+        self.dtag("icon")
+
+    def _ic(self, kind, cx, cy, col):
         c = self.create_polygon
         if kind == "play":
             c(cx - 6, cy - 9, cx - 6, cy + 9, cx + 9, cy, fill=col, outline="")
@@ -124,10 +132,10 @@ class DeckButton(tk.Canvas):
 class DeckLcd(tk.Canvas):
     """Afficheur : mode, vue, temps, nom du fichier, et bargraph de lecture sur lequel on clique pour se déplacer."""
 
-    BAR_Y0, BAR_Y1 = 47, 55
+    BAR_Y0, BAR_Y1 = 37, 43
     SEG, GAP = 5, 2
 
-    def __init__(self, parent, on_seek, height=62):
+    def __init__(self, parent, on_seek, height=48):
         super().__init__(parent, height=height, bg=CARD, highlightthickness=0)
         self.on_seek = on_seek
         self.s = dict(mode="idle", mode_text="PRÊT", mode_color=MUTED, view="", source="", cur=0, total=0,
@@ -183,26 +191,26 @@ class DeckLcd(tk.Canvas):
         frac = self.drag_frac if self.dragging else s["frac"]
         cur = frac * s["total"] if self.dragging else s["cur"]
         # ligne du haut : mode à gauche, vue et source à droite
-        self.create_text(12, 12, text=s["mode_text"], anchor="w", fill=s["mode_color"], font=(MONO, 9, "bold"))
+        self.create_text(12, 9, text=s["mode_text"], anchor="w", fill=s["mode_color"], font=(MONO, 8, "bold"))
         if s["rec"]:
             col = RED if getattr(self, "_blink", False) else "#5a1216"
-            self.create_oval(w - 20, 7, w - 11, 16, fill=col, outline="")
-            self.create_text(w - 25, 12, text="REC", anchor="e", fill=col, font=(MONO, 9, "bold"))
+            self.create_oval(w - 20, 4, w - 12, 12, fill=col, outline="")
+            self.create_text(w - 25, 9, text="REC", anchor="e", fill=col, font=(MONO, 8, "bold"))
             right = w - 62
         else:
             right = w - 12
         tag = "  ·  ".join(t for t in (s["source"], s["view"]) if t)
-        self.create_text(right, 12, text=tag, anchor="e", fill="#3f8aa8", font=(MONO, 8, "bold"))
+        self.create_text(right, 9, text=tag, anchor="e", fill="#3f8aa8", font=(MONO, 7, "bold"))
         # temps
-        self.create_text(12, 31, text=fmt_lcd(cur), anchor="w", fill=CYAN, font=(MONO, 17, "bold"))
+        self.create_text(12, 24, text=fmt_lcd(cur), anchor="w", fill=CYAN, font=(MONO, 14, "bold"))
         if s["total"]:
-            self.create_text(116, 34, text="/ " + fmt_lcd(s["total"]), anchor="w", fill="#2b7a99", font=(MONO, 9, "bold"))
+            self.create_text(96, 26, text="/ " + fmt_lcd(s["total"]), anchor="w", fill="#2b7a99", font=(MONO, 8, "bold"))
         # nom et informations
-        maxc = max(10, int((w - 250) / 7))
+        maxc = max(10, int((w - 210) / 6.5))
         name = s["name"] if len(s["name"]) <= maxc else s["name"][: maxc - 1] + "…"
         info = s["info"] if len(s["info"]) <= maxc else s["info"][: maxc - 1] + "…"
-        self.create_text(216, 26, text=name, anchor="w", fill=TEXT, font=(MONO, 10, "bold"))
-        self.create_text(216, 39, text=info, anchor="w", fill="#3f8aa8", font=(MONO, 8))
+        self.create_text(186, 20, text=name, anchor="w", fill=TEXT, font=(MONO, 9, "bold"))
+        self.create_text(186, 31, text=info, anchor="w", fill="#3f8aa8", font=(MONO, 7))
         # bargraph : segments allumés jusqu'à la position
         x0, x1 = 12, w - 12
         n = max(10, int((x1 - x0) / (self.SEG + self.GAP)))

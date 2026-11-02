@@ -7,7 +7,7 @@ from .config import GROUP_OF, GROUP_ORDER, TILE_DEFS
 from .names import fr
 from .theme import BG, CARD, CYAN, FONT, GREEN, LIME, MUTED, ORANGE, PINK, RED, SUB, TEXT, YELLOW
 from .util import disp_unit, fmt_val
-from .widgets import Bar, Gauge, GearBox, TileBoard, make_dot, set_dot
+from .widgets import Bar, Gauge, GearBox, TileBoard, ease_toward, make_dot, set_dot
 
 
 class TelemetryMixin:
@@ -31,6 +31,7 @@ class TelemetryMixin:
                 ((cid, name), fr(name), disp_unit(unit))
             )
         ordered = [(g, groups[g]) for g in dict.fromkeys(GROUP_ORDER + list(groups)) if g in groups]
+        self.tile_unit = {k: u for tiles in groups.values() for k, _l, u in tiles}
         self.board = TileBoard(parent, ordered)
         self.board.pack(fill="both", expand=True, pady=(2, 0))
 
@@ -39,7 +40,16 @@ class TelemetryMixin:
         label, color = {
             "def": ("définition", MUTED), "valid": ("validé", GREEN), "esp": ("ESP32", CYAN)
         }.get(src, ("app · à valider", YELLOW))
-        self.board.update_tile(key, fmt_val(val), f"0x{key[0]:03X} · {label}", color)
+        analog = isinstance(val, (int, float)) and self.tile_unit.get(key, "") not in ("", "gear")
+        st = self.tile_state.get(key)
+        decimals = 0 if float(val).is_integer() else 2
+        if analog and st is not None:
+            st[1], st[2] = float(val), decimals
+            self.board.update_tile(key, None, f"0x{key[0]:03X} · {label}", color)  # le nombre est animé par smooth_tiles
+        else:
+            if analog:
+                self.tile_state[key] = [float(val), float(val), decimals]
+            self.board.update_tile(key, fmt_val(val), f"0x{key[0]:03X} · {label}", color)
         self.board.set_value_color(key, CYAN)
         self.flash_until[key] = time.monotonic() + 0.3
 
@@ -81,12 +91,36 @@ class TelemetryMixin:
         return f
 
     def show(self, key, num, text=None):
+        """Valeur d'une carte : la barre et le nombre rejoignent la valeur reçue en douceur (voir smooth_cards)."""
         val, bar = self.cards[key]
         if num is None:
+            self.card_state.pop(key, None)
             val.config(text="—")
         else:
-            val.config(text=text if text is not None else f"{num:.0f}")
+            decimals = len(text.split(".")[1]) if text is not None and "." in text else 0
+            st = self.card_state.get(key)
+            if st is None:
+                self.card_state[key] = [float(num), float(num), decimals]
+                val.config(text=text if text is not None else f"{num:.0f}")
+            else:
+                st[1], st[2] = float(num), decimals
         bar.set(num)
+
+    def smooth_cards(self, dt):
+        """Fait avancer les nombres affichés vers leur valeur (pas de sauts de 10 en 10)."""
+        for key, st in self.card_state.items():
+            if st[0] != st[1]:
+                st[0] = ease_toward(st[0], st[1], dt)
+                txt = f"{st[0]:.{st[2]}f}"
+                lab = self.cards[key][0]
+                if lab.cget("text") != txt:
+                    lab.config(text=txt)
+
+    def smooth_tiles(self, dt):
+        for key, st in self.tile_state.items():
+            if st[0] != st[1]:
+                st[0] = ease_toward(st[0], st[1], dt)
+                self.board.set_text(key, fmt_val(round(st[0], st[2])))
 
     def build_top(self, parent):
         right = tk.Frame(parent, bg=BG, width=270)
