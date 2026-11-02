@@ -15,8 +15,12 @@ class PlayerMixin:
     """Lecture des captures : chargement, lecture, saut dans le temps."""
 
     def open_file(self):
+        """Ouvrir : choix entre un fichier du PC et un enregistrement Tracklab."""
+        self.open_choice()
+
+    def open_pc_file(self):
         p = filedialog.askopenfilename(
-            title="Ouvrir un fichier (trames CAN, RaceBox, RaceChrono, TrackLab…) : le type est reconnu automatiquement",
+            title="Ouvrir un fichier (trames CAN, RaceBox, RaceChrono, Tracklab…) : le type est reconnu automatiquement",
             filetypes=[
                 ("Tous les fichiers pris en charge", "*.txt *.log *.trk *.csv *.vbo *.tsv"),
                 ("Tous fichiers", "*.*"),
@@ -36,6 +40,7 @@ class PlayerMixin:
         self._rec_was_on = False
         self.rec_client.files = []
         self.rec_client.dl = None
+        self.rec_reset_transfers()
         self.ingested = 0
         self.t_last = 0
         self.t_now = 0
@@ -87,19 +92,80 @@ class PlayerMixin:
                 self.fit_all()
                 self.show_page("graph")
 
-    def choose_curves(self):
-        """Après l'ouverture : ne garde que les signaux présents dans le fichier ; à défaut, en propose quelques-uns."""
-        present = set(self.full_t)
-        keep = {k for k in self.sel if k in present}
-        if not keep:
-            pri = [k for k in present if k[0] == 2040 and k[1] == "GPS Vitesse"]
-            skip = {"GPS Latitude", "GPS Longitude", "Satellites", "Qualité fix"}
-            pri += sorted((k for k in present if k not in pri and k[1] not in skip), key=lambda k: (k[0], k[1]))
-            keep = set(pri[:5])
-        self.sel = keep
-        for k in sorted(keep):
+    # mots qui désignent en général une grandeur intéressante à regarder en premier
+    KEY_WORDS = ("vitesse", "speed", "rpm", "régime", "regime", "gaz", "throttle", "tps", "inclin", "lean", "roll",
+                 "acc", "g force", "gforce", "frein", "brake", "pression", "press", "suspension", "débattement",
+                 "rapport", "gear", "temp", "lat", "volt")
+    PRIME_WORDS = ("rpm", "speed", "vitesse", "hand_throttle", "gaz", "throttle", "gear", "temp", "brake",
+                   "frein", "lean", "inclin", "tps", "press", "lat_acc", "lon_acc", "gforce", "suspension", "débattement")
+    NOISE_WORDS = ("status", "statut", "stat", "sts", "count", "cnt", "lap", "satellit", "fix", "qualité", "elapsed",
+                   "time", "temps", "record", "index", "numéro", "number", "checksum", "latitude", "longitude",
+                   "source", "src", "enabled", "level")
+
+    def scan_signals(self):
+        """Parcourt rapidement les données chargées et note chaque signal : un signal qui varie beaucoup et souvent est
+        « significatif » ; un signal constant, binaire figé ou de service ne l'est pas. Renvoie [(note, clé)] décroissantes."""
+        scored = []
+        for key, vals in self.full_v.items():
+            n = len(vals)
+            if n < 8:
+                continue
+            step = max(1, n // 4000)  # échantillonnage : l'analyse reste instantanée sur un gros fichier
+            v = [x for x in vals[::step] if x == x]
+            if len(v) < 8:
+                continue
+            lo, hi = min(v), max(v)
+            rng = hi - lo
+            if rng <= 0:
+                continue
+            mean = sum(v) / len(v)
+            std = (sum((x - mean) ** 2 for x in v) / len(v)) ** 0.5
+            changes = sum(1 for i in range(1, len(v)) if v[i] != v[i - 1]) / (len(v) - 1)
+            distinct = len(set(round(x, 3) for x in v[:2000]))
+            if distinct < 3 or changes < 0.002:
+                continue  # figé, ou simple interrupteur qui ne bouge presque jamais
+            score = (std / rng) * 0.5 + min(1.0, changes * 3) * 0.5
+            steps = sum(abs(v[i] - v[i - 1]) for i in range(1, len(v))) / (len(v) - 1)
+            if steps / rng > 0.25:
+                score *= 0.3  # saute sans cesse d'un extrême à l'autre : bruit ou décodage douteux, pas une grandeur lisible
+            low = key[1].lower()
+            if any(w in low for w in self.NOISE_WORDS):
+                score *= 0.25
+            if any(w in low for w in self.PRIME_WORDS):
+                score *= 2.5
+            elif any(w in low for w in self.KEY_WORDS):
+                score *= 1.4
+            if key[0] in (2032,) or key[1] in ("GPS Latitude", "GPS Longitude"):
+                score = 0  # position : sert à la carte, pas à une courbe
+            if score > 0:
+                scored.append((score, key))
+        scored.sort(key=lambda t: (-t[0], t[1]))
+        return scored
+
+    def choose_curves(self, limit=8):
+        """À l'ouverture d'un fichier : active automatiquement les signaux qui semblent significatifs
+        (au plus `limit`, en variant les types pour ne pas avoir que du GPS ou que du CAN)."""
+        scored = self.scan_signals()
+        keep, per_type = [], {}
+        cap = limit if len({self.signal_type(k) for _s, k in scored}) < 2 else 5  # un seul type présent : pas de plafond par type
+        for score, key in scored:
+            t = self.signal_type(key)
+            if per_type.get(t, 0) >= cap or score < 0.12:
+                continue
+            keep.append(key)
+            per_type[t] = per_type.get(t, 0) + 1
+            if len(keep) >= limit:
+                break
+        if not keep:  # rien de net : on garde la sélection existante si elle a des données, sinon quelques voies au hasard
+            keep = [k for k in sorted(self.sel) if k in self.full_t] or [k for _s, k in scored[:5]]
+        self.sel = set(keep)
+        self.color_map = {}
+        for k in keep:
             self.assign_color(k)
+        self.band_h = {}
+        self.ref_key = None
         self.signal_list.set_groups(self.signal_groups(), self.sel)
+        return keep
 
     def play(self):
         if not self.frames:

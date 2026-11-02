@@ -393,7 +393,7 @@ class SignalList(ScrollCanvas):
         for key, (rect, text, color, _) in self.rows.items():
             on = key in selected
             self.canvas.itemconfig(rect, fill=color if on else CARD2)
-            self.canvas.itemconfig(text, fill=BG if on else SUB)
+            self.canvas.itemconfig(text, fill=BG if on else (MUTED if key in self.nodata else SUB))
 
 
 class GroupedSignalList(ScrollCanvas):
@@ -411,6 +411,7 @@ class GroupedSignalList(ScrollCanvas):
         self.selected = set()
         self._sig = None
         self.rows = {}  # clé -> (rectangle, texte)
+        self.nodata = set()  # signaux sans donnée dans la source courante : affichés en grisé
         self.hits = []  # (y0, y1, "head" | "row", titre ou clé)
         self.canvas.configure(cursor="hand2")
         self.canvas.bind("<Configure>", lambda e: self._layout(e.width))
@@ -418,7 +419,8 @@ class GroupedSignalList(ScrollCanvas):
 
     def set_groups(self, groups, selected):
         """Met à jour la liste (reconstruite seulement si son contenu a changé) et l'état de sélection."""
-        sig = (tuple((t, tuple(k for k, _ in items)) for t, items in groups), tuple(sorted(self.collapsed)))
+        sig = (tuple((t, tuple((it[0], len(it) < 3 or it[2]) for it in items)) for t, items in groups),
+               tuple(sorted(self.collapsed)))
         self.selected = set(selected)
         if sig != self._sig:
             self._sig = sig
@@ -431,10 +433,11 @@ class GroupedSignalList(ScrollCanvas):
         c = self.canvas
         c.delete("all")
         self.rows, self.hits = {}, []
+        self.nodata = {it[0] for _t, items in self.groups for it in items if len(it) > 2 and not it[2]}
         y = 0
         w = max(c.winfo_width(), 190)
         for title, items in self.groups:
-            n_sel = sum(1 for k, _ in items if k in self.selected)
+            n_sel = sum(1 for it in items if it[0] in self.selected)
             arrow = "▸" if title in self.collapsed else "▾"
             c.create_rectangle(0, y + 1, w, y + self.HEAD - 1, fill=BG, outline="", tags="bg")
             c.create_text(
@@ -448,7 +451,8 @@ class GroupedSignalList(ScrollCanvas):
             y += self.HEAD
             if title in self.collapsed:
                 continue
-            for key, label in items:
+            for it in items:
+                key, label = it[0], it[1]
                 rect = c.create_rectangle(0, y + 1, w, y + self.ROW - 1, fill=CARD2, outline="", tags="row")
                 text = c.create_text(14, y + self.ROW // 2, text=label, anchor="w", fill=SUB, font=(FONT, 9, "bold"))
                 self.rows[key] = (rect, text)
@@ -470,7 +474,7 @@ class GroupedSignalList(ScrollCanvas):
         for key, (rect, text) in self.rows.items():
             on = key in self.selected
             self.canvas.itemconfig(rect, fill=self.color_of(key) if on else CARD2)
-            self.canvas.itemconfig(text, fill=BG if on else SUB)
+            self.canvas.itemconfig(text, fill=BG if on else (MUTED if key in self.nodata else SUB))
 
     def _click(self, event):
         y = self.canvas.canvasy(event.y)

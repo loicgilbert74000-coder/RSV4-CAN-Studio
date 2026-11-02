@@ -5,7 +5,7 @@ import tkinter as tk
 
 from .theme import BORDER, CARD, CARD2, CYAN, FONT, GREEN, HOVER, MUTED, RED, SUB, TEXT, YELLOW
 
-KEY_W, KEY_H = 64, 56
+KEY_W, KEY_H = 62, 46
 LCD_BG = "#04101a"
 LCD_DIM = "#0d2a3a"
 LCD_EDGE = "#1d3d52"
@@ -20,9 +20,10 @@ def fmt_lcd(ms):
 class DeckButton(tk.Canvas):
     """Touche de platine : pictogramme dessiné + petit libellé ; s'éclaire quand elle est active."""
 
-    def __init__(self, parent, kind, caption, command, color=TEXT, bg=CARD, text=""):
-        super().__init__(parent, width=KEY_W, height=KEY_H, bg=bg, highlightthickness=0, cursor="hand2")
+    def __init__(self, parent, kind, caption, command, color=TEXT, bg=CARD, text="", width=KEY_W):
+        super().__init__(parent, width=width, height=KEY_H, bg=bg, highlightthickness=0, cursor="hand2")
         self.kind = kind
+        self.w = width
         self.caption = caption
         self.command = command
         self.color = color  # couleur quand la touche est allumée
@@ -46,7 +47,7 @@ class DeckButton(tk.Canvas):
     def _release(self, e):
         was = self.down
         self._set(down=False)
-        if was and self.enabled and 0 <= e.x <= KEY_W and 0 <= e.y <= KEY_H:
+        if was and self.enabled and 0 <= e.x <= self.w and 0 <= e.y <= KEY_H:
             self.command()
 
     def set_look(self, lit=None, kind=None, caption=None, enabled=None, text=None, color=None):
@@ -67,7 +68,7 @@ class DeckButton(tk.Canvas):
     # ---- dessin
     def render(self):
         self.delete("all")
-        w, h = KEY_W, KEY_H
+        w, h = self.w, KEY_H
         off = 1 if self.down else 0
         face = HOVER if (self.hover and self.enabled) else CARD2
         if self.down:
@@ -81,10 +82,10 @@ class DeckButton(tk.Canvas):
             col = "#c2282f"  # le point d'enregistrement reste rouge, comme sur une vraie platine
         else:
             col = self.color if self.lit else SUB
-        cx, cy = w / 2, 22 + off
+        cx, cy = w / 2, 17 + off
         self.icon(self.kind, cx, cy, col)
         self.create_text(
-            w / 2, h - 11 + off, text=self.caption, fill=col if self.lit else (MUTED if self.enabled else "#34435c"),
+            w / 2, h - 9 + off, text=self.caption, fill=col if self.lit else (MUTED if self.enabled else "#34435c"),
             font=(FONT, 7, "bold"),
         )
 
@@ -123,10 +124,10 @@ class DeckButton(tk.Canvas):
 class DeckLcd(tk.Canvas):
     """Afficheur : mode, vue, temps, nom du fichier, et bargraph de lecture sur lequel on clique pour se déplacer."""
 
-    BAR_Y0, BAR_Y1 = 66, 78
+    BAR_Y0, BAR_Y1 = 47, 55
     SEG, GAP = 5, 2
 
-    def __init__(self, parent, on_seek, height=88):
+    def __init__(self, parent, on_seek, height=62):
         super().__init__(parent, height=height, bg=CARD, highlightthickness=0)
         self.on_seek = on_seek
         self.s = dict(mode="idle", mode_text="PRÊT", mode_color=MUTED, view="", source="", cur=0, total=0,
@@ -153,7 +154,7 @@ class DeckLcd(tk.Canvas):
         return max(0.0, min(1.0, (e.x - 12) / max(1, w - 24)))
 
     def press(self, e):
-        if self.s["seekable"] and e.y >= self.BAR_Y0 - 10:
+        if self.s["seekable"] and e.y >= self.BAR_Y0 - 14:
             self.dragging = True
             self.drag_frac = self._frac(e)
             self.render()
@@ -182,26 +183,26 @@ class DeckLcd(tk.Canvas):
         frac = self.drag_frac if self.dragging else s["frac"]
         cur = frac * s["total"] if self.dragging else s["cur"]
         # ligne du haut : mode à gauche, vue et source à droite
-        self.create_text(14, 17, text=s["mode_text"], anchor="w", fill=s["mode_color"], font=(MONO, 10, "bold"))
+        self.create_text(12, 12, text=s["mode_text"], anchor="w", fill=s["mode_color"], font=(MONO, 9, "bold"))
         if s["rec"]:
             col = RED if getattr(self, "_blink", False) else "#5a1216"
-            self.create_oval(w - 22, 11, w - 12, 21, fill=col, outline="")
-            self.create_text(w - 28, 17, text="REC", anchor="e", fill=col, font=(MONO, 10, "bold"))
-            right = w - 70
+            self.create_oval(w - 20, 7, w - 11, 16, fill=col, outline="")
+            self.create_text(w - 25, 12, text="REC", anchor="e", fill=col, font=(MONO, 9, "bold"))
+            right = w - 62
         else:
-            right = w - 14
+            right = w - 12
         tag = "  ·  ".join(t for t in (s["source"], s["view"]) if t)
-        self.create_text(right, 17, text=tag, anchor="e", fill="#3f8aa8", font=(MONO, 9, "bold"))
+        self.create_text(right, 12, text=tag, anchor="e", fill="#3f8aa8", font=(MONO, 8, "bold"))
         # temps
-        self.create_text(14, 45, text=fmt_lcd(cur), anchor="w", fill=CYAN, font=(MONO, 26, "bold"))
+        self.create_text(12, 31, text=fmt_lcd(cur), anchor="w", fill=CYAN, font=(MONO, 17, "bold"))
         if s["total"]:
-            self.create_text(186, 51, text="/ " + fmt_lcd(s["total"]), anchor="w", fill="#2b7a99", font=(MONO, 11, "bold"))
+            self.create_text(116, 34, text="/ " + fmt_lcd(s["total"]), anchor="w", fill="#2b7a99", font=(MONO, 9, "bold"))
         # nom et informations
-        maxc = max(10, int((w - 330) / 7.5))
+        maxc = max(10, int((w - 250) / 7))
         name = s["name"] if len(s["name"]) <= maxc else s["name"][: maxc - 1] + "…"
         info = s["info"] if len(s["info"]) <= maxc else s["info"][: maxc - 1] + "…"
-        self.create_text(318, 38, text=name, anchor="w", fill=TEXT, font=(MONO, 11, "bold"))
-        self.create_text(318, 55, text=info, anchor="w", fill="#3f8aa8", font=(MONO, 9))
+        self.create_text(216, 26, text=name, anchor="w", fill=TEXT, font=(MONO, 10, "bold"))
+        self.create_text(216, 39, text=info, anchor="w", fill="#3f8aa8", font=(MONO, 8))
         # bargraph : segments allumés jusqu'à la position
         x0, x1 = 12, w - 12
         n = max(10, int((x1 - x0) / (self.SEG + self.GAP)))
@@ -220,4 +221,4 @@ class DeckLcd(tk.Canvas):
             self.create_rectangle(x, y0, x + self.SEG, y1, fill=col, outline="")
         if s["seekable"] and lit > 0:
             x = x0 + min(n - 1, lit - 1) * (self.SEG + self.GAP)
-            self.create_rectangle(x, y0 - 3, x + self.SEG, y1 + 3, fill=TEXT, outline="")
+            self.create_rectangle(x, y0 - 2, x + self.SEG, y1 + 2, fill=TEXT, outline="")

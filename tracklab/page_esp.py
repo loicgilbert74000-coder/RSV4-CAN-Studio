@@ -13,7 +13,7 @@ from .theme import BG, BORDER, CARD, CARD2, CYAN, FONT, GREEN, LIME, MUTED, RED,
 class EspMixin:
     """Page de paramétrage de l'ESP32."""
 
-    # ---------- page Paramétrage ESP32 ----------
+    # ---------- page Paramétrage Tracklab ----------
     def build_esp_vars(self):
         sv = lambda k, v: self.cv.__setitem__(k, tk.StringVar(value=str(v)))
         bv = lambda k, v: self.cv.__setitem__(k, tk.BooleanVar(value=v))
@@ -170,7 +170,8 @@ class EspMixin:
 
     def esp_card(self, parent, title):
         c = self.card(parent)
-        c.pack(fill="x", padx=6, pady=6)
+        left_col = getattr(self, "_esp_left", None) is parent
+        c.pack(fill="x", padx=(0, 6) if left_col else (6, 0), pady=6)  # bord extérieur aligné sur la barre du haut
         tk.Label(
             c, text=title, fg=TEXT, bg=CARD, font=(FONT, 10, "bold")
         ).pack(anchor="w", padx=14, pady=(10, 6))
@@ -221,7 +222,7 @@ class EspMixin:
         bar = tk.Frame(parent, bg=BG)
         bar.pack(fill="x", pady=(0, 6))
         tk.Label(
-            bar, text="Paramétrage de l'ESP32", fg=TEXT, bg=BG, font=(FONT, 13, "bold")
+            bar, text="Paramétrage Tracklab", fg=TEXT, bg=BG, font=(FONT, 13, "bold")
         ).pack(side="left")
         tk.Label(
             bar, text="Enregistrements, bus CAN, GPS et entrées/sorties (ESP32-S3 DevKitC-1)", fg=SUB, bg=BG, font=(FONT, 9)
@@ -240,6 +241,7 @@ class EspMixin:
         left.pack(side="left", fill="y", anchor="n")
         right = tk.Frame(inner, bg=BG)
         right.pack(side="left", fill="both", expand=True, anchor="n")
+        self._esp_left = left
         self.build_rec_card(left)
         self.build_esp_live(left)
         c = self.esp_card(left, "Bus CAN")
@@ -365,7 +367,7 @@ class EspMixin:
             cfg = self.cfg_from_vars()
             validate_cfg(cfg)
         except ValueError as e:
-            messagebox.showerror("Paramétrage ESP32", str(e))
+            messagebox.showerror("Paramétrage Tracklab", str(e))
             return
         names = {(2041, f"Entrée {n + 1}"): e["name"] for n, e in enumerate(cfg["digital_inputs"])}
         names.update({(2041, f"ADC {n + 1}"): e["name"] for n, e in enumerate(cfg["analog_inputs"])})
@@ -378,7 +380,7 @@ class EspMixin:
             cfg = self.cfg_from_vars()
             validate_cfg(cfg)
         except ValueError as e:
-            messagebox.showerror("Paramétrage ESP32", str(e))
+            messagebox.showerror("Paramétrage Tracklab", str(e))
             return
         p = filedialog.asksaveasfilename(
             title="Enregistrer le paramétrage",
@@ -403,7 +405,7 @@ class EspMixin:
             validate_cfg(cfg)
             self.cfg_to_vars(cfg)
         except (OSError, ValueError, KeyError) as e:
-            messagebox.showerror("Paramétrage ESP32", f"Fichier invalide : {e}")
+            messagebox.showerror("Paramétrage Tracklab", f"Fichier invalide : {e}")
             return
         self.set_state(f"Paramétrage chargé : {os.path.basename(p)}", SUB)
 
@@ -412,7 +414,7 @@ class EspMixin:
             cfg = self.cfg_from_vars()
             validate_cfg(cfg)
         except ValueError as e:
-            messagebox.showerror("Paramétrage ESP32", str(e))
+            messagebox.showerror("Paramétrage Tracklab", str(e))
             return
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         default_dir = os.path.join(root, "firmware", "esp32_can_wifi")

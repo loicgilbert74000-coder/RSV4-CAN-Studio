@@ -1,4 +1,4 @@
-"""Page Trames CAN : tableau des trames avec filtres."""
+"""Page Trames Tracklab : tableau des trames avec filtres."""
 
 import tkinter as tk
 from tkinter import ttk
@@ -8,7 +8,7 @@ from .util import parse_ids
 
 
 class FramesMixin:
-    """Page Trames CAN : tableau des trames avec filtres."""
+    """Page Trames Tracklab : tableau des trames avec filtres."""
 
     # ---------- trames ----------
     def build_table(self, parent):
@@ -17,7 +17,7 @@ class FramesMixin:
         hdr = tk.Frame(card, bg=CARD)
         hdr.pack(fill="x", padx=14, pady=(10, 4))
         tk.Label(
-            hdr, text="Trames CAN en direct", fg=TEXT, bg=CARD, font=(FONT, 12, "bold")
+            hdr, text="Trames Tracklab en direct", fg=TEXT, bg=CARD, font=(FONT, 12, "bold")
         ).pack(side="left")
         self.button(hdr, "Vider", self.clear_table, SUB, CARD2, font=9).pack(side="right")
         self.pause_btn = self.button(hdr, "⏸  Arrêter le direct", self.toggle_table_pause, YELLOW, CARD2, font=9)

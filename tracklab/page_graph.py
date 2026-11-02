@@ -163,12 +163,11 @@ class GraphMixin:
         self.color_map[key] = free[0] if free else PALETTE[len(self.color_map) % len(PALETTE)]
 
     def signal_groups(self):
-        """Signaux proposés, classés par type : ceux qui ont des données, ou tous les signaux connus s'il n'y en a pas encore."""
+        """Tous les signaux connus, classés par type ; ceux sans donnée dans la source courante sont grisés (jamais masqués)."""
         have = set(self.full_t) | set(self.hist)
-        keys = [k for k in self.curve_keys() if k in have or k in self.sel] if have else list(CURVE_KEYS)
         groups = {t: [] for t in TYPE_ORDER}
-        for k in keys:
-            groups[self.signal_type(k)].append((k, self.label_of(k)))
+        for k in self.curve_keys():
+            groups[self.signal_type(k)].append((k, self.label_of(k), (k in have) or not have or k in self.sel))
         return [(t, groups[t]) for t in TYPE_ORDER if groups[t]]
 
     def toggle_curve(self, key):
@@ -387,7 +386,7 @@ class GraphMixin:
         end = self.view_end if self.view_end is not None else tmax + half
         start = end - span
         sel = [k for k in self.curve_keys() if k in self.sel]
-        L, R, T = (70, 250, 10)
+        L, R, T = (70, 250, 22)
         pw = w - L - R
         self.geom = {"L": L, "pw": pw, "start": start, "span": span}
         shown = f"{round(span / 1000, 2):g} s"
@@ -423,24 +422,39 @@ class GraphMixin:
             anchor="nw",
         )
 
+        def clip(pts):
+            """Prolonge la courbe jusqu'aux bords de la fenêtre (interpolation), pour que l'échelle existe même sans point dedans."""
+            if len(pts) < 2:
+                return pts
+            out = list(pts)
+            if out[0][0] < start < out[1][0]:
+                (t0_, v0), (t1_, v1) = out[0], out[1]
+                out[0] = (start, v0 + (v1 - v0) * (start - t0_) / (t1_ - t0_))
+            if out[-2][0] < end < out[-1][0]:
+                (t0_, v0), (t1_, v1) = out[-2], out[-1]
+                out[-1] = (end, v0 + (v1 - v0) * (end - t0_) / (t1_ - t0_))
+            return [p for p in out if start <= p[0] <= end]
+
         def window_pts(key):
             if self.full_t:
                 ts = self.full_t.get(key)
                 if not ts:
                     return []
-                i = bisect.bisect_left(ts, start)
-                j = bisect.bisect_right(ts, end)
-                pts = list(zip(ts[i:j], self.full_v[key][i:j]))
+                i = max(0, bisect.bisect_left(ts, start) - 1)
+                j = min(len(ts), bisect.bisect_right(ts, end) + 1)
+                pts = clip(list(zip(ts[i:j], self.full_v[key][i:j])))
                 st = len(pts) // (2 * max(pw, 1)) + 1
                 return pts[::st] if st > 1 else pts
             pts = []
-            for tt, v in reversed(self.hist.get(key, ())):
+            hist = self.hist.get(key, ())
+            for tt, v in reversed(hist):
                 if tt > end:
                     continue
+                pts.append((tt, v))
                 if tt < start:
                     break
-                pts.append((tt, v))
             pts.reverse()
+            pts = clip(pts)
             st = len(pts) // (2 * max(pw, 1)) + 1
             return pts[::st] if st > 1 else pts
         def poly(pts, ymap, color):
@@ -497,7 +511,7 @@ class GraphMixin:
                     c.create_text(L - 8, y, text=fmt_val(v), fill=rcol, font=(FONT, 8), anchor="e")
                 u = unit_of(ref)
                 if u:
-                    c.create_text(L - 8, T - 1, text=u, fill=rcol, font=(FONT, 8, "bold"), anchor="se")
+                    c.create_text(L - 8, T - 11, text=u, fill=rcol, font=(FONT, 8, "bold"), anchor="e")
             else:
                 for i in range(1, 4):
                     y = T + ph * i / 4

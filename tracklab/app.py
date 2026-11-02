@@ -19,6 +19,7 @@ from .player import PlayerMixin
 from .theme import BG, BORDER, CARD, CARD2, CYAN, FONT, GREEN, HOVER, LIME, MUTED, RED, SIDE, SUB, TEXT, YELLOW
 from .util import fmt_time, wifi_quality
 from .deck import DeckButton, DeckLcd
+from .recording import fmt_size
 from .widgets import NavIcon, make_dot, set_dot
 
 
@@ -161,7 +162,7 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
             self.badge[k].config(text=state, fg=color)
         self.model_cb.current(list(MODELS).index(key))
         self.bus_note.config(
-            text="Décodage : définition can1.xml · valeurs à valider" if self.decoder else "Aucun décodage pour cette moto · voir « Trames CAN »"
+            text="Décodage : définition can1.xml · valeurs à valider" if self.decoder else "Aucun décodage pour cette moto · voir « Trames Tracklab »"
         )
         self.clear_data()
 
@@ -334,7 +335,7 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
         self.build_header(main)
         self.build_playbar(main)
         self.area = tk.Frame(main, bg=BG)
-        self.area.pack(fill="both", expand=True, padx=18, pady=(0, 10))
+        self.area.pack(fill="both", expand=True, padx=0, pady=(0, 10))
         self.area.grid_rowconfigure(0, weight=1)
         self.area.grid_columnconfigure(0, weight=1)
         self.page_tele = tk.Frame(self.area, bg=BG)
@@ -344,8 +345,10 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
         self.pages = {
             "tele": self.page_tele, "graph": self.page_graph, "frames": self.page_frames, "esp": self.page_esp
         }
-        for p in self.pages.values():
-            p.grid(row=0, column=0, sticky="nsew")
+        # marges : les cartes de chaque page s'alignent exactement sur les bords de la barre du haut et de la platine (18 px)
+        margins = {"tele": 14, "graph": 18, "frames": 14, "esp": 18}
+        for name, p in self.pages.items():
+            p.grid(row=0, column=0, sticky="nsew", padx=margins[name])
         self.build_tele(self.page_tele)
         self.build_graph(self.page_graph)
         self.build_table(self.page_frames)
@@ -356,10 +359,10 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
         bar = tk.Frame(main, bg=CARD, highlightbackground=BORDER, highlightthickness=1)
         bar.pack(fill="x", padx=18, pady=(4, 8))
         inner = tk.Frame(bar, bg=CARD)
-        inner.pack(fill="x", padx=10, pady=8)
+        inner.pack(fill="x", padx=10, pady=5)
 
         def sep():
-            tk.Frame(inner, bg=BORDER, width=1, height=44).pack(side="left", padx=8)
+            tk.Frame(inner, bg=BORDER, width=1, height=36).pack(side="left", padx=8)
 
         self.key_open = DeckButton(inner, "eject", "OUVRIR", self.open_file, color=CYAN)
         self.key_open.pack(side="left", padx=2)
@@ -373,13 +376,14 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
         self.key_speed = DeckButton(inner, "text", "VITESSE", self.cycle_speed, color=CYAN, text="x1")
         self.key_speed.pack(side="left", padx=2)
         sep()
-        # à droite : connexion puis enregistrement (empilés de droite à gauche), l'afficheur prend la place restante
-        self.conn_btn = DeckButton(inner, "plug", "CONNEXION", self.on_conn_button, color=GREEN)
-        self.conn_btn.pack(side="right", padx=2)
         self.rec_btn = DeckButton(inner, "rec", "ENREG.", self.rec_toggle, color=RED)
         self.rec_btn.set_look(enabled=False)
-        self.rec_btn.pack(side="right", padx=2)
-        tk.Frame(inner, bg=BORDER, width=1, height=44).pack(side="right", padx=8)
+        self.rec_btn.pack(side="left", padx=2)
+        sep()
+        # connexion à droite (réservée avant l'afficheur, qui prend toute la place restante)
+        self.conn_btn = DeckButton(inner, "plug", "CONNEXION", self.on_conn_button, color=GREEN, width=78)
+        self.conn_btn.pack(side="right", padx=2)
+        tk.Frame(inner, bg=BORDER, width=1, height=36).pack(side="right", padx=8)
         self.lcd = DeckLcd(inner, on_seek=self.seek)
         self.lcd.pack(side="left", fill="x", expand=True, padx=2)
 
@@ -390,7 +394,7 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
         self.speed.set(SPEEDS[nxt])
         self.key_speed.set_look(text=nxt)
 
-    PAGE_NAMES = {"tele": "TÉLÉMÉTRIE", "graph": "COURBES", "frames": "TRAMES CAN", "esp": "PARAMÉTRAGE ESP32"}
+    PAGE_NAMES = {"tele": "TÉLÉMÉTRIE", "graph": "COURBES", "frames": "TRAMES TRACKLAB", "esp": "PARAMÉTRAGE TRACKLAB"}
 
     def update_deck(self, now, rate, dur, link):
         """Afficheur et touches : ce qui est lu, en direct ou à l'arrêt, et la vue affichée."""
@@ -402,11 +406,17 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
                 "ok": ("● EN DIRECT", GREEN),
                 "attente": ("◌ ATTENTE DES TRAMES", YELLOW),
             }.get(link, ("◌ LIAISON PERDUE", RED))
+            name = self.model["label"]
+            info = f"{rate} trames/s · {len(self.count)} ID · {self.ingested} reçues"
+            if rec:  # enregistrement en cours : l'afficheur montre le fichier utilisé
+                kind = "carte SD" if self.esp.get("sd") else "mémoire interne"
+                mode_text, color = "● ENREGISTREMENT", RED
+                name = f"Fichier {self.esp.get('rec_no', 0):04d}.trk"
+                info = f"{fmt_size(self.esp.get('rec_bytes', 0))} · {kind} · {rate} trames/s"
             self.lcd.show(
                 mode="live", mode_text=mode_text, mode_color=color, view=view,
                 source="Wi-Fi ESP32" if wifi else "USB-CAN", cur=dur, total=0,
-                name=self.model["label"], info=f"{rate} trames/s · {len(self.count)} ID · {self.ingested} reçues",
-                frac=min(1.0, rate / 1500), seekable=False, rec=rec,
+                name=name, info=info, frac=min(1.0, rate / 1500), seekable=False, rec=rec,
             )
             self.key_play.set_look(lit=False)
             self.key_pause.set_look(lit=False)
@@ -481,8 +491,8 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
         for key, label in [
             ("tele", "Télémétrie"),
             ("graph", "Courbes"),
-            ("frames", "Trames CAN"),
-            ("esp", "Paramétrage ESP32"),
+            ("frames", "Trames Tracklab"),
+            ("esp", "Paramétrage Tracklab"),
         ]:
             self.tab_item(tabs, key, label)
 

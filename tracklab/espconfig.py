@@ -1,6 +1,6 @@
 """Paramétrage de l'ESP32 : valeurs par défaut, contrôle et génération de l'en-tête C du firmware."""
 
-# Paramétrage ESP32 : valeurs par défaut. La carte est toujours un ESP32-S3 DevKitC-1.
+# Paramétrage Tracklab : valeurs par défaut. La carte est toujours un ESP32-S3 DevKitC-1.
 DIG_DEFAULT = [
     (7, "Entrée 1", False),
     (8, "Entrée 2", False),
@@ -84,7 +84,7 @@ def make_header(cfg):
     def arr(vals, ctype):
         return "{" + ", ".join((str(v) for v in vals)) + "}"
     lines = [
-        "// Fichier généré par TrackLab Electronics (Paramétrage ESP32). Ne pas modifier à la main.",
+        "// Fichier généré par TrackLab Electronics (Paramétrage Tracklab). Ne pas modifier à la main.",
         "#pragma once",
         f"#define AP_SSID {c_str(w['ssid'])}",
         f"#define AP_PASS {c_str(w['password'])}",

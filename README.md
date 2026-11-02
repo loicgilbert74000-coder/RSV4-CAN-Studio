@@ -19,7 +19,7 @@ python TrackLab_Electronics.py
 | `tracklab/app.py` | fenêtre principale, barre du haut (logo, moto, pages, connexion), barre de lecture, boucle d'affichage |
 | `tracklab/page_telemetry.py` | page Télémétrie (jauges et tuiles) |
 | `tracklab/page_graph.py` | page Courbes (axes, empilement, séparateurs, ascenseurs) |
-| `tracklab/page_frames.py` | page Trames CAN et filtres |
+| `tracklab/page_frames.py` | page Trames Tracklab et filtres |
 | `tracklab/page_esp.py` | paramétrage de l'ESP32 |
 | `tracklab/player.py` | chargement, lecture, saut dans une capture |
 | `tracklab/decoding.py` | décodage des trames |
@@ -42,9 +42,10 @@ python tests/smoke_test.py CAPTURE.txt            # sous Linux : xvfb-run -a pyt
 
 Le workflow GitHub Actions `windows-exe.yml` produit l'exécutable et l'installateur (Inno Setup).
 
-## Fichiers ouverts, courbes et téléchargement ESP32
+## Fichiers ouverts, courbes et enregistrements Tracklab
 
-- **Ouvrir un fichier** reconnaît tout seul le contenu : capture USB-CAN (TXT), moniteur série de l'ESP32, enregistrement `.trk`, RaceChrono (CSV/VBO), RaceBox (CSV) ou tout CSV avec position GPS. Le type détecté s'affiche à côté du nom du fichier.
-- **Courbes** : signaux classés par type (GPS, CAN moto, capteurs, inertiel…), petite croix à droite pour retirer un signal, abscisse en mm:ss:ms. Molette : zoom (haut) / dézoom (bas) ; clic molette + glisser : déplacement ; clic gauche + glisser : zoom sur la zone ; double-clic : tout voir.
-- **Trames CAN** : bouton « Arrêter le direct » / « Reprendre le direct » (la réception continue).
-- **Paramétrage ESP32** : « Enregistrements de l'ESP32 » → Télécharger (et ouvrir) un fichier enregistré sur la carte SD.
+- **Ouvrir** propose un fichier du PC ou un enregistrement Tracklab (ouvrir ou supprimer). Pour un fichier du PC, le type est reconnu tout seul : capture USB-CAN (TXT), moniteur série de l'ESP32, `.trk`, RaceChrono (CSV/VBO), RaceBox (CSV) ou tout CSV avec GPS.
+- **Enregistrements Tracklab** : dès la connexion, les fichiers de la carte absents du PC sont téléchargés automatiquement dans `Documents/TrackLab/Enregistrements`. La liste (page Paramétrage Tracklab) indique date, taille, emplacement (carte / PC) et état.
+- **Courbes** : tous les signaux sont listés par type (grisés quand le fichier n'en contient pas) ; à l'ouverture d'un fichier, les signaux significatifs sont activés automatiquement. Croix pour retirer un signal, abscisse en mm:ss:ms. Molette : zoom ; clic molette + glisser : déplacement ; clic gauche + glisser : zoom sur la zone ; double-clic : tout voir.
+- **Platine** : touches façon lecteur CD, afficheur (mode, source, vue, temps, fichier) avec bargraph cliquable, touches Enreg. et Connexion.
+- **Trames Tracklab** : bouton « Arrêter le direct » / « Reprendre le direct » (la réception continue).
