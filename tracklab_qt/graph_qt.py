@@ -336,8 +336,15 @@ class GraphPage(QtWidgets.QWidget):
         if live != getattr(self, "_was_live", False):  # passage fichier <-> direct : la vue repart sur la fenêtre courante
             self._was_live = live
             view = None
-        self.gl.clear()
+        self._building = True
+        for old in self.plots:  # les anciens tracés disparaissent : on coupe leurs signaux avant de les détruire
+            for sig, slot in ((old.vb.sigXRangeChanged, self.on_range), (old.vb.sigRangeChangedManually, self.on_manual)):
+                try:
+                    sig.disconnect(slot)
+                except (TypeError, RuntimeError):
+                    pass
         self.plots, self.lines, self.curves = [], [], {}
+        self.gl.clear()
         lo_t, hi_t = self.bounds()
         self._tmax = hi_t
         n = 1 if (not c.stack.get() or not keys) else len(keys)
@@ -365,6 +372,7 @@ class GraphPage(QtWidgets.QWidget):
             self.plots.append(p)
         if not keys:
             self.build_legend(keys)
+            self._building = False
             return
         if not c.stack.get():
             p = self.plots[0]
@@ -393,6 +401,7 @@ class GraphPage(QtWidgets.QWidget):
             self.lines.append(ln)
         self.build_legend(keys)
         self.refresh_ref()
+        self._building = False
         if self._fit:
             self._fit = False
             lo_t, hi_t = self.bounds()
@@ -471,6 +480,8 @@ class GraphPage(QtWidgets.QWidget):
             self.set_view(*self.page_range(self.span()))
 
     def on_range(self, *_a):
+        if getattr(self, "_building", False) or not self.plots:
+            return
         txt = f"{self.span():.1f} s" if self.span() < 100 else f"{self.span():.0f} s"
         if self.win.currentText() != txt:
             self.win.setCurrentText(txt)

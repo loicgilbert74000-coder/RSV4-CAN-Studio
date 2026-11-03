@@ -11,6 +11,9 @@ def main():
     args = sys.argv[1:]
     selftest = "--selftest" in args
     if selftest:
+        import faulthandler
+
+        faulthandler.enable()  # un plantage Qt laisse au moins la pile Python dans le journal
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
         args.remove("--selftest")
     from PySide6 import QtWidgets
