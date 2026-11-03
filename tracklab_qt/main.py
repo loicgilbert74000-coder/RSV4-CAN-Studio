@@ -153,6 +153,7 @@ def live_test(app, win):
 def stress_signals(app, win):
     """Sélectionne chaque signal (un par un, puis par lots) en superposé et en empilé : aucun ne doit faire planter."""
     core, g = win.core, win.graph
+    g.map.store.enabled = False  # isole le test : pas de réseau pendant le stress des sélections
     core.show_page("graph")
     pump(app, 0.3)
     keys = [it[0] for _t, items in core.signal_groups() for it in items]
@@ -185,6 +186,7 @@ def stress_signals(app, win):
 def circuit_test(app, win):
     """Circuit : tracé complet dès l'ouverture, point qui suit le curseur, fond satellite si le réseau répond."""
     core, g = win.core, win.graph
+    g.map.store.enabled = os.environ.get("TRACKLAB_NO_TILES") != "1"
     for k in list(core.sel):
         core.toggle_curve(k)
     core.toggle_curve(next(iter(core.full_t)))
