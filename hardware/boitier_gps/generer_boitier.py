@@ -18,7 +18,7 @@ from PIL import Image, ImageDraw, ImageFont
 from scipy import ndimage
 
 # ------------------------------------------------------------------ PARAMÈTRES (mm)
-PCB_L, PCB_W, PCB_T = 36.0, 27.0, 1.6      # carte du GPS (à vérifier sur votre module)
+PCB_L, PCB_W, PCB_T = 36.0, 25.0, 1.6      # carte GY-GPSV3 (NEO-M9N, Lobamop) : 36 × 25 mm, 4 trous Ø 3 mm
 ANT = 25.0                                  # antenne céramique carrée : côté
 ANT_H = 4.0                                 # et épaisseur
 WALL = 2.4                                  # épaisseur des parois latérales
