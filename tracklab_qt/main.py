@@ -53,6 +53,57 @@ def emit_image(name, pixmap):
     print("@@END", flush=True)
 
 
+def ui_test(app, win):
+    """Boîtes de dialogue, filtres, clic sur les courbes, aller-retour du paramétrage : rien ne doit lever d'exception."""
+    from tracklab.espconfig import validate_cfg
+
+    core = win.core
+    win.open_connection_dialog()
+    pump(app, 0.3)
+    emit_image("dlg_connexion", win.conn_dlg.grab())
+    win.conn_dlg.close()
+    win.open_settings()
+    pump(app, 0.3)
+    emit_image("dlg_parametres", win._settings.grab())
+    win._settings.close()
+    win.open_choice()
+    pump(app, 0.3)
+    emit_image("dlg_ouvrir", win.open_dlg.grab())
+    win.close_dialogs()
+    cfg = core.cfg_from_vars()
+    validate_cfg(cfg)
+    core.cfg_to_vars(cfg)
+    assert core.cfg_from_vars() == cfg, "paramétrage : aller-retour différent"
+    core.show_page("frames")
+    pump(app, 0.2)
+    win.frames.ed["Afficher les ID (hex)"].setText("100")
+    pump(app, 0.6)
+    n1 = win.frames.model.rowCount()
+    ids = {r[2] for r in win.frames.model.rows}
+    print(f"filtre ID 100 : {n1} lignes, ids={sorted(ids)}", flush=True)
+    assert ids <= {0x100}, "filtre d'ID inefficace"
+    win.frames.reset_filters()
+    pump(app, 0.6)
+    core.show_page("graph")
+    pump(app, 0.5)
+    g = win.graph
+    g.seek_to(20.0)
+    pump(app, 0.3)
+    print(f"clic sur les courbes : curseur à {core.cursor_ms() / 1000:.1f} s (attendu 20,0)", flush=True)
+    assert abs(core.cursor_ms() / 1000 - 20.0) < 1.0
+    first = g.selected()[1]
+    core.ref_key = first
+    g.refresh_ref()
+    core.toggle_curve(g.selected()[0])
+    pump(app, 0.5)
+    print(f"retrait d'une courbe : {len(g.selected())} courbes restantes", flush=True)
+    core.on_model("cbr1000rr_r_2021")
+    pump(app, 0.5)
+    core.on_model("rsv4")
+    pump(app, 0.5)
+    print("interface : dialogues, filtres, clics, modèles OK", flush=True)
+
+
 def live_test(app, win):
     """Connexion Wi-Fi à un faux ESP32 local : vérifie réception, décodage, états et courbes en direct."""
     import socket
@@ -156,6 +207,7 @@ def run_selftest(app, win, args):
     print(f"lecture x4 : pas de boucle med {gaps[len(gaps) // 2]:.1f} ms · p95 {gaps[int(len(gaps) * .95)]:.1f} · "
           f"max {gaps[-1]:.1f} ({len(gaps)} pas) · curseur {core.cursor_ms() / 1000:.1f} s", flush=True)
     core.pause()
+    ui_test(app, win)
     live_test(app, win)
     print("OK : TrackLab Qt", flush=True)
     return 0
