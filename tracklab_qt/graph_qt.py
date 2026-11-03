@@ -337,12 +337,6 @@ class GraphPage(QtWidgets.QWidget):
             self._was_live = live
             view = None
         self._building = True
-        for old in self.plots:  # les anciens tracés disparaissent : on coupe leurs signaux avant de les détruire
-            for sig, slot in ((old.vb.sigXRangeChanged, self.on_range), (old.vb.sigRangeChangedManually, self.on_manual)):
-                try:
-                    sig.disconnect(slot)
-                except (TypeError, RuntimeError):
-                    pass
         self.plots, self.lines, self.curves = [], [], {}
         self.gl.clear()
         lo_t, hi_t = self.bounds()
@@ -361,8 +355,6 @@ class GraphPage(QtWidgets.QWidget):
             p.vb.setDefaultPadding(0.0)
             p.vb.setLimits(xMin=-1.0, xMax=max(hi_t, 5.0) * 1.3 + 5, minXRange=0.05)
             p.vb.sigRangeChangedManually.connect(self.on_manual)
-            if r == 0:
-                p.vb.sigXRangeChanged.connect(self.on_range)
             p.getAxis("left").setWidth(66)
             p.getAxis("bottom").setStyle(tickTextOffset=4)
             if self.plots:
@@ -479,12 +471,17 @@ class GraphPage(QtWidgets.QWidget):
         if self.follow:
             self.set_view(*self.page_range(self.span()))
 
-    def on_range(self, *_a):
-        if getattr(self, "_building", False) or not self.plots:
+    def show_span(self):
+        """La zone « Fenêtre » indique la durée réellement affichée (zoom à la molette compris)."""
+        if not self.plots:
             return
-        txt = f"{self.span():.1f} s" if self.span() < 100 else f"{self.span():.0f} s"
-        if self.win.currentText() != txt:
-            self.win.setCurrentText(txt)
+        r = self.view_range()
+        if r != getattr(self, "_rng_shown", None):
+            self._rng_shown = r
+            sp = r[1] - r[0]
+            txt = f"{sp:.1f} s" if sp < 100 else f"{sp:.0f} s"
+            if self.win.currentText() != txt:
+                self.win.setCurrentText(txt)
 
     def on_manual(self, *_a):
         self.follow = False
@@ -598,6 +595,7 @@ class GraphPage(QtWidgets.QWidget):
             self._last_live = now
             self.refresh_live()
         self.on_cursor()
+        self.show_span()
         self.map.tick()
 
     def refresh_live(self):
