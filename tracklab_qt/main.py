@@ -190,6 +190,14 @@ def first_open_test(app, win, path, page):
         info.append((k, 0 if x is None else len(x), cv.isVisible()))
     say(f"première ouverture ({page}) : vue {a:.1f}…{b:.1f} s, {len(g.curves)} courbes, détail {info}")
     emit_image("premiere_ouverture_" + page, win.grab())
+    vb = g.plots[0].vb
+    img = g.gl.grab().toImage()
+    bg = img.pixelColor(img.width() // 2, 4).rgb()
+    w0, h0 = img.width(), img.height()
+    drawn = sum(1 for x in range(int(w0 * .15), int(w0 * .95), 7) for y in range(10, h0 - 40, 7) if img.pixelColor(x, y).rgb() != bg)
+    say(f"  zone des courbes : {vb.width():.0f}x{vb.height():.0f} px, {drawn} points non vides sur la grille")
+    assert vb.width() > 200 and vb.height() > 100, "zone des courbes de taille nulle"
+    assert drawn > 150, "la zone des courbes est vide à l'écran"
     assert g.curves, "aucune courbe tracée après l'ouverture"
     assert all(n > 2 and vis for _k, n, vis in info), "courbe vide ou masquée"
     assert b - a > 60, "la vue n'englobe pas le fichier"

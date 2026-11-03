@@ -634,6 +634,25 @@ class GraphPage(QtWidgets.QWidget):
             view = self.page_range(30.0)
         self.plots[0].setXRange(view[0], view[1], padding=0)
         self.on_cursor(force=True)
+        self.relayout()
+        QtCore.QTimer.singleShot(0, self.relayout)
+
+    def relayout(self):
+        """Force le recalcul de la mise en page des tracés (après avoir affiché des tracés jusque-là cachés, la zone
+        restait vide jusqu'au prochain redimensionnement)."""
+        lay = self.gl.ci.layout
+        lay.invalidate()
+        lay.activate()
+        self.gl.viewport().update()
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        QtCore.QTimer.singleShot(0, self.relayout)
+        QtCore.QTimer.singleShot(150, self.relayout)
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        QtCore.QTimer.singleShot(0, self.relayout)
 
     def build_legend(self, keys):
         for i in reversed(range(self.legend_lay.count() - 1)):
