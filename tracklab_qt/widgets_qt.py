@@ -90,52 +90,77 @@ class Gauge(Animated):
     def paintEvent(self, _e):
         p = painter(self)
         w, h = self.width(), self.height()
-        r = min(w * 0.42, h * 0.62)
-        cx, cy = w / 2, h / 2 + r * 0.12
-        th = max(8, r * 0.12)
-        box = QtCore.QRectF(cx - r, cy - r, 2 * r, 2 * r)
+        r = min(w * 0.44, h * 0.60)
+        cx, cy = w / 2, h / 2 + r * 0.10
+        th = max(7.0, r * 0.085)
+        ra = r - th / 2  # rayon de l'arc (milieu du trait)
+        box = QtCore.QRectF(cx - ra, cy - ra, 2 * ra, 2 * ra)
         start, sweep = 225.0, -270.0
-        pen = QtGui.QPen(qc(CARD2), th, Qt.SolidLine, Qt.FlatCap)
-        p.setPen(pen)
+        frac = None if self.value is None else max(0.0, min(1.0, float(self.value) / self.maximum))
+        # disque de fond : léger dégradé radial, donne du relief
+        rg = QtGui.QRadialGradient(QtCore.QPointF(cx, cy - r * 0.25), r * 1.15)
+        rg.setColorAt(0.0, qc("#17283d"))
+        rg.setColorAt(0.75, qc(CARD))
+        rg.setColorAt(1.0, qc(BG))
+        p.setPen(Qt.NoPen)
+        p.setBrush(rg)
+        p.drawEllipse(QtCore.QPointF(cx, cy), r + th * 0.35, r + th * 0.35)
+        # piste de l'arc
+        p.setBrush(Qt.NoBrush)
+        p.setPen(QtGui.QPen(qc("#223249"), th, Qt.SolidLine, Qt.RoundCap))
         p.drawArc(box, int(start * 16), int(sweep * 16))
-        if self.value is not None:
-            frac = max(0.0, min(1.0, float(self.value) / self.maximum))
-            n = int(frac * 60) + 1
-            for i in range(n):
-                f0, f1 = i / 60, min(frac, (i + 1) / 60)
-                if f1 <= f0 + 1e-9:
-                    continue
-                p.setPen(QtGui.QPen(qc(self.color_fn((f0 + f1) / 2)), th, Qt.SolidLine, Qt.FlatCap))
-                p.drawArc(box, int((start + sweep * f0) * 16), int(sweep * (f1 - f0) * 16 - 1))
-        ri = r - th / 2 - 3
-        for i in range(41):
-            a = math.radians(start + sweep * i / 40)
+        # zones : fine bande colorée sous la piste (rouge de la zone rouge, etc.)
+        zr = ra - th * 0.95
+        zbox = QtCore.QRectF(cx - zr, cy - zr, 2 * zr, 2 * zr)
+        nz = 90
+        for i in range(nz):
+            f0, f1 = i / nz, (i + 1) / nz
+            p.setPen(QtGui.QPen(qc(self.color_fn((f0 + f1) / 2), 150), max(2.0, th * 0.22), Qt.SolidLine, Qt.FlatCap))
+            p.drawArc(zbox, int((start + sweep * f0) * 16), int(sweep * (f1 - f0) * 16 - 1))
+        # arc de valeur : lueur puis trait net, couleur par zone
+        if frac is not None and frac > 0:
+            nseg = max(2, int(frac * 90))
+            for glow, wd, al in ((1, th * 2.1, 40), (0, th, 255)):
+                for i in range(nseg):
+                    f0, f1 = frac * i / nseg, frac * (i + 1) / nseg
+                    col = qc(self.color_fn((f0 + f1) / 2), al)
+                    cap = Qt.RoundCap if (i == 0 or i == nseg - 1) and not glow else Qt.FlatCap
+                    p.setPen(QtGui.QPen(col, wd, Qt.SolidLine, cap))
+                    p.drawArc(box, int((start + sweep * f0) * 16), int(sweep * (f1 - f0) * 16 - (0 if i == nseg - 1 else 1)))
+        # graduations fines (grandes tous les 5) à l'intérieur de la bande de zones
+        ri = zr - th * 0.55
+        for i in range(51):
+            a = math.radians(start + sweep * i / 50)
             major = i % 5 == 0
-            r2 = ri - (th * 0.9 if major else th * 0.4)
-            p.setPen(QtGui.QPen(qc(SUB if major else MUTED), 2 if major else 1))
+            r2 = ri - (th * 0.75 if major else th * 0.32)
+            on = frac is not None and i / 50 <= frac + 1e-9
+            p.setPen(QtGui.QPen(qc(TEXT if (major and on) else SUB if major else MUTED, 230 if major else 140), 1.6 if major else 1))
             p.drawLine(QtCore.QPointF(cx + ri * math.cos(a), cy - ri * math.sin(a)),
                        QtCore.QPointF(cx + r2 * math.cos(a), cy - r2 * math.sin(a)))
-        p.setFont(font(max(9, r * 0.1), True))
-        p.setPen(qc(SUB))
-        for frac, label in self.ticks:
-            a = math.radians(start + sweep * frac)
-            lr = ri - th * 2.2
+        p.setFont(font(max(9, r * 0.095), True))
+        for f, label in self.ticks:
+            a = math.radians(start + sweep * f)
+            lr = ri - th * 2.0
+            p.setPen(qc(SUB))
             p.drawText(QtCore.QRectF(cx + lr * math.cos(a) - 30, cy - lr * math.sin(a) - 10, 60, 20), Qt.AlignCenter, label)
-        val = "—" if self.value is None else f"{self.value:,.0f}".replace(",", " ")
-        p.setFont(font(max(16, r * 0.3), True))
-        p.setPen(qc(TEXT))
-        p.drawText(QtCore.QRectF(cx - r, cy - r * 0.38, 2 * r, r * 0.5), Qt.AlignCenter, val)
-        p.setFont(font(max(9, r * 0.12)))
-        p.setPen(qc(SUB))
-        p.drawText(QtCore.QRectF(cx - r, cy + r * 0.12, 2 * r, r * 0.3), Qt.AlignCenter, self.unit)
-        # aiguille
-        if self.value is not None:
-            frac = max(0.0, min(1.0, float(self.value) / self.maximum))
+        # pastille lumineuse en bout d'arc
+        if frac is not None:
             a = math.radians(start + sweep * frac)
-            tip = QtCore.QPointF(cx + (ri - th) * math.cos(a), cy - (ri - th) * math.sin(a))
-            base = QtCore.QPointF(cx + ri * 0.62 * math.cos(a), cy - ri * 0.62 * math.sin(a))
-            p.setPen(QtGui.QPen(qc(TEXT), 3, Qt.SolidLine, Qt.RoundCap))
-            p.drawLine(base, tip)
+            tip = QtCore.QPointF(cx + ra * math.cos(a), cy - ra * math.sin(a))
+            col = self.color_fn(frac)
+            p.setPen(Qt.NoPen)
+            p.setBrush(qc(col, 70))
+            p.drawEllipse(tip, th * 1.35, th * 1.35)
+            p.setBrush(qc("#ffffff"))
+            p.drawEllipse(tip, th * 0.5, th * 0.5)
+        # valeur : grande, chiffres nets ; unité en petit dessous
+        val = "—" if self.value is None else f"{self.value:,.0f}".replace(",", " ")
+        p.setFont(font(max(18, r * 0.36), True))
+        p.setPen(qc(TEXT))
+        p.drawText(QtCore.QRectF(cx - r, cy - r * 0.34, 2 * r, r * 0.52), Qt.AlignCenter, val)
+        p.setFont(font(max(9, r * 0.115), True))
+        p.setPen(qc(self.color_fn(frac) if frac is not None else SUB))
+        p.drawText(QtCore.QRectF(cx - r, cy + r * 0.20, 2 * r, r * 0.22), Qt.AlignCenter, self.unit.upper())
 
 
 class Bar(Animated):
@@ -709,6 +734,39 @@ class TileBoard(QtWidgets.QScrollArea):
 
 
 # ------------------------------------------------------------------ liste des signaux
+class _SignalDelegate(QtWidgets.QStyledItemDelegate):
+    """Peint chaque signal en pastille : la couleur de sa courbe quand il est tracé (le style QSS ignorait la couleur d'élément)."""
+
+    def sizeHint(self, option, index):
+        return QtCore.QSize(option.rect.width(), 28)
+
+    def paint(self, p, option, index):
+        p.save()
+        p.setRenderHint(QtGui.QPainter.Antialiasing)
+        r = QtCore.QRectF(option.rect).adjusted(2, 1, -2, -1)
+        is_group = not index.parent().isValid()
+        if not is_group:
+            bg = index.data(Qt.BackgroundRole)
+            on = bool(index.data(Qt.UserRole + 1))
+            col = bg.color() if isinstance(bg, QtGui.QBrush) else qc(CARD2)
+            if not on and option.state & QtWidgets.QStyle.State_MouseOver:
+                col = qc(HOVER)
+            p.setPen(Qt.NoPen)
+            p.setBrush(col)
+            p.drawRoundedRect(r, 5, 5)
+            if on:  # liseré clair : la sélection se voit même si la couleur est proche du fond
+                p.setPen(QtGui.QPen(qc("#ffffff", 120), 1))
+                p.setBrush(Qt.NoBrush)
+                p.drawRoundedRect(r.adjusted(0.5, 0.5, -0.5, -0.5), 5, 5)
+        fg = index.data(Qt.ForegroundRole)
+        p.setPen(fg.color() if isinstance(fg, QtGui.QBrush) else qc(TEXT))
+        f = index.data(Qt.FontRole)
+        p.setFont(f if isinstance(f, QtGui.QFont) else font(12, True))
+        p.drawText(r.adjusted(10 if not is_group else 2, 0, -6, 0), Qt.AlignVCenter | Qt.AlignLeft,
+                   str(index.data(Qt.DisplayRole) or ""))
+        p.restore()
+
+
 class GroupedSignalList(QtWidgets.QTreeWidget):
     """Signaux classés par type (GPS, CAN, capteurs…) ; un clic ajoute ou retire la courbe, un clic sur un titre replie."""
 
@@ -723,10 +781,9 @@ class GroupedSignalList(QtWidgets.QTreeWidget):
         self.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
         self.setSelectionMode(QtWidgets.QAbstractItemView.NoSelection)
         self.setFocusPolicy(Qt.NoFocus)
-        self.setStyleSheet(
-            f"QTreeWidget{{background:{CARD};border:1px solid {BORDER};border-radius:8px;outline:0;}}"
-            f"QTreeWidget::item{{height:26px;border-radius:4px;margin:1px 2px;}}"
-            f"QTreeWidget::item:hover{{background:{HOVER};}}")
+        self.setStyleSheet(f"QTreeWidget{{background:{CARD};border:1px solid {BORDER};border-radius:8px;outline:0;}}")
+        self.setItemDelegate(_SignalDelegate(self))
+        self.setMouseTracking(True)
         self.items, self.sel, self._sig, self.groups = {}, set(), None, []
         self.itemClicked.connect(self._click)
 
@@ -758,6 +815,7 @@ class GroupedSignalList(QtWidgets.QTreeWidget):
         self.sel = set(selected)
         for key, (child, has_data) in self.items.items():
             on = key in self.sel
+            child.setData(0, Qt.UserRole + 1, on)
             child.setBackground(0, QtGui.QBrush(qc(self.color_of(key)) if on else qc(CARD2)))
             child.setForeground(0, QtGui.QBrush(qc(BG if on else (SUB if has_data else MUTED))))
         for i in range(self.topLevelItemCount()):

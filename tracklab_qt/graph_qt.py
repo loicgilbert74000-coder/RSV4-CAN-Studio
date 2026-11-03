@@ -1,5 +1,6 @@
 """Page Courbes (Qt + pyqtgraph) : superposées ou empilées, zoom à la molette, déplacement, curseur de lecture."""
 
+import bisect
 import math
 import time
 
@@ -11,8 +12,20 @@ from tracklab.config import WINDOWS
 from tracklab.theme import BG, BORDER, CARD, CARD2, CYAN, GREEN, HOVER, MUTED, SUB, TEXT, YELLOW
 from tracklab.util import fmt_val
 
+from .satmap import ATTRIBUTION, MAX_TILES, TileStore, choose_zoom, world_px
 from .widgets_qt import Card, GroupedSignalList, Label, Qt, font, painter, qc
 
+def painter_on(pm):
+    q = QtGui.QPainter(pm)
+    q.setRenderHints(QtGui.QPainter.Antialiasing | QtGui.QPainter.TextAntialiasing | QtGui.QPainter.SmoothPixmapTransform)
+    return q
+
+
+SPLIT_QSS = (f"QSplitter::handle{{background:{BORDER};}}"
+             f"QSplitter::handle:horizontal{{image:none;margin:0 3px;border-radius:2px;}}"
+             f"QSplitter::handle:vertical{{margin:3px 0;border-radius:2px;}}"
+             f"QSplitter::handle:hover{{background:{CYAN};}}"
+             f"QSplitter::handle:pressed{{background:{CYAN};}}")
 PEN_W = 1  # trait fin : le rendu logiciel de Qt est ~40 fois plus lent avec des traits épais
 
 
@@ -55,57 +68,172 @@ class RefAxis(pg.AxisItem):
 
 
 class CircuitMap(QtWidgets.QWidget):
-    """Tracé GPS du circuit avec la position courante."""
+    """Circuit GPS : tracé complet dès l'ouverture du fichier, sur fond satellite, avec un point qui suit le curseur."""
 
     def __init__(self, core):
         super().__init__()
         self.core = core
-        self._state = None
-        self.setMinimumHeight(170)
+        self.store = TileStore(self)
+        self.store.changed.connect(self._tiles_changed)
+        self._base = None
+        self._base_key = None
+        self._geo = None  # (points, bbox, zoom) du dernier calcul
+        self._geo_key = None
+        self._shown = None
+        self._last_geo = 0.0
+        self._pts, self._pts_key, self._pts_t = None, None, 0.0
+        self.setMinimumHeight(110)
+
+    def _tiles_changed(self):
+        self._base_key = None
+        self.update()
+
+    # ---------------------------------------------------------------- données
+    def points(self):
+        c = self.core
+        file_mode = not c.live and c.frames and c.track_full
+        key = (id(c.track_full), len(c.track_full), bool(file_mode), None if file_mode else len(c.track))
+        now = time.monotonic()
+        if key != self._pts_key and not (not file_mode and self._pts is not None and now - self._pts_t < 0.6):
+            pts = [(la, lo) for _t, la, lo in c.track_full] if file_mode else list(c.track)
+            self._pts = [q for q in pts if abs(q[0]) > 1e-6 or abs(q[1]) > 1e-6]
+            self._pts_key, self._pts_t = key, now
+        return self._pts or []
+
+    def position(self):
+        c = self.core
+        if not c.live and c.frames and c.track_full:
+            ts = c.track_full_t
+            t = c.cursor_ms()
+            i = bisect.bisect_right(ts, t)
+            if i <= 0:
+                q = c.track_full[0]
+                return q[1], q[2]
+            if i >= len(ts):
+                q = c.track_full[-1]
+                return q[1], q[2]
+            a, b = c.track_full[i - 1], c.track_full[i]
+            f = (t - a[0]) / ((b[0] - a[0]) or 1)
+            return a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f
+        return (c.track[-1][0], c.track[-1][1]) if c.track else None
 
     def tick(self):
         c = self.core
-        st = (len(c.track), c.track[-1] if c.track else None, self.width(), self.height())
-        if st != self._state:
-            self._state = st
+        pos = self.position()
+        st = (pos, len(c.track), len(c.track_full), c.live, self.width(), self.height())
+        if st != self._shown:
+            self._shown = st
             self.update()
+
+    # ---------------------------------------------------------------- dessin
+    def _geometry(self, pts, w, h):
+        lats, lons = [q[0] for q in pts], [q[1] for q in pts]
+        la0, la1, lo0, lo1 = min(lats), max(lats), min(lons), max(lons)
+        top, pad = 26, 14
+        aw, ah = w - 2 * pad, h - top - pad
+        z = choose_zoom(la0, la1, lo0, lo1, max(aw, 40), max(ah, 40))
+        x0, y1 = world_px(la0, lo0, z)
+        x1, y0 = world_px(la1, lo1, z)
+        bw, bh = max(x1 - x0, 1.0), max(y1 - y0, 1.0)
+        k = min(aw / bw, ah / bh)
+        cxw, cyw = (x0 + x1) / 2, (y0 + y1) / 2
+        ox, oy = w / 2 - cxw * k, top + ah / 2 - cyw * k + pad / 2
+        return z, k, ox, oy
+
+    def _xy(self, geo, la, lo):
+        z, k, ox, oy = geo
+        x, y = world_px(la, lo, z)
+        return QtCore.QPointF(ox + x * k, oy + y * k)
+
+    def _render_base(self, pts, w, h):
+        dpr = self.devicePixelRatioF()
+        pm = QtGui.QPixmap(int(w * dpr), int(h * dpr))
+        pm.setDevicePixelRatio(dpr)
+        pm.fill(qc(CARD))
+        q = painter_on(pm)
+        clip = QtGui.QPainterPath()
+        clip.addRoundedRect(QtCore.QRectF(0.5, 0.5, w - 1, h - 1), 10, 10)
+        q.setClipPath(clip)
+        geo = self._geometry(pts, w, h)
+        z, k, ox, oy = geo
+        missing = 0
+        n = 2 ** z
+        tx0, tx1 = int(math.floor((0 - ox) / k / 256)), int(math.floor((w - ox) / k / 256))
+        ty0, ty1 = int(math.floor((0 - oy) / k / 256)), int(math.floor((h - oy) / k / 256))
+        if (tx1 - tx0 + 1) * (ty1 - ty0 + 1) <= MAX_TILES:
+            for ty in range(max(ty0, 0), min(ty1, n - 1) + 1):
+                for tx in range(max(tx0, 0), min(tx1, n - 1) + 1):
+                    tile = self.store.get(z, tx, ty)
+                    if tile is None:
+                        missing += 1
+                        continue
+                    q.drawPixmap(QtCore.QRectF(ox + tx * 256 * k, oy + ty * 256 * k, 256 * k + 0.6, 256 * k + 0.6), tile,
+                                 QtCore.QRectF(tile.rect()))
+        sat = len(self.store.mem) > 0 and missing < (tx1 - tx0 + 1) * (ty1 - ty0 + 1)
+        if sat:
+            q.fillRect(QtCore.QRectF(0, 0, w, h), qc("#000000", 70))
+        step = max(1, len(pts) // 2000)
+        sample = pts[::step]
+        if sample[-1] != pts[-1]:
+            sample.append(pts[-1])
+        path = QtGui.QPainterPath(self._xy(geo, *sample[0]))
+        for pt in sample[1:]:
+            path.lineTo(self._xy(geo, *pt))
+        q.setBrush(Qt.NoBrush)
+        q.setPen(QtGui.QPen(qc("#000000", 170), 5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))  # liseré sombre : lisible sur l'image
+        q.drawPath(path)
+        q.setPen(QtGui.QPen(qc(CYAN), 3, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        q.drawPath(path)
+        # départ
+        q.setPen(QtGui.QPen(qc("#ffffff"), 2))
+        q.setBrush(qc(BG))
+        q.drawEllipse(self._xy(geo, *pts[0]), 4, 4)
+        if sat:
+            q.setFont(font(9))
+            q.setPen(qc("#ffffff", 190))
+            q.drawText(QtCore.QRectF(0, h - 16, w - 8, 14), Qt.AlignRight | Qt.AlignVCenter, ATTRIBUTION)
+        q.end()
+        return pm, geo
 
     def paintEvent(self, _e):
         p = painter(self)
         w, h = self.width(), self.height()
-        p.setFont(font(12, True))
-        p.setPen(qc(SUB))
-        p.drawText(QtCore.QPointF(10, 18), "Circuit")
-        pts = list(self.core.track)
+        pts = self.points()
         if len(pts) < 2:
+            self._base = None
+            p.setFont(font(12, True))
+            p.setPen(qc(SUB))
+            p.drawText(QtCore.QPointF(10, 18), "Circuit")
             p.setFont(font(12))
             p.setPen(qc(MUTED))
             p.drawText(QtCore.QRectF(0, 0, w, h), Qt.AlignCenter, "Pas de données GPS dans cette source")
             return
-        lats, lons = [q[0] for q in pts], [q[1] for q in pts]
-        mnla, mxla, mnlo, mxlo = min(lats), max(lats), min(lons), max(lons)
-        kx = math.cos(math.radians((mnla + mxla) / 2))
-        dx, dy = max((mxlo - mnlo) * kx, 1e-7), max(mxla - mnla, 1e-7)
-        scale = min((w - 30) / dx, (h - 44) / dy)
-        ox, oy = (w - dx * scale) / 2, 26 + (h - 44 - dy * scale) / 2
-
-        def xy(la, lo):
-            return QtCore.QPointF(ox + (lo - mnlo) * kx * scale, oy + (mxla - la) * scale)
-
-        step = max(1, len(pts) // 1500)
-        sample = pts[::step]
-        if sample[-1] != pts[-1]:
-            sample.append(pts[-1])
-        path = QtGui.QPainterPath(xy(*sample[0]))
-        for q in sample[1:]:
-            path.lineTo(xy(*q))
-        p.setPen(QtGui.QPen(qc(CYAN), 2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-        p.drawPath(path)
-        p.setPen(Qt.NoPen)
-        p.setBrush(qc(GREEN, 70))
-        p.drawEllipse(xy(*pts[-1]), 9, 9)
-        p.setBrush(qc(GREEN))
-        p.drawEllipse(xy(*pts[-1]), 5, 5)
+        c = self.core
+        key = (w, h, len(pts), pts[-1], pts[0], len(self.store.mem))
+        if key != self._base_key or self._base is None:
+            now = time.monotonic()
+            if c.live and self._base is not None and now - self._last_geo < 0.6:
+                pass  # en direct, le fond n'est recalculé que de temps en temps
+            else:
+                self._base, self._geo = self._render_base(pts, w, h)
+                self._base_key = key
+                self._last_geo = now
+        p.drawPixmap(0, 0, self._base)
+        p.setFont(font(12, True))
+        p.setPen(qc("#000000", 160))
+        p.drawText(QtCore.QPointF(11, 19), "Circuit")
+        p.setPen(qc(TEXT))
+        p.drawText(QtCore.QPointF(10, 18), "Circuit")
+        pos = self.position()
+        if pos and self._geo:
+            pt = self._xy(self._geo, *pos)
+            p.setPen(Qt.NoPen)
+            p.setBrush(qc(GREEN, 60))
+            p.drawEllipse(pt, 11, 11)
+            p.setBrush(qc("#ffffff"))
+            p.drawEllipse(pt, 6.5, 6.5)
+            p.setBrush(qc(GREEN))
+            p.drawEllipse(pt, 4.5, 4.5)
 
 
 class LegendRow(QtWidgets.QFrame):
@@ -165,28 +293,42 @@ class GraphPage(QtWidgets.QWidget):
         self._fit = False
         core.signal_list = None
 
-        root = QtWidgets.QHBoxLayout(self)
-        root.setContentsMargins(18, 0, 18, 0)
-        root.setSpacing(10)
+        outer = QtWidgets.QHBoxLayout(self)
+        outer.setContentsMargins(18, 0, 18, 0)
+        # trois volets séparés par des poignées qu'on glisse : (circuit + signaux) | courbes | légende
+        self.split = QtWidgets.QSplitter(Qt.Horizontal)
+        self.split.setHandleWidth(8)
+        self.split.setChildrenCollapsible(False)
+        self.split.setStyleSheet(SPLIT_QSS)
+        outer.addWidget(self.split)
 
-        # ---- gauche : circuit + liste des signaux
-        left = QtWidgets.QVBoxLayout()
-        left.setSpacing(8)
+        # ---- gauche : circuit + liste des signaux (séparés verticalement)
+        self.lsplit = QtWidgets.QSplitter(Qt.Vertical)
+        self.lsplit.setHandleWidth(8)
+        self.lsplit.setChildrenCollapsible(False)
+        self.lsplit.setStyleSheet(SPLIT_QSS)
         card = Card()
         cl = QtWidgets.QVBoxLayout(card)
         cl.setContentsMargins(0, 0, 0, 0)
         self.map = CircuitMap(core)
         cl.addWidget(self.map)
-        left.addWidget(card)
+        self.lsplit.addWidget(card)
+        lbox = QtWidgets.QWidget()
+        left = QtWidgets.QVBoxLayout(lbox)
+        left.setContentsMargins(0, 0, 0, 0)
+        left.setSpacing(6)
         head = Label("Signaux · cliquer pour tracer ou retirer", SUB, 12, True)
         left.addWidget(head)
         self.list = GroupedSignalList(core.toggle_curve, core.color_of)
         core.signal_list = self.list
         left.addWidget(self.list, 1)
-        lw = QtWidgets.QWidget()
-        lw.setLayout(left)
-        lw.setFixedWidth(300)
-        root.addWidget(lw)
+        lbox.setMinimumHeight(140)
+        self.lsplit.addWidget(lbox)
+        self.lsplit.setStretchFactor(0, 0)
+        self.lsplit.setStretchFactor(1, 1)
+        self.lsplit.setSizes([260, 500])
+        self.lsplit.setMinimumWidth(190)
+        self.split.addWidget(self.lsplit)
 
         # ---- centre : barre d'outils + courbes
         centre = QtWidgets.QVBoxLayout()
@@ -235,7 +377,8 @@ class GraphPage(QtWidgets.QWidget):
         centre.addLayout(foot)
         cw = QtWidgets.QWidget()
         cw.setLayout(centre)
-        root.addWidget(cw, 1)
+        cw.setMinimumWidth(360)
+        self.split.addWidget(cw)
 
         # ---- droite : légende
         right = QtWidgets.QVBoxLayout()
@@ -253,8 +396,15 @@ class GraphPage(QtWidgets.QWidget):
         right.addWidget(sc, 1)
         rw = QtWidgets.QWidget()
         rw.setLayout(right)
-        rw.setFixedWidth(250)
-        root.addWidget(rw)
+        rw.setMinimumWidth(170)
+        self.split.addWidget(rw)
+        self.split.setStretchFactor(0, 0)
+        self.split.setStretchFactor(1, 1)
+        self.split.setStretchFactor(2, 0)
+        self.split.setSizes([300, 900, 250])
+        self._restore_layout()
+        self.split.splitterMoved.connect(self._save_layout)
+        self.lsplit.splitterMoved.connect(self._save_layout)
 
         self.timer = QtCore.QTimer(self)
         self.timer.setInterval(16)
@@ -262,6 +412,24 @@ class GraphPage(QtWidgets.QWidget):
         self.timer.start()
 
     # ------------------------------------------------------------------ petits composants
+    def _restore_layout(self):
+        try:
+            st = QtCore.QSettings("TrackLab", "TrackLabQt")
+            for name, sp in (("split", self.split), ("lsplit", self.lsplit)):
+                v = st.value("courbes/" + name)
+                if v:
+                    sp.restoreState(v)
+        except Exception:
+            pass
+
+    def _save_layout(self, *_a):
+        try:
+            st = QtCore.QSettings("TrackLab", "TrackLabQt")
+            st.setValue("courbes/split", self.split.saveState())
+            st.setValue("courbes/lsplit", self.lsplit.saveState())
+        except Exception:
+            pass
+
     @staticmethod
     def _tab(text):
         b = QtWidgets.QPushButton(text)
@@ -293,12 +461,22 @@ class GraphPage(QtWidgets.QWidget):
             ts = c.full_t[key]
             hit = self._np.get(key)
             if hit is None or hit[0] is not ts:
-                hit = self._np[key] = (ts, np.asarray(ts, dtype=np.float64) / 1000.0, np.asarray(c.full_v[key], dtype=np.float64))
+                t = np.asarray(ts, dtype=np.float64) / 1000.0
+                v = np.asarray(c.full_v[key], dtype=np.float64)
+                n = min(len(t), len(v))
+                t, v = t[:n], v[:n]
+                ok = np.isfinite(t) & np.isfinite(v)  # un NaN ou une valeur infinie fait planter le tracé (skipFiniteCheck)
+                if not ok.all():
+                    t, v = t[ok], v[ok]
+                hit = self._np[key] = (ts, t, v)
             return hit[1], hit[2]
         h = c.hist.get(key)
         if not h:
             return np.empty(0), np.empty(0)
         a = np.asarray(h, dtype=np.float64)
+        ok = np.isfinite(a[:, 0]) & np.isfinite(a[:, 1])
+        if not ok.all():
+            a = a[ok]
         return a[:, 0] / 1000.0 - self.t_off(), a[:, 1]
 
     def bounds(self):

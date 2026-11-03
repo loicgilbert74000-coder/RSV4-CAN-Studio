@@ -150,6 +150,64 @@ def live_test(app, win):
     pump(app, 0.3)
 
 
+def stress_signals(app, win):
+    """Sélectionne chaque signal (un par un, puis par lots) en superposé et en empilé : aucun ne doit faire planter."""
+    core, g = win.core, win.graph
+    core.show_page("graph")
+    pump(app, 0.3)
+    keys = [it[0] for _t, items in core.signal_groups() for it in items]
+    for k in list(core.sel):
+        core.toggle_curve(k)
+    pump(app, 0.2)
+    n = 0
+    for stacked in (False, True):
+        core.stack.set(stacked)
+        pump(app, 0.2)
+        for k in keys:
+            core.toggle_curve(k)
+            pump(app, 0.04)
+            core.toggle_curve(k)
+            pump(app, 0.02)
+            n += 1
+        for i in range(0, len(keys), 7):  # lots de 7 signaux
+            batch = keys[i:i + 7]
+            for k in batch:
+                core.toggle_curve(k)
+            pump(app, 0.1)
+            for k in batch:
+                core.toggle_curve(k)
+            pump(app, 0.05)
+    core.stack.set(False)
+    pump(app, 0.2)
+    print(f"signaux : {n} sélections une à une + lots, superposé et empilé, sans plantage", flush=True)
+
+
+def circuit_test(app, win):
+    """Circuit : tracé complet dès l'ouverture, point qui suit le curseur, fond satellite si le réseau répond."""
+    core, g = win.core, win.graph
+    for k in list(core.sel):
+        core.toggle_curve(k)
+    core.toggle_curve(next(iter(core.full_t)))
+    core.show_page("graph")
+    win.resize(1536, 960)
+    core.seek(0.2)
+    pump(app, 5.0)
+    pts = g.map.points()
+    print(f"circuit : {len(pts)} points GPS tracés d'emblée, fond satellite : {len(g.map.store.mem)} tuiles, "
+          f"échecs {sum(g.map.store.failed.values())}", flush=True)
+    assert len(pts) > 50, "circuit non tracé à l'ouverture"
+    a = g.map.position()
+    core.seek(0.7)
+    pump(app, 0.5)
+    b = g.map.position()
+    assert a != b, "le point ne suit pas le curseur"
+    emit_image("circuit", g.map.grab())
+    emit_image("graph_circuit", win.grab())
+    core.show_page("tele")
+    pump(app, 1.0)
+    emit_image("compteurs", win.grab())
+
+
 def run_selftest(app, win, args):
     path = args[0]
     core = win.core
@@ -210,6 +268,8 @@ def run_selftest(app, win, args):
     print(f"lecture x4 : pas de boucle med {gaps[len(gaps) // 2]:.1f} ms · p95 {gaps[int(len(gaps) * .95)]:.1f} · "
           f"max {gaps[-1]:.1f} ({len(gaps)} pas) · curseur {core.cursor_ms() / 1000:.1f} s", flush=True)
     core.pause()
+    stress_signals(app, win)
+    circuit_test(app, win)
     ui_test(app, win)
     live_test(app, win)
     print("OK : TrackLab Qt", flush=True)
