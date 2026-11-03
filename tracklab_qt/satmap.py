@@ -5,8 +5,11 @@ simplement tracé sur fond sombre."""
 
 import math
 import os
+import queue
+import threading
+import urllib.request
 
-from PySide6 import QtCore, QtGui, QtNetwork
+from PySide6 import QtCore, QtGui
 
 URL = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
 ATTRIBUTION = "Imagerie © Esri, Maxar, Earthstar Geographics"
@@ -25,7 +28,10 @@ def world_px(lat, lon, z):
 
 
 class TileStore(QtCore.QObject):
-    """Mémoire + disque + réseau pour les tuiles ; `changed` est émis quand une tuile arrive."""
+    """Mémoire + disque + réseau pour les tuiles ; `changed` est émis quand une tuile arrive.
+
+    Les téléchargements se font dans des threads Python (urllib) : le réseau de Qt, appelé depuis le dessin, corrompait
+    la mémoire. Les images sont décodées dans le fil de l'interface, par un minuteur."""
 
     changed = QtCore.Signal()
 
@@ -36,13 +42,13 @@ class TileStore(QtCore.QObject):
         self.mem = {}
         self.pending = set()
         self.failed = {}
-        self.net = None
+        self.done = queue.Queue()
+        self.todo = queue.Queue()
+        self.workers = 0
         self.enabled = os.environ.get("TRACKLAB_NO_TILES") != "1"
-
-    def _manager(self):
-        if self.net is None:
-            self.net = QtNetwork.QNetworkAccessManager(self)
-        return self.net
+        self.timer = QtCore.QTimer(self)
+        self.timer.setInterval(120)
+        self.timer.timeout.connect(self._poll)
 
     def get(self, z, x, y):
         key = (z, x, y)
@@ -57,32 +63,55 @@ class TileStore(QtCore.QObject):
                 return pm
         if self.enabled and key not in self.pending and self.failed.get(key, 0) < 2 and len(self.pending) < 64:
             self.pending.add(key)
-            req = QtNetwork.QNetworkRequest(QtCore.QUrl(URL.format(z=z, x=x, y=y)))
-            req.setHeader(QtNetwork.QNetworkRequest.UserAgentHeader, "TrackLab/0.6")
-            req.setTransferTimeout(8000)
-            rep = self._manager().get(req)
-            rep.finished.connect(lambda r=rep, k=key, p=path: self._done(r, k, p))
+            self.todo.put((key, path))
+            while self.workers < 4:
+                self.workers += 1
+                threading.Thread(target=self._work, daemon=True).start()
+            if not self.timer.isActive():
+                self.timer.start()
         return None
 
-    def _done(self, rep, key, path):
-        self.pending.discard(key)
-        try:
-            if rep.error() == QtNetwork.QNetworkReply.NoError:
-                data = bytes(rep.readAll())
-                pm = QtGui.QPixmap()
-                if pm.loadFromData(data):
-                    try:
-                        os.makedirs(os.path.dirname(path), exist_ok=True)
-                        with open(path, "wb") as f:
-                            f.write(data)
-                    except OSError:
-                        pass
-                    self.mem[key] = pm
-                    self.changed.emit()
-                    return
-            self.failed[key] = self.failed.get(key, 0) + 1
-        finally:
-            rep.deleteLater()
+    def _work(self):
+        """Fil de téléchargement : ne touche à aucun objet Qt."""
+        while True:
+            try:
+                key, path = self.todo.get(timeout=20)
+            except queue.Empty:
+                self.workers -= 1
+                return
+            ok = False
+            try:
+                z, x, y = key
+                req = urllib.request.Request(URL.format(z=z, x=x, y=y), headers={"User-Agent": "TrackLab/0.6"})
+                with urllib.request.urlopen(req, timeout=8) as r:
+                    data = r.read()
+                if data[:2] == b"\xff\xd8" or data[:4] == b"\x89PNG":
+                    os.makedirs(os.path.dirname(path), exist_ok=True)
+                    with open(path, "wb") as f:
+                        f.write(data)
+                    ok = True
+            except Exception:
+                pass
+            self.done.put((key, path, ok))
+
+    def _poll(self):
+        got = False
+        while True:
+            try:
+                key, path, ok = self.done.get_nowait()
+            except queue.Empty:
+                break
+            self.pending.discard(key)
+            pm = QtGui.QPixmap(path) if ok else None
+            if pm is not None and not pm.isNull():
+                self.mem[key] = pm
+                got = True
+            else:
+                self.failed[key] = self.failed.get(key, 0) + 1
+        if not self.pending:
+            self.timer.stop()
+        if got:
+            self.changed.emit()
 
 
 def choose_zoom(lat0, lat1, lon0, lon1, w, h):
