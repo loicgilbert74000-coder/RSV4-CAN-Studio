@@ -152,21 +152,21 @@ class ConnectionMixin:
             try:
                 tcp = int(self.tcp_port.get())
             except ValueError:
-                messagebox.showerror("Connexion Wi-Fi", "Port TCP invalide.")
+                self.dlg.showerror("Connexion Wi-Fi", "Port TCP invalide.")
                 return
             host = self.host.get().strip()
             target = f"{host}:{tcp}"
             msg = f"Connexion Wi-Fi à l'ESP32 ({target}).\nL'ESP32 doit être en écoute seule (listen-only), comme le mode Silent.\n\n"
         else:
             if serial is None:
-                messagebox.showerror("Dépendance", "pyserial manquant")
+                self.dlg.showerror("Dépendance", "pyserial manquant")
                 return
             br = self.model["bitrate"]
             if br is None:
                 msg = "Le débit CAN de cette moto n'est pas défini dans l'application.\nRéglez le débit du véhicule dans USBCAN avant de continuer, puis fermer USBCAN.\n\n"
             else:
                 msg = f"Configurer l'adaptateur en mode Silent et CAN {br} avec USBCAN, puis fermer USBCAN.\n\n"
-        if not messagebox.askokcancel(
+        if not self.dlg.askokcancel(
             "Sécurité CAN",
             msg + "Cette application n'envoie aucune commande, et ne peut pas vérifier que le mode Silent reste actif.\n\nContinuer ?",
         ):

@@ -6,7 +6,7 @@ import bisect
 import time
 import tkinter as tk
 from collections import Counter, deque
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 
 from .config import DEFAULT_CURVES, MODELS, SPEEDS
 from .connection import ConnectionMixin
@@ -24,8 +24,20 @@ from .recording import fmt_size
 from .widgets import NavIcon, make_dot, set_dot
 
 
+class TkDialogs:
+    """Boîtes de dialogue (version tkinter) ; l'interface Qt fournit les mêmes méthodes."""
+
+    def __getattr__(self, name):  # appel différé : les tests peuvent remplacer les fonctions de tkinter
+        mod = filedialog if name.startswith("ask") and name.endswith("filename") else messagebox
+        return getattr(mod, name)
+
+
 class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, DecodingMixin, ConnectionMixin, RecordingMixin):
     """Fenêtre principale."""
+
+    def mkvar(self, value):
+        """Variable observable (tkinter) ; l'interface Qt fournit sa propre version."""
+        return {str: tk.StringVar, float: tk.DoubleVar, bool: tk.BooleanVar}[type(value)](value=value)
 
     def __init__(self):
         self.root = tk.Tk()
@@ -40,20 +52,37 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
         except Exception:
             pass
         self.root.configure(bg=BG)
+        self.init_state()
+        self.build_esp_vars()
+        self.set_styles()
+        self.build_footer()
+        self.build_main()
+        self.apply_model("rsv4")
+        self.show_page("tele")
+        self.set_conn_ui(False, "Déconnecté")
+        self.set_state("Prêt · ouvrez une capture", MUTED)
+        self.root.after(40, self.tick)
+        self.root.after(16, self.paint_chart)
+        self.root.after(16, self.anim_tele)
+        self.root.after(400, self.paint_map)
+
+    def init_state(self):
+        """État de l'application sans aucun élément d'interface (partagé avec la version Qt)."""
+        self.dlg = getattr(self, 'dlg', None) or TkDialogs()
         self.frames = []
         self.idx = 0
         self.playing = False
-        self.speed = tk.DoubleVar(value=1.0)
-        self.status = tk.StringVar(value="Prêt · ouvrez une capture")
-        self.file_name = tk.StringVar(value="Aucun fichier")
-        self.clock = tk.StringVar(value="00:00 / 00:00")
-        self.transport = tk.StringVar(value="Wi-Fi ESP32")
-        self.port = tk.StringVar(value="COM7")
-        self.baud = tk.StringVar(value="2000000")
-        self.host = tk.StringVar(value="192.168.4.1")
-        self.tcp_port = tk.StringVar(value="2323")
-        self.experimental = tk.BooleanVar(value=True)
-        self.filter_on = tk.BooleanVar(value=True)
+        self.speed = self.mkvar(1.0)
+        self.status = self.mkvar("Prêt · ouvrez une capture")
+        self.file_name = self.mkvar("Aucun fichier")
+        self.clock = self.mkvar("00:00 / 00:00")
+        self.transport = self.mkvar("Wi-Fi ESP32")
+        self.port = self.mkvar("COM7")
+        self.baud = self.mkvar("2000000")
+        self.host = self.mkvar("192.168.4.1")
+        self.tcp_port = self.mkvar("2323")
+        self.experimental = self.mkvar(True)
+        self.filter_on = self.mkvar(True)
         self._table_stale = False
         self.loading = False  # chargement de fichier en cours (barre de progression)
         self._prog = None
@@ -80,7 +109,7 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
         self.val_items = []
         self._sl_t = 0.0
         self.cur_spans = []
-        self.stack = tk.BooleanVar(value=False)
+        self.stack = self.mkvar(False)
         self.sel = set(DEFAULT_CURVES)
         self.dyn = {}  # voies d'un fichier RaceBox / RaceChrono… {identifiant: [(nom, unité, type), …]}
         self.color_map = {}
@@ -130,9 +159,9 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
         self.rows = deque(maxlen=8000)
         self.matched = 0
         self.bulk = False
-        self.f_show = tk.StringVar()
-        self.f_hide = tk.StringVar()
-        self.f_text = tk.StringVar()
+        self.f_show = self.mkvar("")
+        self.f_hide = self.mkvar("")
+        self.f_text = self.mkvar("")
         self.id_show = None
         self.id_hide = None
         self.ftext = ""
@@ -154,18 +183,6 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
         self.cv = {}
         for _k in sorted(self.sel):
             self.assign_color(_k)
-        self.build_esp_vars()
-        self.set_styles()
-        self.build_footer()
-        self.build_main()
-        self.apply_model("rsv4")
-        self.show_page("tele")
-        self.set_conn_ui(False, "Déconnecté")
-        self.set_state("Prêt · ouvrez une capture", MUTED)
-        self.root.after(40, self.tick)
-        self.root.after(16, self.paint_chart)
-        self.root.after(16, self.anim_tele)
-        self.root.after(400, self.paint_map)
 
     # ---------- modèle ----------
     @property
@@ -762,7 +779,7 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
                 break
             if cid == "error":
                 self.disconnect()
-                messagebox.showerror("Connexion", data)
+                self.dlg.showerror("Connexion", data)
             elif cid == "file":  # liste et téléchargement des enregistrements : peu coûteux, ne compte pas dans le budget
                 self.on_file_frame(*data)
             else:

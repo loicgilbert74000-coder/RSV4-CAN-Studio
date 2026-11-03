@@ -15,8 +15,8 @@ class EspMixin:
 
     # ---------- page Paramétrage Tracklab ----------
     def build_esp_vars(self):
-        sv = lambda k, v: self.cv.__setitem__(k, tk.StringVar(value=str(v)))
-        bv = lambda k, v: self.cv.__setitem__(k, tk.BooleanVar(value=v))
+        sv = lambda k, v: self.cv.__setitem__(k, self.mkvar(str(v)))
+        bv = lambda k, v: self.cv.__setitem__(k, self.mkvar(bool(v)))
         sv("ssid", "TrackLab")
         sv("password", "rsv4-can-2026")
         sv("channel", 6)
@@ -367,7 +367,7 @@ class EspMixin:
             cfg = self.cfg_from_vars()
             validate_cfg(cfg)
         except ValueError as e:
-            messagebox.showerror("Paramétrage Tracklab", str(e))
+            self.dlg.showerror("Paramétrage Tracklab", str(e))
             return
         names = {(2041, f"Entrée {n + 1}"): e["name"] for n, e in enumerate(cfg["digital_inputs"])}
         names.update({(2041, f"ADC {n + 1}"): e["name"] for n, e in enumerate(cfg["analog_inputs"])})
@@ -380,9 +380,9 @@ class EspMixin:
             cfg = self.cfg_from_vars()
             validate_cfg(cfg)
         except ValueError as e:
-            messagebox.showerror("Paramétrage Tracklab", str(e))
+            self.dlg.showerror("Paramétrage Tracklab", str(e))
             return
-        p = filedialog.asksaveasfilename(
+        p = self.dlg.asksaveasfilename(
             title="Enregistrer le paramétrage",
             defaultextension=".json",
             initialfile="rsv4_esp32.json",
@@ -394,7 +394,7 @@ class EspMixin:
             self.set_state(f"Paramétrage enregistré : {os.path.basename(p)}", GREEN)
 
     def load_esp(self):
-        p = filedialog.askopenfilename(
+        p = self.dlg.askopenfilename(
             title="Charger un paramétrage", filetypes=[("Paramétrage JSON", "*.json")]
         )
         if not p:
@@ -405,7 +405,7 @@ class EspMixin:
             validate_cfg(cfg)
             self.cfg_to_vars(cfg)
         except (OSError, ValueError, KeyError) as e:
-            messagebox.showerror("Paramétrage Tracklab", f"Fichier invalide : {e}")
+            self.dlg.showerror("Paramétrage Tracklab", f"Fichier invalide : {e}")
             return
         self.set_state(f"Paramétrage chargé : {os.path.basename(p)}", SUB)
 
@@ -414,11 +414,11 @@ class EspMixin:
             cfg = self.cfg_from_vars()
             validate_cfg(cfg)
         except ValueError as e:
-            messagebox.showerror("Paramétrage Tracklab", str(e))
+            self.dlg.showerror("Paramétrage Tracklab", str(e))
             return
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         default_dir = os.path.join(root, "firmware", "esp32_can_wifi")
-        p = filedialog.asksaveasfilename(
+        p = self.dlg.asksaveasfilename(
             title="Enregistrer rsv4_config.h dans le dossier du firmware",
             defaultextension=".h",
             initialfile="rsv4_config.h",

@@ -201,6 +201,10 @@ class DecodingMixin:
             dec,
         )
         self.rows.append(row)
+        self.on_row(row)
+
+    def on_row(self, row):
+        """Nouvelle ligne du tableau des trames (version tkinter ; l'interface Qt lit `self.rows`)."""
         if not self.bulk and not self.table_paused and self.row_match(row):
             self.matched += 1
             try:

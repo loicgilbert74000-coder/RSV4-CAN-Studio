@@ -1,0 +1,31 @@
+name: TrackLab Qt (test + Windows)
+on:
+  push:
+    branches: [feature/wifi-deux-pages]
+    paths: ['tracklab_qt/**', 'tracklab/**', 'TrackLab_Qt.py', 'tools/simulate_trk.py', '.github/workflows/qt-app.yml']
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Installer les dependances
+        run: python -m pip install PySide6-Essentials pyqtgraph numpy pyserial pyinstaller
+      - name: Generer la capture de simulation
+        run: python tools/simulate_trk.py sim.trk 120
+      - name: Test sans ecran (captures + chronometrages)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m tracklab_qt.main --selftest sim.trk
+      - name: Construire
+        run: python -m PyInstaller --noconfirm --windowed --icon assets/icon.ico --name TrackLab_Qt --collect-all serial TrackLab_Qt.py
+      - name: Taille du dossier
+        shell: pwsh
+        run: '"{0:N0} Mo" -f ((Get-ChildItem dist/TrackLab_Qt -Recurse | Measure-Object Length -Sum).Sum / 1MB)'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TrackLab_Qt_Windows
+          path: dist/TrackLab_Qt

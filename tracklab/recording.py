@@ -105,12 +105,12 @@ class RecordingMixin:
     def send_cmd(self, text):
         """Envoie une commande à l'ESP32 (liaison Wi-Fi uniquement) ; renvoie False si impossible."""
         if not self.live or getattr(self, "wifi_sock", None) is None:
-            messagebox.showinfo(
+            self.dlg.showinfo(
                 "Enregistrement Tracklab", "Connectez-vous d'abord à Tracklab en Wi-Fi (bouton Connexion)."
             )
             return False
         if not self.send_quiet(text):
-            messagebox.showerror("Enregistrement Tracklab", "Commande non envoyée : liaison perdue.")
+            self.dlg.showerror("Enregistrement Tracklab", "Commande non envoyée : liaison perdue.")
             return False
         return True
 
@@ -255,20 +255,20 @@ class RecordingMixin:
         if self.rec_open_after == n:
             self.rec_open_after = None
             if why:
-                messagebox.showwarning("Enregistrement Tracklab", why)
+                self.dlg.showwarning("Enregistrement Tracklab", why)
         self.rec_set_info(why)
         self.rec_next()
 
     def rec_open_entry(self, e):
         """Ouvre un enregistrement : la copie du PC si elle existe, sinon on la télécharge d'abord."""
         if e["cur"]:
-            messagebox.showinfo("Enregistrements Tracklab", "Cet enregistrement est en cours : arrêtez-le d'abord.")
+            self.dlg.showinfo("Enregistrements Tracklab", "Cet enregistrement est en cours : arrêtez-le d'abord.")
             return False
         if e["local"]:
             self.open_recording(e["local"]["path"])
             return True
         if not (e["card"] and self.live):
-            messagebox.showinfo("Enregistrements Tracklab", "Ce fichier est sur la carte Tracklab : connectez-vous pour le récupérer.")
+            self.dlg.showinfo("Enregistrements Tracklab", "Ce fichier est sur la carte Tracklab : connectez-vous pour le récupérer.")
             return False
         self.rec_open_after = e["n"]
         self.rec_queue = [q for q in self.rec_queue if q[0] != e["n"]]
@@ -290,7 +290,7 @@ class RecordingMixin:
 
     def rec_delete_entry(self, e):
         if e["cur"]:
-            messagebox.showinfo("Enregistrements Tracklab", "Cet enregistrement est en cours : arrêtez-le d'abord.")
+            self.dlg.showinfo("Enregistrements Tracklab", "Cet enregistrement est en cours : arrêtez-le d'abord.")
             return
         on_card = e["card"] and self.live
         lines = []
@@ -302,9 +302,9 @@ class RecordingMixin:
         if e["card"] and not self.live:
             note = "\n\nLa copie sur la carte Tracklab restera : connectez-vous pour la supprimer aussi (sinon elle sera de nouveau téléchargée)."
         if not lines:
-            messagebox.showinfo("Enregistrements Tracklab", "Connectez-vous à Tracklab pour supprimer ce fichier de la carte.")
+            self.dlg.showinfo("Enregistrements Tracklab", "Connectez-vous à Tracklab pour supprimer ce fichier de la carte.")
             return
-        if not messagebox.askyesno(
+        if not self.dlg.askyesno(
             "Supprimer", f"Supprimer définitivement l'enregistrement {e['n']:04d} ?\n\n" + "\n".join(lines) + note
         ):
             return
@@ -312,7 +312,7 @@ class RecordingMixin:
             try:
                 os.remove(e["local"]["path"])
             except OSError as exc:
-                messagebox.showerror("Enregistrements Tracklab", f"Copie du PC non supprimée : {exc}")
+                self.dlg.showerror("Enregistrements Tracklab", f"Copie du PC non supprimée : {exc}")
         if on_card:
             self.send_quiet(f"DEL {e['n']}")
             self.send_quiet("LIST")
@@ -323,7 +323,7 @@ class RecordingMixin:
         try:
             os.startfile(self.REC_DIR)  # Windows
         except AttributeError:
-            messagebox.showinfo("Dossier des enregistrements", self.REC_DIR)
+            self.dlg.showinfo("Dossier des enregistrements", self.REC_DIR)
 
     # ---------- fenêtre « Ouvrir » ----------
     def open_choice(self):

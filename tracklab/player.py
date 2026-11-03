@@ -19,7 +19,7 @@ class PlayerMixin:
         self.open_choice()
 
     def open_pc_file(self):
-        p = filedialog.askopenfilename(
+        p = self.dlg.askopenfilename(
             title="Ouvrir un fichier (trames CAN, RaceBox, RaceChrono, Tracklab…) : le type est reconnu automatiquement",
             filetypes=[
                 ("Tous les fichiers pris en charge", "*.txt *.log *.trk *.csv *.vbo *.tsv"),
@@ -72,7 +72,7 @@ class PlayerMixin:
                 res = load_any(path)
             except Exception as exc:
                 self.progress_hide()
-                messagebox.showerror("Fichier non lu", str(exc))
+                self.dlg.showerror("Fichier non lu", str(exc))
                 return
             self._load_result(path, res)
         finally:
@@ -96,7 +96,7 @@ class PlayerMixin:
         self.file_name.set(f"{os.path.basename(path)}  ·  {res.label}")
         if not frames:
             self.set_state("0 trame · fichier vide", RED)
-            messagebox.showwarning("Fichier vide", f"Format reconnu ({res.label}) mais aucune donnée exploitable n'a été trouvée.")
+            self.dlg.showwarning("Fichier vide", f"Format reconnu ({res.label}) mais aucune donnée exploitable n'a été trouvée.")
         else:
             info = f" · {res.info}" if res.info else ""
             self.set_state(f"{res.label} · {len(frames):,} trames{info}".replace(",", " "), SUB)
@@ -186,7 +186,7 @@ class PlayerMixin:
 
     def play(self):
         if not self.frames:
-            messagebox.showinfo("Capture", "Importez d'abord une capture TXT.")
+            self.dlg.showinfo("Capture", "Importez d'abord une capture TXT.")
             return
         self.playing = True
         self.start_wall = time.monotonic()
