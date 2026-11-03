@@ -256,6 +256,16 @@ class FramesPage(QtWidgets.QWidget):
             fl.addWidget(e)
             fl.addSpacing(8)
             self.ed[label] = e
+        class _Fg:  # même API que le champ tk : config(fg=couleur)
+            def __init__(self, e):
+                self.e = e
+
+            def config(self, fg=None, **_k):
+                if fg:
+                    self.e.setStyleSheet(f"color:{fg};")
+
+        core.e_show = _Fg(self.ed["Afficher les ID (hex)"])
+        core.e_hide = _Fg(self.ed["Masquer les ID"])
         rb = btn("Réinitialiser", SUB)
         rb.clicked.connect(self.reset_filters)
         fl.addWidget(rb)
