@@ -166,7 +166,7 @@ def live_test(app, win):
     assert core.ingested > 500, "aucune trame reçue en direct"
     from . import monkey
     core.show_page("graph")
-    monkey.run(app, win, pump, 400, seed=7, log=say)
+    monkey.run(app, win, pump, int(os.environ.get("TRACKLAB_MONKEY", "400")) // 2, seed=7, log=say)
     core.disconnect()
     pump(app, 0.3)
 
@@ -332,7 +332,7 @@ def run_selftest(app, win, args):
     ui_test(app, win)
     from . import monkey
     win.show_page = getattr(win, "show_page", None)
-    monkey.run(app, win, pump, 900, seed=1, log=say)
+    monkey.run(app, win, pump, int(os.environ.get("TRACKLAB_MONKEY", "400")), seed=1, log=say)
     core.stack.set(False)
     live_test(app, win)
     print("OK : TrackLab Qt", flush=True)

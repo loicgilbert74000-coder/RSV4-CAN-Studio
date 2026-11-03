@@ -34,24 +34,31 @@ jobs:
           QT_QPA_FONTDIR: C:\Windows\Fonts
         run: python -m tracklab_qt.main --selftest sim.trk
       - name: Construire
+        if: github.event_name == 'workflow_dispatch'
         run: python -m PyInstaller --noconfirm --windowed --icon assets/icon.ico --name TrackLab_Qt --collect-all serial TrackLab_Qt.py
       - name: Taille du dossier
+        if: github.event_name == 'workflow_dispatch'
         shell: pwsh
         run: '"{0:N0} Mo" -f ((Get-ChildItem dist/TrackLab_Qt -Recurse | Measure-Object Length -Sum).Sum / 1MB)'
       - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch'
         with:
           name: TrackLab_Qt_Windows
           path: dist/TrackLab_Qt
       - name: Installer Inno Setup
+        if: github.event_name == 'workflow_dispatch'
         shell: pwsh
         run: choco install innosetup --yes --no-progress
       - name: Construire l'installateur Windows
+        if: github.event_name == 'workflow_dispatch'
         shell: pwsh
         run: '& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer_qt.iss'
       - name: Taille de l'installateur
+        if: github.event_name == 'workflow_dispatch'
         shell: pwsh
         run: '"{0:N0} Mo" -f ((Get-Item installer/TrackLab_Qt_Setup.exe).Length / 1MB)'
       - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch'
         with:
           name: TrackLab_Qt_Installateur_Windows
           path: installer/TrackLab_Qt_Setup.exe
