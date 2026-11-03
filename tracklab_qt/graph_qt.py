@@ -466,7 +466,8 @@ class GraphPage(QtWidgets.QWidget):
                 v = np.asarray(c.full_v[key], dtype=np.float64)
                 n = min(len(t), len(v))
                 t, v = t[:n], v[:n]
-                ok = np.isfinite(t) & np.isfinite(v)  # un NaN ou une valeur infinie fait planter le tracé (skipFiniteCheck)
+                # NaN, infinis et valeurs absurdes (décodage expérimental) corrompent le tracé : on les écarte
+                ok = np.isfinite(t) & np.isfinite(v) & (np.abs(v) < 1e12)
                 if not ok.all():
                     t, v = t[ok], v[ok]
                 hit = self._np[key] = (ts, t, v)
@@ -475,7 +476,7 @@ class GraphPage(QtWidgets.QWidget):
         if not h:
             return np.empty(0), np.empty(0)
         a = np.asarray(h, dtype=np.float64)
-        ok = np.isfinite(a[:, 0]) & np.isfinite(a[:, 1])
+        ok = np.isfinite(a[:, 0]) & np.isfinite(a[:, 1]) & (np.abs(a[:, 1]) < 1e12)
         if not ok.all():
             a = a[ok]
         return a[:, 0] / 1000.0 - self.t_off(), a[:, 1]
@@ -529,6 +530,13 @@ class GraphPage(QtWidgets.QWidget):
         self._pool_plots.append(p)
         self._pool_lines.append(ln)
         return p
+
+    @staticmethod
+    def _two_points(t, v):
+        """Une courbe d'un seul point fait planter le tracé : on la prolonge en un segment plat."""
+        if len(t) == 1:
+            return np.array([t[0], t[0] + 1e-3]), np.array([v[0], v[0]])
+        return t, v
 
     def _curve_item(self, r, i):
         """Courbe n° i du tracé r : créée une fois, rattachée à ce tracé pour toujours (changer un objet de tracé
@@ -587,7 +595,8 @@ class GraphPage(QtWidgets.QWidget):
                 span = (hi - lo) or 1.0
                 cv = self._curve_item(0, i)
                 cv.setPen(pg.mkPen(c.color_of(k), width=PEN_W))
-                cv.setData(t, (v - lo) / span)
+                t2, v2 = self._two_points(t, (v - lo) / span)
+                cv.setData(t2, v2)
                 self.curves[k] = cv
         elif keys:
             for i, (p, k) in enumerate(zip(self.plots, keys)):
@@ -602,7 +611,8 @@ class GraphPage(QtWidgets.QWidget):
                 t, v = self.arrays(k)
                 cv = self._curve_item(i, 0)
                 cv.setPen(pg.mkPen(c.color_of(k), width=PEN_W))
-                cv.setData(t, v)
+                t2, v2 = self._two_points(t, v)
+                cv.setData(t2, v2)
                 self.curves[k] = cv
         cur = self.cursor_s()
         for ln in self.lines:

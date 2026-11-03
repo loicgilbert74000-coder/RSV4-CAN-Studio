@@ -180,6 +180,9 @@ def stress_signals(app, win):
         core.stack.set(stacked)
         pump(app, 0.2)
         for k in keys:
+            t, v = g.arrays(k)
+            print(f"  stress {'empilé' if stacked else 'superposé'} {k!r} n={len(t)} "
+                  f"min={float(v.min()) if len(v) else None} max={float(v.max()) if len(v) else None}", flush=True)
             core.toggle_curve(k)
             pump(app, 0.04)
             core.toggle_curve(k)
