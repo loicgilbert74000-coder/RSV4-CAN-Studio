@@ -22,9 +22,10 @@ def main():
     from .window import MainWindow
 
     app = QtWidgets.QApplication(sys.argv)
-    if os.environ.get("TRACKLAB_GC") == "manual":
-        # le ramasse-miettes ne tourne plus dans un thread de téléchargement : les objets Qt sont toujours détruits
-        # dans le fil de l'interface
+    if os.environ.get("TRACKLAB_GC") != "auto":
+        # Le ramasse-miettes automatique de Python peut se déclencher au beau milieu de la construction d'un objet Qt
+        # (ou dans un thread) et détruire d'autres objets Qt à ce moment : plantage aléatoire. On le lance donc nous-mêmes,
+        # depuis le fil de l'interface, entre deux événements.
         import gc
 
         from PySide6 import QtCore
