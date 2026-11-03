@@ -29,18 +29,19 @@ GAP_ANT = 0.2                               # jeu entre l'antenne et le dessus
 H_IN = POST_H + PCB_T + GAP_COMP + ANT_H + GAP_ANT   # hauteur intérieure (12,3 -> arrondie ci-dessous)
 H_IN = math.ceil(H_IN * 2) / 2
 H = H_IN + TOP                              # hauteur de la coque
-IX, IY = 23.0, 15.5                         # demi-dimensions intérieures
+IX, IY = 26.0, 15.5                         # demi-dimensions intérieures (8 mm libres de chaque côté de la carte pour les vis)
 OX, OY = IX + WALL, IY + WALL               # demi-dimensions extérieures
 RC = 8.0                                    # rayon des angles verticaux (extérieur)
 FIL = 4.0                                   # rayon d'arrondi du dessus
-PCB_CX = -3.0                               # centre de la carte et de l'antenne en x
+PCB_CX = 0.0                                # centre de la carte et de l'antenne en x
 FOND_T = 4.5                                # épaisseur du fond
-LUG_R, LUG_X, LUG_Y, LUG_H = 5.5, 27.5, 14.5, 7.0   # oreilles de fixation (vis M3)
+BOSS_X, BOSS_Y, BOSS_R = 22.5, 7.5, 3.2     # colonnes de vissage M3 à l'intérieur de la coque
+SCREW_INS_D, SCREW_INS_DEPTH = 4.2, 6.5     # trou d'insert à chaud M3 (en haut des colonnes)
 GROOVE_W, GROOVE_D = 2.4, 1.5               # gorge du joint sous la paroi (cordon silicone Ø 2 mm ou joint TPU imprimé)
 NOZ_D, NOZ_HOLE, NOZ_Z, NOZ_LEN = 9.6, 5.2, 5.5, 8.0  # goulot de sortie du câble
 TEXT = "TRACKLAB GPS"
 TEXT_H, TEXT_DEPTH = 5.2, 0.6
-TEXT_W_MAX = 36.0                           # largeur maximale de la gravure (le dessus plat fait 42 × 27)               # hauteur des capitales et profondeur de gravure
+TEXT_W_MAX = 40.0                           # largeur maximale de la gravure (le dessus plat fait 48 × 28)               # hauteur des capitales et profondeur de gravure
 FONT = "/usr/share/fonts/truetype/google-fonts/Poppins-Bold.ttf"
 
 
@@ -244,11 +245,6 @@ def shell_sdf(txt):
         outer = prism(d_out2, z, 0.0, H, 0.0, FIL)
         outer = np.maximum(outer, -z)  # base nette sur le plan de contact
         body = outer
-        # oreilles de fixation
-        for sx in (-1, 1):
-            for sy in (-1, 1):
-                lug = cyl_z(x, y, z, sx * LUG_X, sy * LUG_Y, LUG_R, 0.0, LUG_H)
-                body = smin(body, lug, 3.0)
         # goulot de câble (côté +x)
         noz = cyl_x(x, y, z, 0.0, NOZ_Z, NOZ_D / 2, OX - 3.0, OX + NOZ_LEN, 1.2)
         body = smin(body, noz, 1.5)
@@ -256,7 +252,14 @@ def shell_sdf(txt):
         cav2 = box2(x, y, IX, IY, RC - WALL)
         cav = prism(cav2, z, -1.0, H_IN, 0.0, 1.0)
         # corps plein sans les oreilles intérieures : on évide la cavité
-        d = np.maximum(np.maximum(body, -cav), -z)  # rien sous le plan de contact (le lissage des oreilles y déborde)
+        d = np.maximum(np.maximum(body, -cav), -z)  # rien sous le plan de contact
+        # colonnes de vissage : cylindre + voile vers la paroi, du dessus jusqu'au plan de contact
+        for sx in (-1, 1):
+            for sy in (-1, 1):
+                col = cyl_z(x, y, z, sx * BOSS_X, sy * BOSS_Y, BOSS_R, 0.0, H_IN + 0.5)
+                web = rect3(x, y, z, min(sx * BOSS_X, sx * (IX + 0.5)), max(sx * BOSS_X, sx * (IX + 0.5)),
+                            sy * BOSS_Y - BOSS_R, sy * BOSS_Y + BOSS_R, 0.0, H_IN + 0.5)
+                d = np.minimum(d, np.minimum(col, web))
         # plots de verrouillage de l'antenne, suspendus sous le dessus
         ax = PCB_CX
         for sx in (-1, 1):
@@ -264,11 +267,10 @@ def shell_sdf(txt):
                 blk = rect3(x, y, z, ax + sx * (ANT / 2 + 0.3) - 1.3 + (0 if sx > 0 else 0), ax + sx * (ANT / 2 + 0.3) + 1.3,
                             sy * (ANT / 2 + 0.3) - 1.3, sy * (ANT / 2 + 0.3) + 1.3, H_IN - 5.0, H_IN + 0.5)
                 d = np.minimum(d, blk)
-        # trous de vis (passage Ø 3,4 + lamage Ø 6,2 par le haut)
+        # trous d'insert M3 en bas des colonnes
         for sx in (-1, 1):
             for sy in (-1, 1):
-                d = np.maximum(d, -cyl_z(x, y, z, sx * LUG_X, sy * LUG_Y, 1.7, -1.0, LUG_H + 1))
-                d = np.maximum(d, -cyl_z(x, y, z, sx * LUG_X, sy * LUG_Y, 3.1, LUG_H - 2.5, LUG_H + 1))
+                d = np.maximum(d, -cyl_z(x, y, z, sx * BOSS_X, sy * BOSS_Y, SCREW_INS_D / 2, -1.0, SCREW_INS_DEPTH))
         # passage du câble
         hole = cyl_x(x, y, z, 0.0, NOZ_Z, NOZ_HOLE / 2, IX - 4.0, OX + NOZ_LEN + 1.0, 0.0)
         d = np.maximum(d, -hole)
@@ -292,22 +294,17 @@ def shell_sdf(txt):
 def plate_sdf():
     def f(x, y, z):
         body2 = box2(x, y, OX, OY, RC)
-        lugs2 = None
-        for sx in (-1, 1):
-            for sy in (-1, 1):
-                c = np.hypot(x - sx * LUG_X, y - sy * LUG_Y) - LUG_R
-                lugs2 = c if lugs2 is None else np.minimum(lugs2, c)
-        d2 = smin(body2, lugs2, 3.0)
-        d = prism(d2, z, -FOND_T, 0.0, 1.2, 1.2)
+        d = prism(body2, z, -FOND_T, 0.0, 1.2, 1.2)
         # gorge du joint, sous le milieu de la paroi
         wall_mid = np.abs(body2 + WALL / 2) - GROOVE_W / 2
         gz = np.maximum(-GROOVE_D - z, z - 1.0)       # négatif pour z dans [-GROOVE_D, 1]
         groove = np.maximum(wall_mid, gz)
         d = np.maximum(d, -groove)
-        # inserts à chaud M3 (Ø 4,0, profondeur 3,4) dans les oreilles
+        # vis M3 par le dessous : passage Ø 3,4 et lamage Ø 6 pour la tête (le ruban double face recouvre le tout)
         for sx in (-1, 1):
             for sy in (-1, 1):
-                d = np.maximum(d, -cyl_z(x, y, z, sx * LUG_X, sy * LUG_Y, 2.0, -3.4, 1.0))
+                d = np.maximum(d, -cyl_z(x, y, z, sx * BOSS_X, sy * BOSS_Y, 1.7, -FOND_T - 1.0, 1.0))
+                d = np.maximum(d, -cyl_z(x, y, z, sx * BOSS_X, sy * BOSS_Y, 3.0, -FOND_T - 1.0, -FOND_T + 2.5))
         # plots sous la carte et cales d'angle
         px, hw, hl = PCB_CX, PCB_L / 2, PCB_W / 2
         for sx in (-1, 1):
@@ -316,11 +313,11 @@ def plate_sdf():
                 d = np.minimum(d, post)
                 cx_, cy_ = px + sx * (hw + 0.3), sy * (hl + 0.3)
                 zt = POST_H + PCB_T + 0.6
-                xa, xb = sorted((cx_ - sx * 4.0, cx_ + sx * 1.2))
+                xa, xb = sorted((cx_ - sx * 3.0, cx_ + sx * 1.2))
                 ya, yb = sorted((cy_, cy_ + sy * 1.2))
                 d = np.minimum(d, rect3(x, y, z, xa, xb, ya, yb, -0.2, zt))
                 xa, xb = sorted((cx_, cx_ + sx * 1.2))
-                ya, yb = sorted((cy_ - sy * 4.0, cy_ + sy * 1.2))
+                ya, yb = sorted((cy_ - sy * 3.0, cy_ + sy * 1.2))
                 d = np.minimum(d, rect3(x, y, z, xa, xb, ya, yb, -0.2, zt))
         return d
 
@@ -377,8 +374,8 @@ def main():
     os.makedirs(out, exist_ok=True)
     txt = text_mask()
     print(f"hauteur intérieure {H_IN} mm, hauteur de coque {H} mm, boîtier {2 * OX:.1f} × {2 * OY:.1f} mm, goulot jusqu'à x = {OX + NOZ_LEN:.1f}")
-    shell_lo, shell_hi = (-LUG_X - LUG_R - 1, -OY - 6, -0.6), (OX + NOZ_LEN + 1.0, OY + 6, H + 0.6)
-    plate_lo, plate_hi = (-LUG_X - LUG_R - 1, -OY - 6, -FOND_T - 0.6), (LUG_X + LUG_R + 1, OY + 6, POST_H + PCB_T + 1.8)
+    shell_lo, shell_hi = (-OX - 3, -OY - 3, -0.6), (OX + NOZ_LEN + 1.0, OY + 3, H + 0.6)
+    plate_lo, plate_hi = (-OX - 3, -OY - 3, -FOND_T - 0.6), (OX + 3, OY + 3, POST_H + PCB_T + 1.8)
     shell = mesh(shell_sdf(txt), shell_lo, shell_hi, h)
     plate = mesh(plate_sdf(), plate_lo, plate_hi, h)
     for name, m in (("coque", shell), ("fond", plate)):
