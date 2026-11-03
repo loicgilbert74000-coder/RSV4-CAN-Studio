@@ -55,14 +55,14 @@ class RefAxis(pg.AxisItem):
 
     def tickValues(self, minVal, maxVal, size):
         if not self.ref:
-            return []
+            return super().tickValues(minVal, maxVal, size)  # mode empilé : graduations ordinaires
         lo, hi, ticks = self.ref
         span = (hi - lo) or 1.0
         return [(1.0, [(t - lo) / span for t in ticks])]
 
     def tickStrings(self, values, scale, spacing):
         if not self.ref:
-            return [""] * len(values)
+            return super().tickStrings(values, scale, spacing)
         lo, hi, _t = self.ref
         return [f"{lo + v * (hi - lo):g}" for v in values]
 
@@ -281,6 +281,7 @@ class GraphPage(QtWidgets.QWidget):
         super().__init__()
         self.core = core
         self.plots, self.lines, self.curves = [], [], {}
+        self._pool_plots, self._pool_lines, self._pool_curves, self._attached = [], [], [], []
         self.follow = True
         self._np = {}
         self._guard = False
@@ -504,6 +505,36 @@ class GraphPage(QtWidgets.QWidget):
         self.core.stack.set(stacked)
         self.build()
 
+    def _make_plot(self, r):
+        """Crée (une seule fois) le tracé n° r : il est ensuite réutilisé, jamais détruit (la destruction répétée de
+        PlotItem faisait planter pyqtgraph/PySide)."""
+        p = self.gl.addPlot(row=r, col=0, axisItems={"bottom": TimeAxis("bottom"), "left": RefAxis("left")})
+        p.showGrid(x=True, y=True, alpha=0.12)
+        p.setMenuEnabled(False)
+        p.hideButtons()
+        p.setMouseEnabled(x=True, y=False)
+        p.setClipToView(True)
+        p.setDownsampling(auto=True, mode="peak")
+        p.vb.setDefaultPadding(0.0)
+        p.vb.sigRangeChangedManually.connect(self.on_manual)
+        p.getAxis("left").setWidth(66)
+        p.getAxis("bottom").setStyle(tickTextOffset=4)
+        if self._pool_plots:
+            p.setXLink(self._pool_plots[0])
+        ln = pg.InfiniteLine(pos=0.0, angle=90, movable=True, pen=pg.mkPen(YELLOW, width=2))
+        ln.setZValue(100)
+        ln.sigPositionChangeFinished.connect(self.on_line_done)
+        ln.sigPositionChanged.connect(self.on_line_move)
+        p.addItem(ln)
+        self._pool_plots.append(p)
+        self._pool_lines.append(ln)
+        return p
+
+    def _curve_item(self, i):
+        while len(self._pool_curves) <= i:
+            self._pool_curves.append(pg.PlotDataItem(pen=pg.mkPen(CYAN, width=PEN_W), skipFiniteCheck=True))
+        return self._pool_curves[i]
+
     def build(self):
         c = self.core
         keys = self.selected()
@@ -515,69 +546,64 @@ class GraphPage(QtWidgets.QWidget):
             self._was_live = live
             view = None
         self._building = True
-        old = self.plots
-        for op in old:  # coupe les liens de vue avant de détruire les tracés (évite un accès à un ViewBox détruit)
-            try:
-                op.setXLink(None)
-            except Exception:
-                pass
-        self._graveyard = (old, self.lines, self.curves)  # garde les objets Python vivants jusqu'à la prochaine reconstruction
-        self.plots, self.lines, self.curves = [], [], {}
-        self.gl.clear()
+        for pl, cv in self._attached:  # les courbes sont détachées, pas détruites : elles seront réutilisées
+            pl.removeItem(cv)
+        self._attached = []
+        self.curves = {}
         lo_t, hi_t = self.bounds()
         self._tmax = hi_t
-        n = 1 if (not c.stack.get() or not keys) else len(keys)
-        self.gl.setMinimumHeight(max(300, 150 * n) if c.stack.get() else 300)
-        for r in range(n):
-            left = RefAxis("left") if not c.stack.get() else pg.AxisItem("left")
-            p = self.gl.addPlot(row=r, col=0, axisItems={"bottom": TimeAxis("bottom"), "left": left})
-            p.showGrid(x=True, y=True, alpha=0.12)
-            p.setMenuEnabled(False)
-            p.hideButtons()
-            p.setMouseEnabled(x=True, y=False)
-            p.setClipToView(True)
-            p.setDownsampling(auto=True, mode="peak")
-            p.vb.setDefaultPadding(0.0)
+        stacked = bool(c.stack.get())
+        n = 1 if (not stacked or not keys) else len(keys)
+        self.gl.setMinimumHeight(max(300, 150 * n) if stacked else 300)
+        while len(self._pool_plots) < n:
+            self._make_plot(len(self._pool_plots))
+        for i, pl in enumerate(self._pool_plots):
+            pl.setVisible(i < n)
+        self.plots = self._pool_plots[:n]
+        self.lines = self._pool_lines[:n]
+        for r, p in enumerate(self.plots):
             p.vb.setLimits(xMin=-1.0, xMax=max(hi_t, 5.0) * 1.3 + 5, minXRange=0.05)
-            p.vb.sigRangeChangedManually.connect(self.on_manual)
-            p.getAxis("left").setWidth(66)
-            p.getAxis("bottom").setStyle(tickTextOffset=4)
-            if self.plots:
-                p.setXLink(self.plots[0])
-            if r < n - 1:
-                p.getAxis("bottom").setStyle(showValues=False)
-            self.plots.append(p)
-        if not keys:
-            self.build_legend(keys)
-            self._building = False
-            return
-        if not c.stack.get():
+            p.getAxis("bottom").setStyle(showValues=(r == n - 1))
+            ax = p.getAxis("left")
+            ax.set_ref(None, None)
+            ax.showLabel(False)
+        if keys and not stacked:
             p = self.plots[0]
             p.setYRange(-0.04, 1.04, padding=0)
             p.enableAutoRange(axis="y", enable=False)
-            for k in keys:
+            for i, k in enumerate(keys):
                 lo, hi, _t = self.axis(k)
                 t, v = self.arrays(k)
                 span = (hi - lo) or 1.0
-                self.curves[k] = p.plot(t, (v - lo) / span, pen=pg.mkPen(c.color_of(k), width=PEN_W), skipFiniteCheck=True)
-        else:
-            for p, k in zip(self.plots, keys):
+                cv = self._curve_item(i)
+                cv.setPen(pg.mkPen(c.color_of(k), width=PEN_W))
+                cv.setData(t, (v - lo) / span)
+                p.addItem(cv)
+                self._attached.append((p, cv))
+                self.curves[k] = cv
+        elif keys:
+            for i, (p, k) in enumerate(zip(self.plots, keys)):
                 lo, hi, _t = self.axis(k)
                 pad = (hi - lo) * 0.06 or 1.0
                 p.setYRange(lo - pad, hi + pad, padding=0)
                 p.enableAutoRange(axis="y", enable=False)
-                p.getAxis("left").setLabel(c.legend_label(k)[:24], color=c.color_of(k))
+                ax = p.getAxis("left")
+                ax.setLabel(c.legend_label(k)[:24], color=c.color_of(k))
+                ax.showLabel(True)
+                ax.set_ref(None, c.color_of(k))
                 t, v = self.arrays(k)
-                self.curves[k] = p.plot(t, v, pen=pg.mkPen(c.color_of(k), width=PEN_W), skipFiniteCheck=True)
-        for p in self.plots:
-            ln = pg.InfiniteLine(pos=self.cursor_s(), angle=90, movable=True, pen=pg.mkPen(YELLOW, width=2))
-            ln.setZValue(100)
-            ln.sigPositionChangeFinished.connect(self.on_line_done)
-            ln.sigPositionChanged.connect(self.on_line_move)
-            p.addItem(ln)
-            self.lines.append(ln)
+                cv = self._curve_item(i)
+                cv.setPen(pg.mkPen(c.color_of(k), width=PEN_W))
+                cv.setData(t, v)
+                p.addItem(cv)
+                self._attached.append((p, cv))
+                self.curves[k] = cv
+        cur = self.cursor_s()
+        for ln in self.lines:
+            ln.setValue(cur)
         self.build_legend(keys)
-        self.refresh_ref()
+        if keys:
+            self.refresh_ref()
         self._building = False
         if self._fit:
             self._fit = False
