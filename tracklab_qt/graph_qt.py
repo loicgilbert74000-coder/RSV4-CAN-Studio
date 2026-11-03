@@ -337,6 +337,13 @@ class GraphPage(QtWidgets.QWidget):
             self._was_live = live
             view = None
         self._building = True
+        old = self.plots
+        for op in old:  # coupe les liens de vue avant de détruire les tracés (évite un accès à un ViewBox détruit)
+            try:
+                op.setXLink(None)
+            except Exception:
+                pass
+        self._graveyard = (old, self.lines, self.curves)  # garde les objets Python vivants jusqu'à la prochaine reconstruction
         self.plots, self.lines, self.curves = [], [], {}
         self.gl.clear()
         lo_t, hi_t = self.bounds()
