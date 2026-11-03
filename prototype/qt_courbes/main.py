@@ -20,6 +20,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 BG, SIDE, CARD, BORDER, HOVER = "#070d16", "#0b1220", "#111a2a", "#23314b", "#1f2e47"
 TEXT, SUB, MUTED = "#eef3fb", "#9fb0c8", "#5d7090"
 CYAN, YELLOW, ORANGE, GREEN, RED = "#3cc0ff", "#ffb938", "#ff8a3d", "#2fe39a", "#e52028"
+PEN_W, DS_MODE, AA = 2, "peak", True  # réglages de tracé (comparés par --selftest)
 PALETTE = [CYAN, GREEN, YELLOW, ORANGE, "#a98bff", "#ff5fa2", "#a3e635", "#e52028"]
 
 QSS = f"""
@@ -289,7 +290,7 @@ class Window(QtWidgets.QMainWindow):
             p.hideButtons()
             p.setMouseEnabled(x=True, y=False)
             p.setClipToView(True)
-            p.setDownsampling(auto=True, mode="peak")
+            p.setDownsampling(auto=True, mode=DS_MODE)
             p.vb.setLimits(xMin=-1.0, xMax=self.tmax + 1.0, minXRange=0.05)
             p.vb.setDefaultPadding(0.0)
             if self.plots:
@@ -324,9 +325,9 @@ class Window(QtWidgets.QMainWindow):
         self.set_cursor(self.cursor_t)
 
     def add_curve(self, p, k, y):
-        c = p.plot(self.T[k], y, pen=pg.mkPen(self.color(k), width=2), skipFiniteCheck=True)
+        c = p.plot(self.T[k], y, pen=pg.mkPen(self.color(k), width=PEN_W), skipFiniteCheck=True)
         c.setClipToView(True)
-        c.setDownsampling(auto=True, method="peak")
+        c.setDownsampling(auto=True, method=DS_MODE)
 
     def fit_all(self):
         if self.plots:
@@ -445,6 +446,21 @@ def selftest(win, out):
     win.show()
     app.processEvents()
     print("signaux affichés :", len(win.sel), "· durée", round(win.tmax, 1), "s", flush=True)
+    global PEN_W, DS_MODE
+    for pen_w, ds, aa in ((2, "peak", True), (1, "peak", True), (1, "peak", False), (2, "mean", True), (1, "mean", True), (1, "subsample", False)):
+        PEN_W, DS_MODE = pen_w, ds
+        pg.setConfigOptions(antialias=aa)
+        win.build()
+        q = win.plots[0]
+        for span in (win.tmax, 30):
+            ts = []
+            for i in range(6):
+                q.setXRange(i * 0.3, i * 0.3 + span, padding=0)
+                ts.append(grab_ms())
+            print(f"variante largeur={pen_w} ds={ds:<9} aa={int(aa)} fenêtre {span:3.0f} s   med {statistics.median(ts):6.1f} ms", flush=True)
+    PEN_W, DS_MODE = 1, "peak"
+    pg.setConfigOptions(antialias=True)
+    win.build()
     p = win.plots[0]
     for span in (win.tmax, 60, 30, 5):
         p.setXRange(0, span, padding=0)
