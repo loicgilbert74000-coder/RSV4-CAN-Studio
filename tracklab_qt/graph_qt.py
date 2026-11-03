@@ -21,6 +21,7 @@ def painter_on(pm):
     return q
 
 
+POOL = 16  # tracés construits une fois pour toutes à l'ouverture (en créer plus tard faisait planter pyqtgraph)
 SPLIT_QSS = (f"QSplitter::handle{{background:{BORDER};}}"
              f"QSplitter::handle:horizontal{{image:none;margin:0 3px;border-radius:2px;}}"
              f"QSplitter::handle:vertical{{margin:3px 0;border-radius:2px;}}"
@@ -366,6 +367,8 @@ class GraphPage(QtWidgets.QWidget):
         self.gl.setBackground(BG)
         self.gl.ci.layout.setSpacing(2)
         self.gl.scene().sigMouseClicked.connect(self.on_click)
+        for r in range(POOL):
+            self._make_plot(r).setVisible(False)
         self.scroll = QtWidgets.QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
@@ -571,10 +574,8 @@ class GraphPage(QtWidgets.QWidget):
         lo_t, hi_t = self.bounds()
         self._tmax = hi_t
         stacked = bool(c.stack.get())
-        n = 1 if (not stacked or not keys) else len(keys)
+        n = 1 if (not stacked or not keys) else min(len(keys), POOL)
         self.gl.setMinimumHeight(max(300, 150 * n) if stacked else 300)
-        while len(self._pool_plots) < n:
-            self._make_plot(len(self._pool_plots))
         for i, pl in enumerate(self._pool_plots):
             pl.setVisible(i < n)
         self.plots = self._pool_plots[:n]
@@ -599,6 +600,8 @@ class GraphPage(QtWidgets.QWidget):
                 cv.setData(t2, v2)
                 self.curves[k] = cv
         elif keys:
+            if len(keys) > POOL:
+                self.l_mode.setText(f"empilé : {POOL} premières courbes (les autres : mode Superposées)")
             for i, (p, k) in enumerate(zip(self.plots, keys)):
                 lo, hi, _t = self.axis(k)
                 pad = (hi - lo) * 0.06 or 1.0
