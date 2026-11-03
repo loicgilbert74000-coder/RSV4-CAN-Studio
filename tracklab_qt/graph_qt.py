@@ -640,6 +640,9 @@ class GraphPage(QtWidgets.QWidget):
     def relayout(self):
         """Force le recalcul de la mise en page des tracés (après avoir affiché des tracés jusque-là cachés, la zone
         restait vide jusqu'au prochain redimensionnement)."""
+        vp = self.gl.viewport().rect()
+        if vp.width() > 20 and vp.height() > 20:
+            self.gl.ci.setGeometry(QtCore.QRectF(0, 0, vp.width(), vp.height()))  # la mise en page épouse la zone visible
         lay = self.gl.ci.layout
         lay.invalidate()
         lay.activate()

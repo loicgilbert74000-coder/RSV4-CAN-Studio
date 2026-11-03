@@ -196,6 +196,11 @@ def first_open_test(app, win, path, page):
     w0, h0 = img.width(), img.height()
     drawn = sum(1 for x in range(int(w0 * .15), int(w0 * .95), 7) for y in range(10, h0 - 40, 7) if img.pixelColor(x, y).rgb() != bg)
     say(f"  zone des courbes : {vb.width():.0f}x{vb.height():.0f} px, {drawn} points non vides sur la grille")
+    ci = g.gl.ci.geometry()
+    say(f"  gl {g.gl.width()}x{g.gl.height()} viewport {g.gl.viewport().width()}x{g.gl.viewport().height()} "
+        f"scroll {g.scroll.viewport().width()}x{g.scroll.viewport().height()} ci {ci.width():.0f}x{ci.height():.0f} "
+        f"plots visibles {[p.isVisible() for p in g._pool_plots[:3]]} page visible {g.isVisible()} "
+        f"plot0 {g.plots[0].geometry().width():.0f}x{g.plots[0].geometry().height():.0f}")
     assert vb.width() > 200 and vb.height() > 100, "zone des courbes de taille nulle"
     assert drawn > 150, "la zone des courbes est vide à l'écran"
     assert g.curves, "aucune courbe tracée après l'ouverture"
