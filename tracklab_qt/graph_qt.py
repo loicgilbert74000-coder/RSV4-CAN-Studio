@@ -281,7 +281,7 @@ class GraphPage(QtWidgets.QWidget):
         super().__init__()
         self.core = core
         self.plots, self.lines, self.curves = [], [], {}
-        self._pool_plots, self._pool_lines, self._pool_curves, self._attached = [], [], [], []
+        self._pool_plots, self._pool_lines, self._pool_curves = [], [], {}
         self.follow = True
         self._np = {}
         self._guard = False
@@ -530,10 +530,17 @@ class GraphPage(QtWidgets.QWidget):
         self._pool_lines.append(ln)
         return p
 
-    def _curve_item(self, i):
-        while len(self._pool_curves) <= i:
-            self._pool_curves.append(pg.PlotDataItem(pen=pg.mkPen(CYAN, width=PEN_W), skipFiniteCheck=True))
-        return self._pool_curves[i]
+    def _curve_item(self, r, i):
+        """Courbe n° i du tracé r : créée une fois, rattachée à ce tracé pour toujours (changer un objet de tracé
+        déstabilise pyqtgraph), simplement masquée quand elle ne sert pas."""
+        lst = self._pool_curves.setdefault(r, [])
+        while len(lst) <= i:
+            cv = pg.PlotDataItem(pen=pg.mkPen(CYAN, width=PEN_W), skipFiniteCheck=True)
+            self._pool_plots[r].addItem(cv)
+            lst.append(cv)
+        cv = lst[i]
+        cv.setVisible(True)
+        return cv
 
     def build(self):
         c = self.core
@@ -546,9 +553,12 @@ class GraphPage(QtWidgets.QWidget):
             self._was_live = live
             view = None
         self._building = True
-        for pl, cv in self._attached:  # les courbes sont détachées, pas détruites : elles seront réutilisées
-            pl.removeItem(cv)
-        self._attached = []
+        empty = np.empty(0)
+        for lst in self._pool_curves.values():  # toutes les courbes sont masquées et vidées ; celles utilisées réapparaissent
+            for cv in lst:
+                if cv.isVisible():
+                    cv.setVisible(False)
+                    cv.setData(empty, empty)
         self.curves = {}
         lo_t, hi_t = self.bounds()
         self._tmax = hi_t
@@ -575,11 +585,9 @@ class GraphPage(QtWidgets.QWidget):
                 lo, hi, _t = self.axis(k)
                 t, v = self.arrays(k)
                 span = (hi - lo) or 1.0
-                cv = self._curve_item(i)
+                cv = self._curve_item(0, i)
                 cv.setPen(pg.mkPen(c.color_of(k), width=PEN_W))
                 cv.setData(t, (v - lo) / span)
-                p.addItem(cv)
-                self._attached.append((p, cv))
                 self.curves[k] = cv
         elif keys:
             for i, (p, k) in enumerate(zip(self.plots, keys)):
@@ -592,11 +600,9 @@ class GraphPage(QtWidgets.QWidget):
                 ax.showLabel(True)
                 ax.set_ref(None, c.color_of(k))
                 t, v = self.arrays(k)
-                cv = self._curve_item(i)
+                cv = self._curve_item(i, 0)
                 cv.setPen(pg.mkPen(c.color_of(k), width=PEN_W))
                 cv.setData(t, v)
-                p.addItem(cv)
-                self._attached.append((p, cv))
                 self.curves[k] = cv
         cur = self.cursor_s()
         for ln in self.lines:
