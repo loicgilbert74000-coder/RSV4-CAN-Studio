@@ -1,5 +1,8 @@
 name: Prototype Qt (page Courbes)
 on:
+  push:
+    branches: [feature/wifi-deux-pages]
+    paths: ['prototype/qt_courbes/**', '.github/workflows/qt-prototype.yml']
   workflow_dispatch:
 jobs:
   build:
