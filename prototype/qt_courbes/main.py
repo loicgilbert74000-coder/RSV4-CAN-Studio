@@ -20,7 +20,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 BG, SIDE, CARD, BORDER, HOVER = "#070d16", "#0b1220", "#111a2a", "#23314b", "#1f2e47"
 TEXT, SUB, MUTED = "#eef3fb", "#9fb0c8", "#5d7090"
 CYAN, YELLOW, ORANGE, GREEN, RED = "#3cc0ff", "#ffb938", "#ff8a3d", "#2fe39a", "#e52028"
-PEN_W, DS_MODE, AA = 2, "peak", True  # réglages de tracé (comparés par --selftest)
+PEN_W, DS_MODE, AA = 1, "peak", True  # réglages de tracé (comparés par --selftest)
 PALETTE = [CYAN, GREEN, YELLOW, ORANGE, "#a98bff", "#ff5fa2", "#a3e635", "#e52028"]
 
 QSS = f"""
@@ -208,11 +208,15 @@ class Window(QtWidgets.QMainWindow):
         self.cb_win.addItems(["5 s", "10 s", "30 s", "60 s", "120 s"])
         self.cb_win.setCurrentText("30 s")
         self.cb_win.activated.connect(self.on_window)
+        self.b_thick = QtWidgets.QPushButton("Traits épais")
+        self.b_thick.setCheckable(True)
+        self.b_thick.setToolTip("Plus joli mais nettement plus lent (limite du rendu logiciel de Qt)")
+        self.b_thick.clicked.connect(self.set_thick)
         b_all = QtWidgets.QPushButton("Tout voir")
         b_all.clicked.connect(self.fit_all)
         self.l_time = QtWidgets.QLabel("00:00.0")
         self.l_time.setStyleSheet(f"color:{YELLOW}; font-size:16px; font-weight:600;")
-        for w_ in (self.b_over, self.b_stack, self.b_play, self.cb_speed, self.cb_win, b_all):
+        for w_ in (self.b_over, self.b_stack, self.b_play, self.cb_speed, self.cb_win, self.b_thick, b_all):
             bar.addWidget(w_)
         bar.addStretch(1)
         bar.addWidget(self.l_time)
@@ -263,6 +267,11 @@ class Window(QtWidgets.QMainWindow):
 
     def color(self, k):
         return PALETTE[self.sel.index(k) % len(PALETTE)]
+
+    def set_thick(self, on):
+        global PEN_W
+        PEN_W = 2 if on else 1
+        self.build()
 
     def set_mode(self, mode):
         self.mode = mode
