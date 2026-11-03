@@ -391,6 +391,37 @@ class GraphMixin:
         out = [(p[0], y) for p, y in zip(pts, sm)]
         return out, n <= 700
 
+    @staticmethod
+    def _reduce(ts, vs, b=8):
+        """Réduit 4× en gardant le min et le max de chaque paquet de b points (aucun pic perdu)."""
+        ot, ov = [], []
+        for s0 in range(0, len(vs), b):
+            seg = vs[s0:s0 + b]
+            lo, hi = min(seg), max(seg)
+            il, ih = seg.index(lo), seg.index(hi)
+            if il > ih:
+                il, ih = ih, il
+                lo, hi = hi, lo
+            ot.append(ts[s0 + il]); ov.append(lo)
+            if ih != il:
+                ot.append(ts[s0 + ih]); ov.append(hi)
+        return ot, ov
+
+    def lod_levels(self, key):
+        """Pyramide de détail d'un signal (niveau 0 = brut), calculée une seule fois par signal et par fichier."""
+        ts = self.full_t[key]
+        hit = self._lod.get(key)
+        if hit and hit[0] is ts:
+            return hit[1]
+        levels = [(ts, self.full_v[key])]
+        while len(levels[-1][0]) > 600:
+            t2, v2 = self._reduce(*levels[-1])
+            if len(t2) > len(levels[-1][0]) * 0.8:
+                break
+            levels.append((t2, v2))
+        self._lod[key] = (ts, levels)
+        return levels
+
     def axis_key(self, key, mn, mx):
         """Échelle d'un signal, stable : d'après l'étendue de tout le fichier ; en direct, d'après le maximum déjà vu
         (elle ne peut que s'élargir, par paliers « ronds »), donc elle ne bouge pas à chaque image."""
@@ -470,6 +501,10 @@ class GraphMixin:
     def draw_chart(self):
         """Redessine les courbes puis replace le curseur."""
         self._draw_chart_body()
+        if self._pool:
+            self.chart.delete(*self._pool)  # lignes en trop (moins de courbes qu'avant)
+            self._pool = []
+        self.chart.tag_raise("crv")  # les courbes restent au-dessus de la grille
         self._chart_sig = self.chart_sig()
         self.move_cursor()
 
@@ -503,8 +538,9 @@ class GraphMixin:
     def _draw_chart_body(self):
         c = self.chart
         ta = self.taxis
-        c.delete("all")
+        c.delete(*c.find_withtag("!crv"))  # les lignes des courbes sont conservées et réutilisées (coords) au lieu d'être recréées
         ta.delete("all")
+        self._pool = list(c.find_withtag("crv"))
         self.grips = []
         self.val_items = []
         self.legend_hits = []
@@ -568,19 +604,19 @@ class GraphMixin:
 
         def window_pts(key):
             if self.full_t:
-                ts = self.full_t.get(key)
-                if not ts:
+                if not self.full_t.get(key):
                     return []
-                i = max(0, bisect.bisect_left(ts, start) - 1)
-                j = min(len(ts), bisect.bisect_right(ts, end) + 1)
-                st = (j - i) // (2 * max(pw, 1)) + 1  # décimation AVANT de construire les points (fenêtre large = très long)
-                if st > 1:
-                    sl = slice(i, j, st)
-                    pts = list(zip(ts[sl], self.full_v[key][sl]))
-                    if ts[j - 1] != pts[-1][0]:
-                        pts.append((ts[j - 1], self.full_v[key][j - 1]))
-                else:
-                    pts = list(zip(ts[i:j], self.full_v[key][i:j]))
+                lim = 2 * max(pw, 1)
+                for ts, vs in self.lod_levels(key):  # premier niveau de la pyramide assez fin pour la largeur écran
+                    i = max(0, bisect.bisect_left(ts, start) - 1)
+                    j = min(len(ts), bisect.bisect_right(ts, end) + 1)
+                    if j - i <= lim:
+                        break
+                st = (j - i) // lim + 1
+                sl = slice(i, j, st)
+                pts = list(zip(ts[sl], vs[sl]))
+                if st > 1 and ts[j - 1] != pts[-1][0]:
+                    pts.append((ts[j - 1], vs[j - 1]))
                 return clip(pts)
             pts = []
             hist = self.hist.get(key, ())
@@ -604,7 +640,15 @@ class GraphMixin:
             for tt, v in pts:
                 co.extend((L + pw * (tt - start) / span, ymap(v)))
             if len(co) >= 4:
-                c.create_line(*co, fill=color, width=2, smooth=soft, splinesteps=3)
+                if self._pool:
+                    it = self._pool.pop(0)
+                    c.coords(it, *co)
+                    if self._cfg.get(it) != (color, soft):
+                        self._cfg[it] = (color, soft)
+                        c.itemconfigure(it, fill=color, smooth=soft)
+                else:
+                    it = c.create_line(*co, fill=color, width=2, smooth=soft, splinesteps=3, tags=("crv",))
+                    self._cfg[it] = (color, soft)
         unit_of = self.unit_of
         def cur_of(key, pts):
             if self.full_t and self.full_t.get(key):
