@@ -223,7 +223,11 @@ class GraphMixin:
         start = max(lo - span * 0.25, min(hi + span * 0.25 - span, start)) if hi + span * 0.5 > lo else start
         self.span_ms = span
         self.view_end = start + span
-        self.draw_chart()
+        now = time.monotonic()
+        self._interact_until = now + 0.18  # pendant le geste : tracé allégé, puis tracé exact juste après
+        if now - self._last_draw >= 0.03:  # sinon la boucle d'affichage (16 ms) s'en charge : les rafales d'événements se regroupent
+            self._last_draw = now
+            self.draw_chart()
 
     def in_plot(self, x):
         g = self.geom
@@ -381,17 +385,10 @@ class GraphMixin:
         sample = pts[:: max(1, n // 200)]
         if len({round(v, 6) for _t, v in sample}) <= 12:
             return pts, False
-        vals = [v for _t, v in pts]
-        w = (1, 2, 3, 2, 1)
-        out = []
-        for i in range(n):
-            tot = acc = 0.0
-            for j, wj in enumerate(w):
-                k = i + j - 2
-                if 0 <= k < n:
-                    acc += wj * vals[k]
-                    tot += wj
-            out.append((pts[i][0], acc / tot))
+        v = [p[1] for p in pts]
+        v = [v[0], v[0]] + v + [v[-1], v[-1]]  # bords répétés
+        sm = [(a + 2 * b + 3 * c + 2 * d + e) / 9.0 for a, b, c, d, e in zip(v, v[1:], v[2:], v[3:], v[4:])]
+        out = [(p[0], y) for p, y in zip(pts, sm)]
         return out, n <= 700
 
     def axis_key(self, key, mn, mx):
@@ -467,7 +464,7 @@ class GraphMixin:
         return (
             round(self.view_start(), 3), round(self.span_ms, 3), c.winfo_width(), c.winfo_height(),
             tuple(sorted(self.sel)), self.stack.get(), tuple(sorted(self.band_h.items())), self.ref_key,
-            id(self.full_t), len(self.dyn), tick,
+            id(self.full_t), len(self.dyn), tick, time.monotonic() < self._interact_until,
         )
 
     def draw_chart(self):
@@ -517,6 +514,7 @@ class GraphMixin:
         if w <= 300 or h <= 100:
             return
         span = self.span_ms
+        fast = time.monotonic() < self._interact_until
         tmax = self.cursor_ms()
         start = self.view_start()
         end = start + span
@@ -575,9 +573,15 @@ class GraphMixin:
                     return []
                 i = max(0, bisect.bisect_left(ts, start) - 1)
                 j = min(len(ts), bisect.bisect_right(ts, end) + 1)
-                pts = clip(list(zip(ts[i:j], self.full_v[key][i:j])))
-                st = len(pts) // (2 * max(pw, 1)) + 1
-                return pts[::st] if st > 1 else pts
+                st = (j - i) // (2 * max(pw, 1)) + 1  # décimation AVANT de construire les points (fenêtre large = très long)
+                if st > 1:
+                    sl = slice(i, j, st)
+                    pts = list(zip(ts[sl], self.full_v[key][sl]))
+                    if ts[j - 1] != pts[-1][0]:
+                        pts.append((ts[j - 1], self.full_v[key][j - 1]))
+                else:
+                    pts = list(zip(ts[i:j], self.full_v[key][i:j]))
+                return clip(pts)
             pts = []
             hist = self.hist.get(key, ())
             for tt, v in reversed(hist):
@@ -591,7 +595,11 @@ class GraphMixin:
             st = len(pts) // (2 * max(pw, 1)) + 1
             return pts[::st] if st > 1 else pts
         def poly(pts, ymap, color):
-            pts, soft = self.smooth_curve(pts, pw)
+            if fast:
+                st_ = len(pts) // max(60, pw // 2) + 1
+                pts, soft = (pts[::st_] if st_ > 1 else pts), False
+            else:
+                pts, soft = self.smooth_curve(pts, pw)
             co = []
             for tt, v in pts:
                 co.extend((L + pw * (tt - start) / span, ymap(v)))

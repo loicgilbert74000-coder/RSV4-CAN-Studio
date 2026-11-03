@@ -61,6 +61,7 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
         self.cur_frac = 0.3  # position (fraction de la largeur) du curseur fixe
         self._cursor_override = None  # curseur placé par un clic, avant que le saut soit fait
         self._last_draw = 0.0
+        self._interact_until = 0.0
         self.card_state = {}  # cartes de la télémétrie : [valeur affichée, valeur reçue, décimales]
         self.tile_state = {}  # tuiles analogiques : idem
         self._anim_t = time.monotonic()
