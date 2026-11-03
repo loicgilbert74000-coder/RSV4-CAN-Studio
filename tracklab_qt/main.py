@@ -22,6 +22,18 @@ def main():
     from .window import MainWindow
 
     app = QtWidgets.QApplication(sys.argv)
+    if os.environ.get("TRACKLAB_GC") == "manual":
+        # le ramasse-miettes ne tourne plus dans un thread de téléchargement : les objets Qt sont toujours détruits
+        # dans le fil de l'interface
+        import gc
+
+        from PySide6 import QtCore
+
+        gc.disable()
+        app._gc_timer = QtCore.QTimer()
+        app._gc_timer.setInterval(1000)
+        app._gc_timer.timeout.connect(lambda: gc.collect())
+        app._gc_timer.start()
     app.setStyle("Fusion")
     app.setStyleSheet(QSS)
     win = MainWindow()
@@ -225,6 +237,11 @@ def run_selftest(app, win, args):
     pump(app, 1.0)
     print(f"chargé : {len(core.frames)} trames, {len(core.full_t)} signaux, {time.time() - t0:.1f} s", flush=True)
     assert core.frames and core.full_t
+    if os.environ.get("TRACKLAB_STRESS_ONLY"):
+        for i in range(int(os.environ["TRACKLAB_STRESS_ONLY"])):
+            stress_signals(app, win)
+        print("STRESS OK", flush=True)
+        return 0
     for page in ("tele", "graph", "frames", "esp"):
         core.show_page(page)
         if page == "graph":
