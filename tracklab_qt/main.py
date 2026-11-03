@@ -46,6 +46,11 @@ def main():
     return app.exec()
 
 
+def say(m):
+    """print robuste : la console Windows (cp1252) ne sait pas afficher tous les caractères."""
+    print(str(m).encode("cp1252", "replace").decode("cp1252"), flush=True)
+
+
 def pump(app, secs):
     end = time.time() + secs
     while time.time() < end:
@@ -161,7 +166,7 @@ def live_test(app, win):
     assert core.ingested > 500, "aucune trame reçue en direct"
     from . import monkey
     core.show_page("graph")
-    monkey.run(app, win, pump, 400, seed=7, log=lambda m: print(m, flush=True))
+    monkey.run(app, win, pump, 400, seed=7, log=say)
     core.disconnect()
     pump(app, 0.3)
 
@@ -300,7 +305,7 @@ def run_selftest(app, win, args):
     ui_test(app, win)
     from . import monkey
     win.show_page = getattr(win, "show_page", None)
-    monkey.run(app, win, pump, 900, seed=1, log=lambda m: print(m, flush=True))
+    monkey.run(app, win, pump, 900, seed=1, log=say)
     core.stack.set(False)
     live_test(app, win)
     print("OK : TrackLab Qt", flush=True)
