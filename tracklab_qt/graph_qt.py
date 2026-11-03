@@ -128,6 +128,9 @@ class LegendRow(QtWidgets.QFrame):
         self.x.setStyleSheet(f"QToolButton{{background:{CARD2};color:{SUB};border:none;border-radius:4px;padding:1px 5px;}}"
                              f"QToolButton:hover{{color:{TEXT};background:{HOVER};}}")
         self.x.clicked.connect(lambda: core.remove_curve(key))
+        for lb in (self.name, self.rng, self.cur):  # le texte long est coupé au lieu d'élargir la légende
+            lb.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Preferred)
+            lb.setMinimumWidth(0)
         lay.addWidget(self.name, 0, 0)
         lay.addWidget(self.x, 0, 1)
         lay.addWidget(self.rng, 1, 0, 1, 2)
@@ -194,7 +197,7 @@ class GraphPage(QtWidgets.QWidget):
         self.b_stack.clicked.connect(lambda: self.set_stack(True))
         bar.addWidget(self.b_over)
         bar.addWidget(self.b_stack)
-        hint = Label("Molette : zoom · glisser : déplacer · clic : placer le curseur · double-clic : tout voir", MUTED, 12)
+        hint = Label("Molette : zoom · glisser : déplacer · clic : curseur · double-clic : tout voir", MUTED, 12)
         bar.addSpacing(10)
         bar.addWidget(hint)
         bar.addStretch(1)
@@ -207,7 +210,9 @@ class GraphPage(QtWidgets.QWidget):
         bar.addSpacing(10)
         bar.addWidget(Label("Fenêtre", SUB, 12, True))
         self.win = QtWidgets.QComboBox()
-        self.win.setEditable(False)
+        self.win.setEditable(True)  # la zone de texte affiche la durée réelle de la fenêtre (zoom à la molette compris)
+        self.win.lineEdit().setReadOnly(True)
+        self.win.setFixedWidth(100)
         self.win.addItems([f"{w} s" for w in WINDOWS])
         self.win.setCurrentText("30 s")
         self.win.activated.connect(self.on_window)
@@ -243,6 +248,7 @@ class GraphPage(QtWidgets.QWidget):
         sc = QtWidgets.QScrollArea()
         sc.setWidgetResizable(True)
         sc.setFrameShape(QtWidgets.QFrame.NoFrame)
+        sc.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         sc.setWidget(self.legend_host)
         right.addWidget(sc, 1)
         rw = QtWidgets.QWidget()
@@ -339,6 +345,8 @@ class GraphPage(QtWidgets.QWidget):
             p.vb.setDefaultPadding(0.0)
             p.vb.setLimits(xMin=-1.0, xMax=max(hi_t, 5.0) * 1.3 + 5, minXRange=0.05)
             p.vb.sigRangeChangedManually.connect(self.on_manual)
+            if r == 0:
+                p.vb.sigXRangeChanged.connect(self.on_range)
             p.getAxis("left").setWidth(66)
             p.getAxis("bottom").setStyle(tickTextOffset=4)
             if self.plots:
@@ -452,6 +460,11 @@ class GraphPage(QtWidgets.QWidget):
         self.l_mode.setText("suit la lecture" if self.follow else "vue libre")
         if self.follow:
             self.set_view(*self.page_range(self.span()))
+
+    def on_range(self, *_a):
+        txt = f"{self.span():.1f} s" if self.span() < 100 else f"{self.span():.0f} s"
+        if self.win.currentText() != txt:
+            self.win.setCurrentText(txt)
 
     def on_manual(self, *_a):
         self.follow = False

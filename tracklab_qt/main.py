@@ -53,6 +53,49 @@ def emit_image(name, pixmap):
     print("@@END", flush=True)
 
 
+def live_test(app, win):
+    """Connexion Wi-Fi à un faux ESP32 local : vérifie réception, décodage, états et courbes en direct."""
+    import socket
+    import struct
+    import threading
+
+    from tracklab.protocol import WIFI_MAGIC, xor_sum
+
+    core = win.core
+    frames = list(core.frames[:6000])
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+    port = srv.getsockname()[1]
+
+    def serve():
+        conn, _a = srv.accept()
+        t0 = time.time()
+        for i, (t, cid, data) in enumerate(frames):
+            body = struct.pack("<IIB", int(t) & 0xFFFFFFFF, cid, len(data)) + bytes(data).ljust(8, b"\0")
+            conn.sendall(WIFI_MAGIC + body + bytes([xor_sum(body)]))
+            if i % 40 == 39:
+                time.sleep(max(0.0, (i / 1500.0) - (time.time() - t0)))
+        time.sleep(1.0)
+        conn.close()
+
+    threading.Thread(target=serve, daemon=True).start()
+    core.dlg.askokcancel = lambda *a, **k: True
+    core.transport.set("Wi-Fi ESP32")
+    core.host.set("127.0.0.1")
+    core.tcp_port.set(str(port))
+    core.connect()
+    for page in ("tele", "graph"):
+        core.show_page(page)
+        pump(app, 2.0)
+        emit_image("live_" + page, win.grab())
+    print(f"direct : {core.ingested} trames reçues, {len(core.vals)} valeurs, live={core.live}, "
+          f"état={core.status.get()!r}", flush=True)
+    assert core.ingested > 500, "aucune trame reçue en direct"
+    core.disconnect()
+    pump(app, 0.3)
+
+
 def run_selftest(app, win, args):
     path = args[0]
     core = win.core
@@ -113,6 +156,7 @@ def run_selftest(app, win, args):
     print(f"lecture x4 : pas de boucle med {gaps[len(gaps) // 2]:.1f} ms · p95 {gaps[int(len(gaps) * .95)]:.1f} · "
           f"max {gaps[-1]:.1f} ({len(gaps)} pas) · curseur {core.cursor_ms() / 1000:.1f} s", flush=True)
     core.pause()
+    live_test(app, win)
     print("OK : TrackLab Qt", flush=True)
     return 0
 
