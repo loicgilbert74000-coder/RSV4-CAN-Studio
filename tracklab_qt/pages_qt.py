@@ -252,7 +252,7 @@ class FramesPage(QtWidgets.QWidget):
             fl.addWidget(Label(label, SUB, 12))
             e = QtWidgets.QLineEdit()
             e.setFixedWidth(170)
-            e.textChanged.connect(lambda t, v=var: v.set(t))
+            e.textChanged.connect(lambda t, v=var: (v.set(t), core.schedule_filter()))
             fl.addWidget(e)
             fl.addSpacing(8)
             self.ed[label] = e
