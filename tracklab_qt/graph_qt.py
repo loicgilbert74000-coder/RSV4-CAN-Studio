@@ -284,12 +284,12 @@ class GraphPage(QtWidgets.QWidget):
     def t_off(self):
         """Décalage du temps (s) : en direct, l'axe compte depuis la connexion (les horodatages sont ceux de l'horloge du PC)."""
         c = self.core
-        return c.t0 / 1000.0 if (c.live and not c.full_t) else 0.0
+        return c.t0 / 1000.0 if c.live else 0.0
 
     def arrays(self, key):
         """(temps en s, valeurs) d'un signal : tableaux complets du fichier, ou historique récent en direct."""
         c = self.core
-        if c.full_t.get(key):
+        if c.full_t.get(key) and not c.live:  # en direct, l'historique remplace la capture chargée
             ts = c.full_t[key]
             hit = self._np.get(key)
             if hit is None or hit[0] is not ts:
@@ -303,7 +303,7 @@ class GraphPage(QtWidgets.QWidget):
 
     def bounds(self):
         c = self.core
-        if c.full_t and c.frames:
+        if c.full_t and c.frames and not c.live:
             return 0.0, c.frames[-1][0] / 1000.0
         return 0.0, max(c.t_now - c.t0, 1000) / 1000.0 if c.live else max(c.t_now, 1000) / 1000.0
 
@@ -332,7 +332,7 @@ class GraphPage(QtWidgets.QWidget):
         self.b_over.setChecked(not c.stack.get())
         self.b_stack.setChecked(c.stack.get())
         view = self.view_range() if self.plots else None
-        live = bool(c.live and not c.full_t)
+        live = bool(c.live)
         if live != getattr(self, "_was_live", False):  # passage fichier <-> direct : la vue repart sur la fenêtre courante
             self._was_live = live
             view = None
@@ -592,7 +592,7 @@ class GraphPage(QtWidgets.QWidget):
         c = self.core
         if not self.isVisible():
             return
-        sig = (tuple(sorted(c.sel)), c.stack.get(), id(c.full_t), len(c.dyn), tuple(sorted(c.color_map.items())))
+        sig = (tuple(sorted(c.sel)), c.stack.get(), id(c.full_t), bool(c.live), len(c.dyn), tuple(sorted(c.color_map.items())))
         if sig != self._sig:
             self._sig = sig
             self.list.set_groups(c.signal_groups(), c.sel)
