@@ -281,6 +281,11 @@ class GraphPage(QtWidgets.QWidget):
         return b
 
     # ------------------------------------------------------------------ données
+    def t_off(self):
+        """Décalage du temps (s) : en direct, l'axe compte depuis la connexion (les horodatages sont ceux de l'horloge du PC)."""
+        c = self.core
+        return c.t0 / 1000.0 if (c.live and not c.full_t) else 0.0
+
     def arrays(self, key):
         """(temps en s, valeurs) d'un signal : tableaux complets du fichier, ou historique récent en direct."""
         c = self.core
@@ -294,7 +299,7 @@ class GraphPage(QtWidgets.QWidget):
         if not h:
             return np.empty(0), np.empty(0)
         a = np.asarray(h, dtype=np.float64)
-        return a[:, 0] / 1000.0, a[:, 1]
+        return a[:, 0] / 1000.0 - self.t_off(), a[:, 1]
 
     def bounds(self):
         c = self.core
@@ -303,7 +308,7 @@ class GraphPage(QtWidgets.QWidget):
         return 0.0, max(c.t_now - c.t0, 1000) / 1000.0 if c.live else max(c.t_now, 1000) / 1000.0
 
     def cursor_s(self):
-        return self.core.cursor_ms() / 1000.0
+        return self.core.cursor_ms() / 1000.0 - self.t_off()
 
     def selected(self):
         c = self.core
@@ -327,6 +332,10 @@ class GraphPage(QtWidgets.QWidget):
         self.b_over.setChecked(not c.stack.get())
         self.b_stack.setChecked(c.stack.get())
         view = self.view_range() if self.plots else None
+        live = bool(c.live and not c.full_t)
+        if live != getattr(self, "_was_live", False):  # passage fichier <-> direct : la vue repart sur la fenêtre courante
+            self._was_live = live
+            view = None
         self.gl.clear()
         self.plots, self.lines, self.curves = [], [], {}
         lo_t, hi_t = self.bounds()
