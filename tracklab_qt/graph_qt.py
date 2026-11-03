@@ -626,7 +626,8 @@ class GraphPage(QtWidgets.QWidget):
         for i in reversed(range(self.legend_lay.count() - 1)):
             w = self.legend_lay.itemAt(i).widget()
             if w:
-                w.setParent(None)
+                w.hide()
+                w.deleteLater()  # destruction différée : la ligne cliquée peut encore être en train de traiter son événement
         self._rows = {}
         for k in keys:
             row = LegendRow(self, k, self.core.color_of(k))

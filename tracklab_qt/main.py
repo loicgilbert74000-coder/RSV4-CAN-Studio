@@ -146,6 +146,9 @@ def live_test(app, win):
     print(f"direct : {core.ingested} trames reçues, {len(core.vals)} valeurs, live={core.live}, "
           f"état={core.status.get()!r}", flush=True)
     assert core.ingested > 500, "aucune trame reçue en direct"
+    from . import monkey
+    core.show_page("graph")
+    monkey.run(app, win, pump, 400, seed=7, log=lambda m: print(m, flush=True))
     core.disconnect()
     pump(app, 0.3)
 
@@ -274,6 +277,10 @@ def run_selftest(app, win, args):
     stress_signals(app, win)
     circuit_test(app, win)
     ui_test(app, win)
+    from . import monkey
+    win.show_page = getattr(win, "show_page", None)
+    monkey.run(app, win, pump, 900, seed=1, log=lambda m: print(m, flush=True))
+    core.stack.set(False)
     live_test(app, win)
     print("OK : TrackLab Qt", flush=True)
     return 0
