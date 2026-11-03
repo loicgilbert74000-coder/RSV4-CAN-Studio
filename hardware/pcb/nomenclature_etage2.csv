@@ -1,0 +1,31 @@
+﻿Repères;Quantité;Valeur;Empreinte KiCad;Rôle
+C1;1;470uF 35V;Capacitor_THT:CP_Radial_D10.0mm_P5.00mm;Réservoir en entrée du régulateur
+C2, C101, C102, C103, C104, C105, C106, C107, C108, C201, C202;11;100nF;Capacitor_SMD:C_0805_2012Metric;Découplage 3,3 V du transceiver CAN
+D1, D4;2;SS34;Diode_SMD:D_SMA;Anti-inversion : anode sur +12V_F, cathode sur +12V_P
+D11, D12;2;1N4007;Diode_THT:D_DO-41_SOD81_P10.16mm_Horizontal;Roue libre charge 1
+D2;1;SMBJ18A;Diode_SMD:D_SMB;TVS unidirectionnelle
+D3;1;PESD2CAN;Package_TO_SOT_SMD:SOT-23;Protection CAN H / CAN L
+F1;1;2 A;Fuse:Fuse_1812_4532Metric;Fusible 2 A, au plus près de l'entrée
+H1, H2, H3, H4;4;M3;MountingHole:MountingHole_3.2mm_M3;Trou de fixation
+J1;1;Moto : +12 V, GND, CAN H, CAN L;TerminalBlock:TerminalBlock_bornier-4_P5.08mm;Bornier 4 voies (à remplacer par un connecteur verrouillable)
+JP1;1;Terminaison 120 ohm;Jumper:SolderJumper-2_P1.3mm_Open_RoundedPad1.0x1.5mm;Ouvert par défaut : la moto termine déjà le bus
+J_ENT;1;Entrées 12 V : ENT1 à ENT8, GND, GND;Connector_PinHeader_2.54mm:PinHeader_1x10_P2.54mm_Vertical;Broches 1 à 8 = ENT1 à ENT8, 9 et 10 = masse
+J_GPS;1;GPS : VCC, RX module, TX module, GND;Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical;Ordre du module GY-GPSV3 : 1 VCC (3,3 V), 2 RX du module, 3 TX du module, 4 GND
+J_OUT;1;Sorties : +12V, OUT1, +12V, OUT2;Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical;1 +12V, 2 OUT1 (drain), 3 +12V, 4 OUT2 (drain)
+J_POT;1;Potentiomètres : (3V3, curseur, GND) x2;Connector_PinHeader_2.54mm:PinHeader_1x06_P2.54mm_Vertical;1 3V3, 2 curseur AV, 3 GND, 4 3V3, 5 curseur AR, 6 GND
+J_SD;1;Module microSD SPI : GND, VCC, MISO, MOSI, SCK, CS;Connector_PinHeader_2.54mm:PinHeader_1x06_P2.54mm_Vertical;Ordre du module : GND, VCC (5 V), MISO, MOSI, SCK, CS
+J_STACK;1;Broches mâles 2x16 vers étage 1;Connector_PinHeader_2.54mm:PinHeader_2x16_P2.54mm_Vertical;Liaison entre étages (mâle, vers le bas)
+LED_B;1;LED bleue;LED_SMD:LED_0805_2012Metric;LED bleue
+LED_G;1;LED verte;LED_SMD:LED_0805_2012Metric;LED verte
+LED_R;1;LED rouge;LED_SMD:LED_0805_2012Metric;LED rouge
+Q1, Q2;2;IRLZ44N;Package_TO_SOT_THT:TO-220-3_Vertical;Sortie 1 (côté bas)
+R101, R102, R103, R104, R105, R106, R107, R108;8;10k;Resistor_SMD:R_0805_2012Metric;ENT1 : haut du diviseur
+R111, R112, R113, R114, R115, R116, R117, R118;8;2k7;Resistor_SMD:R_0805_2012Metric;ENT1 : bas du diviseur
+R201, R202, R301, R302;4;1k;Resistor_SMD:R_0805_2012Metric;Filtre curseur 1
+R311, R312;2;100k;Resistor_SMD:R_0805_2012Metric;Rappel grille Q1
+R_B;1;47;Resistor_SMD:R_0805_2012Metric;LED bleue : résistance série
+R_G, R_R;2;330;Resistor_SMD:R_0805_2012Metric;LED verte : résistance série
+R_T;1;120;Resistor_SMD:R_0805_2012Metric;Résistance de terminaison (utile seulement sur banc)
+SW1;1;Bouton REC;Button_Switch_THT:SW_PUSH_6mm;Poussoir vers GND (appui = niveau bas)
+U1;1;Module abaisseur 12V->5V (>= 2 A, entrée >= 30 V);Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical;Module à souder : 1 IN+, 2 IN-, 3 OUT+, 4 OUT-
+U2;1;SN65HVD230;Package_SO:SOIC-8_3.9x4.9mm_P1.27mm;Transceiver CAN 3,3 V (écoute seule côté firmware)

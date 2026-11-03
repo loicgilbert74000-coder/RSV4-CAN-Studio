@@ -1,0 +1,5 @@
+﻿Repères;Quantité;Valeur;Empreinte KiCad;Rôle
+H1, H2, H3, H4;4;M3;MountingHole:MountingHole_3.2mm_M3;Trou de fixation
+J1;1;ESP32-S3-DevKitC-1 rangée J1;Connector_PinSocket_2.54mm:PinSocket_1x22_P2.54mm_Vertical;"Support femelle 1x22 ; le DevKit s'y enfiche"
+J3;1;ESP32-S3-DevKitC-1 rangée J3;Connector_PinSocket_2.54mm:PinSocket_1x22_P2.54mm_Vertical;Support femelle 1x22, à 22,86 mm de J1
+J_STACK;1;Support 2x16 vers étage 2;Connector_PinSocket_2.54mm:PinSocket_2x16_P2.54mm_Vertical;Liaison entre étages (support femelle)
