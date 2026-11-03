@@ -624,7 +624,7 @@ class GraphPage(QtWidgets.QWidget):
         if keys:
             self.refresh_ref()
         self._building = False
-        if self._fit:
+        if self._fit and keys:  # l'ajustement attend qu'il y ait de vraies courbes (le chargement relance l'affichage en cours de route)
             self._fit = False
             lo_t, hi_t = self.bounds()
             view = (lo_t - (hi_t - lo_t) * 0.01, hi_t + (hi_t - lo_t) * 0.01)

@@ -171,6 +171,30 @@ def live_test(app, win):
     pump(app, 0.3)
 
 
+def first_open_test(app, win, path, page):
+    """Après le chargement, la page Courbes doit montrer des courbes visibles sur tout le fichier (la page `page`
+    est affichée au moment de l'ouverture)."""
+    core, g = win.core, win.graph
+    core.dlg.showwarning = lambda *a, **k: None
+    # on repart d'un état vierge : aucun fichier chargé, aucune courbe
+    core.show_page(page)
+    pump(app, 0.5)
+    core.load(path)
+    pump(app, 1.5)
+    core.show_page("graph")
+    pump(app, 1.5)
+    a, b = g.view_range()
+    info = []
+    for k, cv in g.curves.items():
+        x, y = cv.getData()
+        info.append((k, 0 if x is None else len(x), cv.isVisible()))
+    say(f"première ouverture ({page}) : vue {a:.1f}…{b:.1f} s, {len(g.curves)} courbes, détail {info}")
+    emit_image("premiere_ouverture_" + page, win.grab())
+    assert g.curves, "aucune courbe tracée après l'ouverture"
+    assert all(n > 2 and vis for _k, n, vis in info), "courbe vide ou masquée"
+    assert b - a > 60, "la vue n'englobe pas le fichier"
+
+
 def stress_signals(app, win):
     """Sélectionne chaque signal (un par un, puis par lots) en superposé et en empilé : aucun ne doit faire planter."""
     core, g = win.core, win.graph
@@ -241,6 +265,9 @@ def run_selftest(app, win, args):
     win.resize(1536, 960)
     win.show()
     pump(app, 0.5)
+    if os.environ.get("TRACKLAB_FIRST_OPEN"):
+        first_open_test(app, win, path, os.environ["TRACKLAB_FIRST_OPEN"])
+        return 0
     t0 = time.time()
     core.load(path)
     pump(app, 1.0)

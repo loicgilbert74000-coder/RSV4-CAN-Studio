@@ -16,12 +16,19 @@ jobs:
         run: python -m pip install PySide6-Essentials pyqtgraph numpy pyserial pyinstaller
       - name: Generer la capture de simulation
         run: python tools/simulate_trk.py sim.trk 120
-      - name: Test sans ecran (captures + chronometrages)
+      - name: "Premiere ouverture (graph)"
         env:
           QT_QPA_PLATFORM: offscreen
           QT_QPA_FONTDIR: C:\Windows\Fonts
+          TRACKLAB_FIRST_OPEN: graph
         run: python -m tracklab_qt.main --selftest sim.trk
-      - name: Test sans ecran (repetition)
+      - name: "Premiere ouverture (tele)"
+        env:
+          QT_QPA_PLATFORM: offscreen
+          QT_QPA_FONTDIR: C:\Windows\Fonts
+          TRACKLAB_FIRST_OPEN: tele
+        run: python -m tracklab_qt.main --selftest sim.trk
+      - name: Test sans ecran (captures + chronometrages)
         env:
           QT_QPA_PLATFORM: offscreen
           QT_QPA_FONTDIR: C:\Windows\Fonts
