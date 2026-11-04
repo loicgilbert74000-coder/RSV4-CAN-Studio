@@ -423,12 +423,12 @@ def video_frames(app, win, sim):
     core.load(sim)
     pump(app, 1.5)
     core.show_page("tele")
-    clip("tele", 6, lambda i, n: core.seek(0.22 + 0.30 * i / n))
+    clip("tele", 8, lambda i, n: core.seek(0.22 + 0.34 * i / n))
     # --- trames
     core.show_page("frames")
     win.frames.ed["Afficher les ID (hex)"].setText("100")
     pump(app, 0.5)
-    clip("trames", 4, lambda i, n: core.seek(0.30 + 0.05 * i / n))
+    clip("trames", 5, lambda i, n: core.seek(0.30 + 0.06 * i / n))
     win.frames.reset_filters()
     # --- courbes : une session qui tourne, circuit zoomé qui suit le point
     demo = demo_path()
@@ -451,7 +451,7 @@ def video_frames(app, win, sim):
             m._refresh()
         return step
 
-    clip("courbes", 8, play(320.0, 3.0, 8))
+    clip("courbes", 10, play(320.0, 3.0, 10))
     # --- redimensionnement des panneaux
     m.reset_view()
     core.seek(0.40)
@@ -467,7 +467,7 @@ def video_frames(app, win, sim):
         b = int(ls[0] + 200 * u)
         g.lsplit.setSizes([b, TL - b])
 
-    clip("resize", 5, resize)
+    clip("resize", 6, resize)
     g.split.setSizes(sp)
     g.lsplit.setSizes(ls)
     # --- comparaison : session B fictive (démo ralentie de 4 %)
@@ -486,7 +486,7 @@ def video_frames(app, win, sim):
     pb = os.path.join(os.path.dirname(sim) or ".", "session_B.csv")
     with open(pb, "w", encoding="utf-8", newline="") as f:
         csv.writer(f).writerows(out)
-    for mode, key, secs in (("time", "cmpt", 6), ("gps", "cmpg", 5)):
+    for mode, key, secs in (("time", "cmpt", 8), ("gps", "cmpg", 6)):
         if mode == "time":
             core.load_compare(pb, "time")
         else:
