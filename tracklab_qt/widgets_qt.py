@@ -90,7 +90,7 @@ class Gauge(Animated):
     def paintEvent(self, _e):
         p = painter(self)
         w, h = self.width(), self.height()
-        r = min(w * 0.44, h * 0.43)  # l'arc, sa lueur et le disque de fond doivent tenir en hauteur (sinon le haut est coupé)
+        r = min(w * 0.44, h * 0.50)  # l'arc, sa lueur et le disque de fond doivent tenir en hauteur (sinon le haut est coupé)
         cx, cy = w / 2, h / 2 + r * 0.14
         th = max(7.0, r * 0.085)
         ra = r - th / 2  # rayon de l'arc (milieu du trait)
