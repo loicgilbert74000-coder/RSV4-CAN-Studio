@@ -67,7 +67,7 @@ def pump(app, secs):
         time.sleep(0.005)
 
 
-def emit_image(name, pixmap, width=1100):
+def emit_image(name, pixmap, width=1100, quality=None):
     """Affiche une capture d'écran dans le journal (JPEG en base64) pour pouvoir la consulter sans téléchargement."""
     from PySide6 import QtCore
 
@@ -75,7 +75,7 @@ def emit_image(name, pixmap, width=1100):
     ba = QtCore.QByteArray()
     buf = QtCore.QBuffer(ba)
     buf.open(QtCore.QIODevice.WriteOnly)
-    pix.save(buf, "JPG", 72 if width <= 1100 else 82)
+    pix.save(buf, "JPG", quality or (72 if width <= 1100 else 82))
     b64 = base64.b64encode(bytes(ba)).decode()
     print(f"@@IMG {name} {len(b64)}", flush=True)
     for i in range(0, len(b64), 3000):
@@ -370,6 +370,122 @@ def demo_test(app, win):
     say(f"démo : OK (zoom initial {c0})")
 
 
+def video_frames(app, win, sim):
+    """Séquences d'images pour la vidéo animée (TRACKLAB_VIDEO_FRAMES=1) : lecture réelle des données, panneaux redimensionnés."""
+    import csv
+    import datetime
+    import math
+
+    from .resources import demo_path
+
+    core, g = win.core, win.graph
+    win.resize(1600, 960)
+    win.show()
+    pump(app, 0.5)
+    N = {"tele": 60, "courbes": 75, "cmpt": 55, "cmpg": 35, "resize": 45, "trames": 35}
+
+    def grab(name, i):
+        pump(app, 0.10)
+        emit_image(f"s_{name}_{i:03d}", win.grab(), 1120, 60)
+
+    # --- télémétrie : les compteurs suivent les données
+    core.load(sim)
+    pump(app, 1.5)
+    core.show_page("tele")
+    n = N["tele"]
+    for i in range(n):
+        core.seek(0.22 + 0.34 * i / n)
+        grab("tele", i)
+    # --- trames
+    core.show_page("frames")
+    win.frames.ed["Afficher les ID (hex)"].setText("100")
+    pump(app, 0.5)
+    n = N["trames"]
+    for i in range(n):
+        core.seek(0.30 + 0.06 * i / n)
+        grab("trames", i)
+    win.frames.reset_filters()
+    # --- courbes : une session qui tourne, circuit zoomé qui suit le point
+    demo = demo_path()
+    core.load(demo)
+    pump(app, 2.0)
+    core.show_page("graph")
+    total = core.frames[-1][0]
+    g.map.store.enabled = os.environ.get("TRACKLAB_NO_TILES") != "1"
+    m = g.map
+    core.seek(320000.0 / total)
+    pump(app, 3.0)
+    m.set_zoom(4.0)
+
+    def play_state(t):
+        core.seek(t * 1000.0 / total)
+        g.set_view(t - 22, t + 8)
+        m.center = m._clamp(m.position())
+        m._refresh()
+
+    n = N["courbes"]
+    for i in range(n):
+        play_state(320.0 + i * 0.55)
+        grab("courbes", i)
+    # --- sélection de signaux : états successifs
+    m.reset_view()
+    core.seek(0.40)
+    g.set_view(core.cursor_ms() / 1000 - 25, core.cursor_ms() / 1000 + 25)
+    pump(app, 1.0)
+    extra = [k for n_ in ("Altitude", "GyroZ", "GPS Cap") for k in core.full_t if k[1] == n_]
+    states = [lambda: None, lambda: core.toggle_curve(extra[0]), lambda: core.toggle_curve(extra[1]), lambda: core.toggle_curve(extra[2]),
+              lambda: (core.stack.set(True), g.build()), lambda: None, lambda: (core.stack.set(False), g.build()),
+              lambda: core.toggle_curve(extra[1]), lambda: core.toggle_curve(extra[2])]
+    for i, fn_ in enumerate(states):
+        fn_()
+        pump(app, 0.5)
+        grab("sel", i)
+    core.toggle_curve(extra[0])
+    pump(app, 0.4)
+    # --- redimensionnement des panneaux
+    sp, ls = g.split.sizes(), g.lsplit.sizes()
+    T, TL = sum(sp), sum(ls)
+    n = N["resize"]
+    for i in range(n):
+        u = 0.5 - 0.5 * math.cos(2 * math.pi * i / (n - 1))
+        a, c_ = int(sp[0] + 190 * u), int(sp[2] + 100 * u)
+        g.split.setSizes([a, T - a - c_, c_])
+        b = int(ls[0] + 200 * u)
+        g.lsplit.setSizes([b, TL - b])
+        grab("resize", i)
+    g.split.setSizes(sp)
+    g.lsplit.setSizes(ls)
+    # --- comparaison : session B fictive (démo ralentie de 4 %)
+    rows = list(csv.reader(open(demo, encoding="utf-8")))
+    head, body = rows[0], rows[1:]
+    ti, si = head.index("Time"), head.index("Speed")
+    t0 = datetime.datetime.fromisoformat(body[0][ti].replace("Z", "+00:00"))
+    out = [head]
+    for r in body:
+        t = datetime.datetime.fromisoformat(r[ti].replace("Z", "+00:00"))
+        t2 = t0 + (t - t0) * 1.04
+        r = list(r)
+        r[ti] = t2.strftime("%Y-%m-%dT%H:%M:%S.") + f"{t2.microsecond // 1000:03d}Z"
+        r[si] = f"{float(r[si]) / 1.04 * (0.97 if int(r[head.index('Lap')]) == 3 else 1):.2f}"
+        out.append(r)
+    pb = os.path.join(os.path.dirname(sim) or ".", "session_B.csv")
+    with open(pb, "w", encoding="utf-8", newline="") as f:
+        csv.writer(f).writerows(out)
+    for mode, key in (("time", "cmpt"), ("gps", "cmpg")):
+        if mode == "time":
+            core.load_compare(pb, "time")
+        else:
+            core.set_compare_mode("gps")
+        pump(app, 3.0)
+        total = core.frames[-1][0]
+        m.set_zoom(3.0)
+        n = N[key]
+        for i in range(n):
+            play_state(330.0 + i * 0.55)
+            grab(key, i)
+    print("VIDEO FRAMES OK", flush=True)
+
+
 def video_shots(app, win, sim):
     """Captures haute définition pour la vidéo de présentation (TRACKLAB_VIDEO_SHOTS=1)."""
     import csv
@@ -476,6 +592,9 @@ def run_selftest(app, win, args):
     pump(app, 1.0)
     print(f"chargé : {len(core.frames)} trames, {len(core.full_t)} signaux, {time.time() - t0:.1f} s", flush=True)
     assert core.frames and core.full_t
+    if os.environ.get("TRACKLAB_VIDEO_FRAMES"):
+        video_frames(app, win, path)
+        return 0
     if os.environ.get("TRACKLAB_VIDEO_SHOTS"):
         video_shots(app, win, path)
         return 0
