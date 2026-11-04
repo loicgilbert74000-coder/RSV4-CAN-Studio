@@ -27,6 +27,26 @@ def world_px(lat, lon, z):
     return x, y
 
 
+def world_ll(x, y, z):
+    """Inverse de world_px : (latitude, longitude) d'un point en pixels du monde au niveau z."""
+    n = 256.0 * (2 ** z)
+    lon = x / n * 360.0 - 180.0
+    lat = math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * y / n))))
+    return lat, lon
+
+
+def world_px_np(lat, lon, z):
+    """world_px pour des tableaux numpy."""
+    import numpy as np
+
+    n = 256.0 * (2 ** z)
+    lat = np.clip(lat, -85.0511, 85.0511)
+    x = (lon + 180.0) / 360.0 * n
+    s = np.sin(np.radians(lat))
+    y = (0.5 - np.log((1 + s) / (1 - s)) / (4 * math.pi)) * n
+    return x, y
+
+
 class TileStore(QtCore.QObject):
     """Mémoire + disque + réseau pour les tuiles ; `changed` est émis quand une tuile arrive.
 
@@ -59,7 +79,7 @@ class TileStore(QtCore.QObject):
         if os.path.exists(path):
             pm = QtGui.QPixmap(path)
             if not pm.isNull():
-                self.mem[key] = pm
+                self._keep(key, pm)
                 return pm
         if self.enabled and key not in self.pending and self.failed.get(key, 0) < 2 and len(self.pending) < 64:
             self.pending.add(key)
@@ -70,6 +90,12 @@ class TileStore(QtCore.QObject):
             if not self.timer.isActive():
                 self.timer.start()
         return None
+
+    def _keep(self, key, pm):
+        if len(self.mem) >= 400:  # le zoom du circuit parcourt beaucoup de tuiles : on garde les plus récentes
+            for old in list(self.mem)[:100]:
+                self.mem.pop(old, None)
+        self.mem[key] = pm
 
     def _work(self):
         """Fil de téléchargement : ne touche à aucun objet Qt."""
@@ -104,7 +130,7 @@ class TileStore(QtCore.QObject):
             self.pending.discard(key)
             pm = QtGui.QPixmap(path) if ok else None
             if pm is not None and not pm.isNull():
-                self.mem[key] = pm
+                self._keep(key, pm)
                 got = True
             else:
                 self.failed[key] = self.failed.get(key, 0) + 1

@@ -28,6 +28,12 @@ jobs:
           QT_QPA_FONTDIR: C:\Windows\Fonts
           TRACKLAB_FIRST_OPEN: tele
         run: python -m tracklab_qt.main --selftest sim.trk
+      - name: Session de demonstration (zoom circuit, tours, comparaison)
+        env:
+          QT_QPA_PLATFORM: offscreen
+          QT_QPA_FONTDIR: C:\Windows\Fonts
+          TRACKLAB_DEMO_ONLY: "1"
+        run: python -m tracklab_qt.main --selftest sim.trk
       - name: Test sans ecran (captures + chronometrages)
         env:
           QT_QPA_PLATFORM: offscreen
@@ -35,7 +41,7 @@ jobs:
         run: python -m tracklab_qt.main --selftest sim.trk
       - name: Construire
         if: github.event_name == 'workflow_dispatch'
-        run: python -m PyInstaller --noconfirm --windowed --icon assets/icon.ico --name TrackLab_Qt --collect-all serial TrackLab_Qt.py
+        run: python -m PyInstaller --noconfirm --windowed --icon assets/icon.ico --name TrackLab_Qt --collect-all serial --add-data "tracklab_qt/demo;tracklab_qt/demo" TrackLab_Qt.py
       - name: Taille du dossier
         if: github.event_name == 'workflow_dispatch'
         shell: pwsh

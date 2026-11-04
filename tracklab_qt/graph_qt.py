@@ -9,10 +9,10 @@ import pyqtgraph as pg
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from tracklab.config import WINDOWS
-from tracklab.theme import BG, BORDER, CARD, CARD2, CYAN, GREEN, HOVER, MUTED, SUB, TEXT, YELLOW
+from tracklab.theme import BG, BORDER, CARD, CARD2, CYAN, GREEN, HOVER, MUTED, ORANGE, SUB, TEXT, YELLOW
 from tracklab.util import fmt_val
 
-from .satmap import ATTRIBUTION, MAX_TILES, TileStore, choose_zoom, world_px
+from .satmap import ATTRIBUTION, MAX_TILES, MAX_Z, TileStore, choose_zoom, world_ll, world_px, world_px_np
 from .widgets_qt import Card, GroupedSignalList, Label, Qt, font, painter, qc
 
 def painter_on(pm):
@@ -69,7 +69,10 @@ class RefAxis(pg.AxisItem):
 
 
 class CircuitMap(QtWidgets.QWidget):
-    """Circuit GPS : tracé complet dès l'ouverture du fichier, sur fond satellite, avec un point qui suit le curseur."""
+    """Circuit GPS sur fond satellite : tracé complet dès l'ouverture, point qui suit le curseur, zoom à la molette,
+    déplacement en glissant, double-clic pour tout voir. Zoomé, la carte suit le point pendant la lecture."""
+
+    MAXZOOM_STEP = 1.25
 
     def __init__(self, core):
         super().__init__()
@@ -78,21 +81,33 @@ class CircuitMap(QtWidgets.QWidget):
         self.store.changed.connect(self._tiles_changed)
         self._base = None
         self._base_key = None
-        self._geo = None  # (points, bbox, zoom) du dernier calcul
-        self._geo_key = None
+        self._geo = None  # (z, k, ox, oy) du dernier dessin
         self._shown = None
         self._last_geo = 0.0
         self._pts, self._pts_key, self._pts_t = None, None, 0.0
+        self._fit = None  # (clé, z0, k0, bbox, XA, YA, XB, YB) : emprise complète, pixels du monde au niveau z0
+        self.zoom = 1.0
+        self.center = None  # (lat, lon) du centre quand on est zoomé
+        self._drag = None
+        self._last_cursor = None
+        self._file_key = None
         self.setMinimumHeight(110)
+        self.setMouseTracking(True)
+        self.setCursor(Qt.OpenHandCursor)
+        self.setToolTip("Molette : zoom · glisser : déplacer · double-clic : tout voir")
 
     def _tiles_changed(self):
         self._base_key = None
         self.update()
 
     # ---------------------------------------------------------------- données
+    def _file_mode(self):
+        c = self.core
+        return bool(not c.live and c.frames and c.track_full)
+
     def points(self):
         c = self.core
-        file_mode = not c.live and c.frames and c.track_full
+        file_mode = self._file_mode()
         key = (id(c.track_full), len(c.track_full), bool(file_mode), None if file_mode else len(c.track))
         now = time.monotonic()
         if key != self._pts_key and not (not file_mode and self._pts is not None and now - self._pts_t < 0.6):
@@ -101,52 +116,234 @@ class CircuitMap(QtWidgets.QWidget):
             self._pts_key, self._pts_t = key, now
         return self._pts or []
 
+    def points_b(self):
+        c = self.core
+        tb = getattr(c, "track_b", None)
+        return [(la, lo) for _t, la, lo in tb if abs(la) > 1e-6 or abs(lo) > 1e-6] if tb and self._file_mode() else []
+
+    def _interp(self, track, ts, t):
+        i = bisect.bisect_right(ts, t)
+        if i <= 0:
+            return track[0][1], track[0][2]
+        if i >= len(ts):
+            return track[-1][1], track[-1][2]
+        a, b = track[i - 1], track[i]
+        f = (t - a[0]) / ((b[0] - a[0]) or 1)
+        return a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f
+
     def position(self):
         c = self.core
-        if not c.live and c.frames and c.track_full:
-            ts = c.track_full_t
-            t = c.cursor_ms()
-            i = bisect.bisect_right(ts, t)
-            if i <= 0:
-                q = c.track_full[0]
-                return q[1], q[2]
-            if i >= len(ts):
-                q = c.track_full[-1]
-                return q[1], q[2]
-            a, b = c.track_full[i - 1], c.track_full[i]
-            f = (t - a[0]) / ((b[0] - a[0]) or 1)
-            return a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f
+        if self._file_mode():
+            return self._interp(c.track_full, c.track_full_t, c.cursor_ms())
         return (c.track[-1][0], c.track[-1][1]) if c.track else None
+
+    def position_b(self):
+        c = self.core
+        if getattr(c, "track_b", None) and self._file_mode():
+            return self._interp(c.track_b, c.track_b_t, c.cursor_ms())
+        return None
+
+    # ---------------------------------------------------------------- vue : zoom, déplacement
+    def _top(self):
+        return 26, 14
+
+    def _fit_info(self, pts, ptsb, w, h):
+        """Emprise complète (A + B) : niveau de zoom z0 et échelle k0 pour tout voir ; pixels du monde des points."""
+        top, pad = self._top()
+        key = (id(self._pts), len(pts), len(ptsb), w, h, pts[-1] if pts else None)
+        if self._fit and self._fit[0] == key:
+            return self._fit
+        allp = pts + ptsb
+        lats, lons = [q[0] for q in allp], [q[1] for q in allp]
+        la0, la1, lo0, lo1 = min(lats), max(lats), min(lons), max(lons)
+        aw, ah = w - 2 * pad, h - top - pad
+        z0 = choose_zoom(la0, la1, lo0, lo1, max(aw, 40), max(ah, 40))
+        x0, y1 = world_px(la0, lo0, z0)
+        x1, y0 = world_px(la1, lo1, z0)
+        k0 = min(aw / max(x1 - x0, 1.0), ah / max(y1 - y0, 1.0))
+        a = np.asarray(pts, dtype=np.float64)
+        XA, YA = world_px_np(a[:, 0], a[:, 1], z0)
+        if ptsb:
+            b = np.asarray(ptsb, dtype=np.float64)
+            XB, YB = world_px_np(b[:, 0], b[:, 1], z0)
+        else:
+            XB = YB = None
+        self._fit = (key, z0, k0, (la0, la1, lo0, lo1), XA, YA, XB, YB)
+        return self._fit
+
+    def _zk(self, z0, k0, zoom):
+        """Niveau de tuiles z et échelle k (pixels écran par pixel de tuile) pour un facteur de zoom."""
+        dz = max(0, int(math.floor(math.log2(max(zoom, 1.0)) + 0.5)))
+        z = min(MAX_Z, z0 + dz)
+        return z, k0 * zoom / 2 ** (z - z0)
+
+    def zoom_max(self):
+        f = self._fit
+        return 2.0 ** (MAX_Z - f[1] + 1) if f else 1.0
+
+    def _geometry(self, pts, ptsb, w, h):
+        _k, z0, k0, bbox, *_ = self._fit_info(pts, ptsb, w, h)
+        top, pad = self._top()
+        aw, ah = w - 2 * pad, h - top - pad
+        z, k = self._zk(z0, k0, self.zoom)
+        if self.zoom <= 1.0001 or self.center is None:
+            x0, y1 = world_px(bbox[0], bbox[2], z)
+            x1, y0 = world_px(bbox[1], bbox[3], z)
+            cxw, cyw = (x0 + x1) / 2, (y0 + y1) / 2
+        else:
+            cxw, cyw = world_px(self.center[0], self.center[1], z)
+        return z, k, w / 2 - cxw * k, top + ah / 2 - cyw * k + pad / 2
+
+    def _centre_of(self, geo, w, h):
+        """(lat, lon) du centre de la zone dessinée pour la géométrie donnée."""
+        z, k, ox, oy = geo
+        top, pad = self._top()
+        ah = h - top - pad
+        return world_ll((w / 2 - ox) / k, (top + ah / 2 + pad / 2 - oy) / k, z)
+
+    def _ll_at(self, geo, sx, sy):
+        z, k, ox, oy = geo
+        return world_ll((sx - ox) / k, (sy - oy) / k, z)
+
+    def set_zoom(self, zoom, sx=None, sy=None):
+        """Change le zoom en gardant fixe le point de la carte situé sous (sx, sy) (centre par défaut)."""
+        pts = self.points()
+        if len(pts) < 2 or not self._geo:
+            return
+        w, h = self.width(), self.height()
+        ptsb = self.points_b()
+        geo = self._geometry(pts, ptsb, w, h)
+        top, pad = self._top()
+        if sx is None:
+            sx, sy = w / 2, top + (h - top - pad) / 2 + pad / 2
+        la, lo = self._ll_at(geo, sx, sy)
+        zoom = max(1.0, min(self.zoom_max(), zoom))
+        if zoom <= 1.0001:
+            self.reset_view()
+            return
+        _k, z0, k0, *_ = self._fit
+        z, k = self._zk(z0, k0, zoom)
+        xw, yw = world_px(la, lo, z)
+        ah = h - top - pad
+        cx = xw - (sx - w / 2) / k
+        cy = yw - (sy - (top + ah / 2 + pad / 2)) / k
+        self.zoom = zoom
+        self.center = self._clamp(world_ll(cx, cy, z))
+        self._refresh()
+
+    def _clamp(self, c):
+        if not self._fit:
+            return c
+        la0, la1, lo0, lo1 = self._fit[3]
+        mh, mw = (la1 - la0) * 0.1, (lo1 - lo0) * 0.1
+        return max(la0 - mh, min(la1 + mh, c[0])), max(lo0 - mw, min(lo1 + mw, c[1]))
+
+    def reset_view(self):
+        self.zoom, self.center = 1.0, None
+        self._refresh()
+
+    def _refresh(self):
+        self._base_key = None
+        self._shown = None
+        self.update()
+
+    def wheelEvent(self, e):
+        steps = e.angleDelta().y() / 120.0
+        if not steps or len(self.points()) < 2:
+            return
+        p = e.position()
+        self.set_zoom(self.zoom * self.MAXZOOM_STEP ** steps, p.x(), p.y())
+        e.accept()
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.LeftButton and self._geo and len(self.points()) >= 2:
+            c = self._centre_of(self._geo, self.width(), self.height())
+            self._drag = (e.position().x(), e.position().y(), c, self._geo)
+            self.setCursor(Qt.ClosedHandCursor)
+
+    def mouseMoveEvent(self, e):
+        if not self._drag or self.zoom <= 1.0001:
+            return
+        sx, sy, c0, geo = self._drag
+        z, k, _ox, _oy = geo
+        xc, yc = world_px(c0[0], c0[1], z)
+        self.center = self._clamp(world_ll(xc - (e.position().x() - sx) / k, yc - (e.position().y() - sy) / k, z))
+        self._refresh()
+
+    def mouseReleaseEvent(self, e):
+        self._drag = None
+        self.setCursor(Qt.OpenHandCursor)
+
+    def mouseDoubleClickEvent(self, e):
+        self.reset_view()
+
+    def _follow(self):
+        """Zoomé : la carte garde le point dans la vue (centré pendant la lecture)."""
+        if self.zoom <= 1.0001 or self._drag or not self._geo:
+            return
+        pos = self.position()
+        if not pos:
+            return
+        c = self.core
+        if c.playing or c.live:
+            self.center = self._clamp(pos)
+            return
+        cur = c.cursor_ms()
+        moved = cur != self._last_cursor
+        self._last_cursor = cur
+        if not moved:  # à l'arrêt, on ne reprend pas la main sur un déplacement fait à la souris
+            return
+        pt = self._xy(self._geo, *pos)
+        w, h = self.width(), self.height()
+        if not (w * 0.15 < pt.x() < w * 0.85 and h * 0.2 < pt.y() < h * 0.85):
+            self.center = self._clamp(pos)
+            self._base_key = None
 
     def tick(self):
         c = self.core
+        if id(c.track_full) != self._file_key:  # nouveau fichier : la vue repart sur le circuit entier
+            self._file_key = id(c.track_full)
+            self.zoom, self.center = 1.0, None
+        if self.zoom > 1.0001:
+            before = self.center
+            self._follow()
+            if self.center != before:
+                self._base_key = None
         pos = self.position()
-        st = (pos, len(c.track), len(c.track_full), c.live, self.width(), self.height())
+        st = (pos, self.position_b(), len(c.track), len(c.track_full), c.live, self.width(), self.height(), self.zoom, self.center)
         if st != self._shown:
             self._shown = st
             self.update()
 
     # ---------------------------------------------------------------- dessin
-    def _geometry(self, pts, w, h):
-        lats, lons = [q[0] for q in pts], [q[1] for q in pts]
-        la0, la1, lo0, lo1 = min(lats), max(lats), min(lons), max(lons)
-        top, pad = 26, 14
-        aw, ah = w - 2 * pad, h - top - pad
-        z = choose_zoom(la0, la1, lo0, lo1, max(aw, 40), max(ah, 40))
-        x0, y1 = world_px(la0, lo0, z)
-        x1, y0 = world_px(la1, lo1, z)
-        bw, bh = max(x1 - x0, 1.0), max(y1 - y0, 1.0)
-        k = min(aw / bw, ah / bh)
-        cxw, cyw = (x0 + x1) / 2, (y0 + y1) / 2
-        ox, oy = w / 2 - cxw * k, top + ah / 2 - cyw * k + pad / 2
-        return z, k, ox, oy
-
     def _xy(self, geo, la, lo):
         z, k, ox, oy = geo
         x, y = world_px(la, lo, z)
         return QtCore.QPointF(ox + x * k, oy + y * k)
 
-    def _render_base(self, pts, w, h):
+    def _trace(self, q, geo, X, Y, z0, w, h, color):
+        """Trace une trace GPS (pixels du monde au niveau z0) : seuls les segments visibles sont reliés."""
+        z, k, ox, oy = geo
+        f = 2.0 ** (z - z0) * k
+        sx, sy = ox + X * f, oy + Y * f
+        n = len(sx)
+        if self.zoom <= 1.0001 and n > 3000:
+            idx = np.unique(np.append(np.arange(0, n, max(1, n // 3000)), n - 1))
+            sx, sy = sx[idx], sy[idx]
+            n = len(sx)
+        vis = (sx > -20) & (sx < w + 20) & (sy > -20) & (sy < h + 20)
+        conn = (vis[:-1] | vis[1:]).astype(np.int32)
+        conn = np.append(conn, 0)
+        if not conn.any():
+            return
+        path = pg.functions.arrayToQPath(sx, sy, connect=conn)
+        q.setBrush(Qt.NoBrush)
+        q.setPen(QtGui.QPen(qc("#000000", 170), 5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))  # liseré sombre : lisible sur l'image
+        q.drawPath(path)
+        q.setPen(QtGui.QPen(qc(color), 3, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        q.drawPath(path)
+
+    def _render_base(self, pts, ptsb, w, h):
         dpr = self.devicePixelRatioF()
         pm = QtGui.QPixmap(int(w * dpr), int(h * dpr))
         pm.setDevicePixelRatio(dpr)
@@ -155,8 +352,9 @@ class CircuitMap(QtWidgets.QWidget):
         clip = QtGui.QPainterPath()
         clip.addRoundedRect(QtCore.QRectF(0.5, 0.5, w - 1, h - 1), 10, 10)
         q.setClipPath(clip)
-        geo = self._geometry(pts, w, h)
+        geo = self._geometry(pts, ptsb, w, h)
         z, k, ox, oy = geo
+        _key, z0, _k0, _bb, XA, YA, XB, YB = self._fit
         missing = 0
         n = 2 ** z
         tx0, tx1 = int(math.floor((0 - ox) / k / 256)), int(math.floor((w - ox) / k / 256))
@@ -173,28 +371,30 @@ class CircuitMap(QtWidgets.QWidget):
         sat = len(self.store.mem) > 0 and missing < (tx1 - tx0 + 1) * (ty1 - ty0 + 1)
         if sat:
             q.fillRect(QtCore.QRectF(0, 0, w, h), qc("#000000", 70))
-        step = max(1, len(pts) // 2000)
-        sample = pts[::step]
-        if sample[-1] != pts[-1]:
-            sample.append(pts[-1])
-        path = QtGui.QPainterPath(self._xy(geo, *sample[0]))
-        for pt in sample[1:]:
-            path.lineTo(self._xy(geo, *pt))
-        q.setBrush(Qt.NoBrush)
-        q.setPen(QtGui.QPen(qc("#000000", 170), 5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))  # liseré sombre : lisible sur l'image
-        q.drawPath(path)
-        q.setPen(QtGui.QPen(qc(CYAN), 3, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-        q.drawPath(path)
+        if XB is not None:
+            self._trace(q, geo, XB, YB, z0, w, h, ORANGE)
+        self._trace(q, geo, XA, YA, z0, w, h, CYAN)
         # départ
+        s = self._xy(geo, *pts[0])
         q.setPen(QtGui.QPen(qc("#ffffff"), 2))
         q.setBrush(qc(BG))
-        q.drawEllipse(self._xy(geo, *pts[0]), 4, 4)
+        q.drawEllipse(s, 4, 4)
         if sat:
             q.setFont(font(9))
             q.setPen(qc("#ffffff", 190))
             q.drawText(QtCore.QRectF(0, h - 16, w - 8, 14), Qt.AlignRight | Qt.AlignVCenter, ATTRIBUTION)
         q.end()
         return pm, geo
+
+    def _dot(self, p, pos, color):
+        pt = self._xy(self._geo, *pos)
+        p.setPen(Qt.NoPen)
+        p.setBrush(qc(color, 60))
+        p.drawEllipse(pt, 11, 11)
+        p.setBrush(qc("#ffffff"))
+        p.drawEllipse(pt, 6.5, 6.5)
+        p.setBrush(qc(color))
+        p.drawEllipse(pt, 4.5, 4.5)
 
     def paintEvent(self, _e):
         p = painter(self)
@@ -210,13 +410,14 @@ class CircuitMap(QtWidgets.QWidget):
             p.drawText(QtCore.QRectF(0, 0, w, h), Qt.AlignCenter, "Pas de données GPS dans cette source")
             return
         c = self.core
-        key = (w, h, len(pts), pts[-1], pts[0], len(self.store.mem))
+        ptsb = self.points_b()
+        key = (w, h, len(pts), pts[-1], pts[0], len(ptsb), len(self.store.mem), self.zoom, self.center)
         if key != self._base_key or self._base is None:
             now = time.monotonic()
             if c.live and self._base is not None and now - self._last_geo < 0.6:
                 pass  # en direct, le fond n'est recalculé que de temps en temps
             else:
-                self._base, self._geo = self._render_base(pts, w, h)
+                self._base, self._geo = self._render_base(pts, ptsb, w, h)
                 self._base_key = key
                 self._last_geo = now
         p.drawPixmap(0, 0, self._base)
@@ -225,16 +426,17 @@ class CircuitMap(QtWidgets.QWidget):
         p.drawText(QtCore.QPointF(11, 19), "Circuit")
         p.setPen(qc(TEXT))
         p.drawText(QtCore.QPointF(10, 18), "Circuit")
+        if self.zoom > 1.0001:
+            p.setFont(font(10))
+            p.setPen(qc(TEXT))
+            p.drawText(QtCore.QRectF(0, 4, w - 10, 16), Qt.AlignRight | Qt.AlignVCenter, f"× {self.zoom:.1f} · double-clic : tout voir")
         pos = self.position()
-        if pos and self._geo:
-            pt = self._xy(self._geo, *pos)
-            p.setPen(Qt.NoPen)
-            p.setBrush(qc(GREEN, 60))
-            p.drawEllipse(pt, 11, 11)
-            p.setBrush(qc("#ffffff"))
-            p.drawEllipse(pt, 6.5, 6.5)
-            p.setBrush(qc(GREEN))
-            p.drawEllipse(pt, 4.5, 4.5)
+        if self._geo:
+            pb = self.position_b()
+            if pb:
+                self._dot(p, pb, ORANGE)
+            if pos:
+                self._dot(p, pos, GREEN)
 
 
 class LegendRow(QtWidgets.QFrame):
@@ -335,6 +537,19 @@ class GraphPage(QtWidgets.QWidget):
         # ---- centre : barre d'outils + courbes
         centre = QtWidgets.QVBoxLayout()
         centre.setSpacing(6)
+        top = QtWidgets.QHBoxLayout()
+        self.l_lap = Label("", CYAN, 17, True)
+        self.l_lap.setMinimumWidth(240)
+        top.addWidget(self.l_lap)
+        top.addStretch(1)
+        self.b_cmp = self._btn("Comparer avec un fichier…", ORANGE)
+        self.b_cmp.clicked.connect(core.open_compare)
+        self.b_cmp_end = self._btn("Fin de la comparaison", MUTED)
+        self.b_cmp_end.clicked.connect(core.end_compare)
+        self.b_cmp_end.setVisible(False)
+        top.addWidget(self.b_cmp)
+        top.addWidget(self.b_cmp_end)
+        centre.addLayout(top)
         bar = QtWidgets.QHBoxLayout()
         self.b_over, self.b_stack = self._tab("Superposées"), self._tab("Empilées")
         self.b_over.clicked.connect(lambda: self.set_stack(False))
@@ -497,6 +712,13 @@ class GraphPage(QtWidgets.QWidget):
         c = self.core
         return [k for k in c.curve_keys() if k in c.sel]
 
+    def _pen(self, key):
+        """Trait de la courbe : plein, ou pointillé pour la voie de la 2e session comparée."""
+        pen = pg.mkPen(self.core.color_of(key), width=PEN_W)
+        if key[1].endswith(" [B]"):
+            pen.setStyle(Qt.DashLine)
+        return pen
+
     def axis(self, key):
         """(lo, hi, graduations) d'un signal : échelle stable (fichier entier, ou élargie par paliers en direct)."""
         t, v = self.arrays(key)
@@ -595,7 +817,7 @@ class GraphPage(QtWidgets.QWidget):
                 t, v = self.arrays(k)
                 span = (hi - lo) or 1.0
                 cv = self._curve_item(0, i)
-                cv.setPen(pg.mkPen(c.color_of(k), width=PEN_W))
+                cv.setPen(self._pen(k))
                 t2, v2 = self._two_points(t, (v - lo) / span)
                 cv.setData(t2, v2)
                 self.curves[k] = cv
@@ -613,7 +835,7 @@ class GraphPage(QtWidgets.QWidget):
                 ax.set_ref(None, c.color_of(k))
                 t, v = self.arrays(k)
                 cv = self._curve_item(i, 0)
-                cv.setPen(pg.mkPen(c.color_of(k), width=PEN_W))
+                cv.setPen(self._pen(k))
                 t2, v2 = self._two_points(t, v)
                 cv.setData(t2, v2)
                 self.curves[k] = cv
@@ -850,6 +1072,40 @@ class GraphPage(QtWidgets.QWidget):
         self.on_cursor()
         self.show_span()
         self.map.tick()
+        self.update_lap()
+
+    @staticmethod
+    def _lap_text(info, name=""):
+        if info is None:
+            return ""
+        lap, start, top = info
+        return f"{name}Hors tour" if lap <= 0 else f"{name}Tour {lap}/{top}"
+
+    def update_lap(self):
+        """Tour en cours (et temps écoulé dans ce tour) en haut des courbes ; les deux sessions en comparaison."""
+        c = self.core
+        cmp_on = bool(getattr(c, "compare_name", None))
+        if self.b_cmp_end.isVisible() != cmp_on:
+            self.b_cmp_end.setVisible(cmp_on)
+            self.b_cmp.setText("Changer de fichier…" if cmp_on else "Comparer avec un fichier…")
+        if c.live or not c.frames:
+            txt = ""
+        else:
+            ms = c.cursor_ms()
+            parts = []
+            for suffix, name in (("", "A · " if cmp_on else ""), (" [B]", "B · ")) if cmp_on else (("", ""),):
+                info = c.lap_at(ms, suffix)
+                if info is None:
+                    continue
+                t = self._lap_text(info, name)
+                if info[0] > 0:
+                    sec = max(0.0, (ms - info[1]) / 1000.0)
+                    t += f" · {int(sec // 60)}:{sec % 60:04.1f}"
+                parts.append(t)
+            txt = "      ".join(parts)
+        if txt != getattr(self, "_lap_shown", None):
+            self._lap_shown = txt
+            self.l_lap.setText(txt)
 
     def refresh_live(self):
         c = self.core

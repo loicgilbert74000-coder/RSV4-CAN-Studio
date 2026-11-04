@@ -43,6 +43,15 @@ def main():
     win.show()
     if args:
         win.core.load(args[0])
+    elif os.environ.get("TRACKLAB_NO_DEMO") != "1":
+        # sans fichier demandé, l'appli s'ouvre sur la session RaceBox de démonstration
+        from PySide6 import QtCore
+
+        from .resources import demo_path
+
+        demo = demo_path()
+        if demo:
+            QtCore.QTimer.singleShot(200, lambda: win.core.load(demo))
     return app.exec()
 
 
@@ -272,6 +281,78 @@ def circuit_test(app, win):
     pump(app, 0.3)
 
 
+def demo_test(app, win):
+    """Session RaceBox de démonstration : sélection par défaut, liste CAN épurée, tour affiché, zoom du circuit
+    (suivi du point en lecture, déplacement), comparaison de deux fichiers."""
+    from PySide6 import QtCore
+    from PySide6.QtTest import QTest
+
+    from .resources import demo_path
+
+    core, g = win.core, win.graph
+    demo = demo_path()
+    assert demo, "session de démonstration introuvable"
+    core.load(demo)
+    pump(app, 2.0)
+    core.show_page("graph")
+    pump(app, 1.0)
+    names = sorted(k[1] for k in core.sel)
+    say(f"démo : courbes par défaut = {names}")
+    assert set(names) == {"Angle", "G longitudinal", "G latéral (calculé)", "GPS Vitesse"}, names
+    can = [k for t, lst in core.signal_groups() for k, _l, _ok in lst if core.signal_type(k) == "CAN moto"]
+    say(f"démo : signaux CAN proposés = {len(can)}")
+    assert not can, "des signaux CAN sans valeur sont encore proposés"
+    core.seek(0.4)
+    pump(app, 0.6)
+    g.update_lap()
+    say(f"démo : tour affiché = « {g.l_lap.text()} »")
+    assert "Tour" in g.l_lap.text()
+    emit_image("demo_courbes", win.grab())
+    m = g.map
+    m.store.enabled = os.environ.get("TRACKLAB_NO_TILES") != "1"
+    c0 = (m.zoom, m.center)
+    m.set_zoom(5.0)
+    pump(app, 1.5)
+    assert m.zoom > 4.9 and m.center is not None, "zoom du circuit sans effet"
+    emit_image("demo_circuit_zoom", m.grab())
+    before = m.center
+    QTest.mousePress(m, QtCore.Qt.LeftButton, pos=QtCore.QPoint(m.width() // 2, m.height() // 2))
+    QTest.mouseMove(m, QtCore.QPoint(m.width() // 2 + 60, m.height() // 2 + 40))
+    QTest.mouseRelease(m, QtCore.Qt.LeftButton, pos=QtCore.QPoint(m.width() // 2 + 60, m.height() // 2 + 40))
+    pump(app, 0.3)
+    say(f"démo : déplacement du circuit {before} -> {m.center}")
+    assert m.center != before, "le glisser ne déplace pas le circuit"
+    # lecture : le point reste au centre, le zoom est conservé
+    core.speed.set(8.0)
+    core.seek(0.3)
+    pump(app, 0.3)
+    core.play()
+    pump(app, 2.0)
+    pos = m.position()
+    assert m.zoom > 4.9, "le zoom n'est pas conservé en lecture"
+    assert abs(m.center[0] - pos[0]) < 5e-4 and abs(m.center[1] - pos[1]) < 5e-4, (m.center, pos)
+    emit_image("demo_circuit_lecture", m.grab())
+    core.pause()
+    m.reset_view()
+    assert m.zoom == 1.0
+    # comparaison
+    core.load_compare(demo)
+    pump(app, 2.5)
+    assert core.compare_name and core.track_b, "comparaison non chargée"
+    nb = [k for k in core.sel if k[1].endswith(" [B]")]
+    assert len(nb) >= 3, nb
+    core.seek(0.5)
+    pump(app, 0.8)
+    g.update_lap()
+    say(f"démo : comparaison, {len(core.track_b)} points B, tour = « {g.l_lap.text()} »")
+    assert "B ·" in g.l_lap.text()
+    emit_image("demo_comparaison", win.grab())
+    core.end_compare()
+    pump(app, 1.5)
+    assert not core.compare_name and not [k for k in core.sel if k[1].endswith(" [B]")]
+    say(f"démo : OK (zoom initial {c0})")
+
+
 def run_selftest(app, win, args):
     path = args[0]
     core = win.core
@@ -286,6 +367,10 @@ def run_selftest(app, win, args):
     pump(app, 1.0)
     print(f"chargé : {len(core.frames)} trames, {len(core.full_t)} signaux, {time.time() - t0:.1f} s", flush=True)
     assert core.frames and core.full_t
+    if os.environ.get("TRACKLAB_DEMO_ONLY"):
+        demo_test(app, win)
+        print("DEMO OK", flush=True)
+        return 0
     if os.environ.get("TRACKLAB_STRESS_ONLY"):
         for i in range(int(os.environ["TRACKLAB_STRESS_ONLY"])):
             stress_signals(app, win)
@@ -347,6 +432,7 @@ def run_selftest(app, win, args):
     win.show_page = getattr(win, "show_page", None)
     monkey.run(app, win, pump, int(os.environ.get("TRACKLAB_MONKEY", "400")), seed=1, log=say)
     core.stack.set(False)
+    demo_test(app, win)
     live_test(app, win)
     print("OK : TrackLab Qt", flush=True)
     return 0

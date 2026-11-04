@@ -36,6 +36,7 @@ class Loaded:
     frames: list = field(default_factory=list)  # [(ms, id, octets)]
     dyn: dict = field(default_factory=dict)  # {id: [(nom, unité, type), (nom, unité, type) ou None]}
     info: str = ""  # précision (nombre de voies, vitesse convertie…)
+    extra: dict = field(default_factory=dict)  # comparaison de deux fichiers : voies de la 2e session
 
 
 # ---------------------------------------------------------------- lecture et détection
@@ -213,7 +214,7 @@ def _bearing(la1, lo1, la2, lo2):
 def _channel_type(name):
     """Type de signal (GPS, inertiel, capteur…) deviné d'après le nom de la colonne."""
     n = name.lower()
-    if n in ("x", "y", "z", "leanangle", "lean angle", "lean"):
+    if n in ("x", "y", "z", "leanangle", "lean angle", "lean") or n.startswith(("g ", "angle")):
         return TYPE_IMU
     if any(k in n for k in ("accuracy", "update_rate", "update rate", "alt", "height", "elevation", "satell", "distance", "hdop", "pdop", "bearing", "heading", "course")):
         return TYPE_GPS
@@ -224,6 +225,96 @@ def _channel_type(name):
     if any(k in n for k in ("rpm", "throttle", "brake", "temp", "press", "afr", "lambda", "gear", "volt", "boost", "fuel", "oil")):
         return TYPE_SENS
     return TYPE_OTHER
+
+
+# ---------------------------------------------------------------- grandeurs recalculées (G, angle, tours)
+G0 = 9.80665
+_RENAME = {  # noms lisibles des colonnes inertielles d'un fichier RaceBox
+    "gforcex": "G longitudinal", "gforcey": "G latéral", "gforcez": "G vertical",
+    "leanangle": "Angle", "lean angle": "Angle", "lap": "Tour",
+}
+
+
+def _avg(v, n):
+    """Moyenne glissante centrée sur n points (n impair), bords compris."""
+    if n <= 1 or len(v) < 3:
+        return list(v)
+    h = n // 2
+    out, acc = [], [0.0]
+    for x in v:
+        acc.append(acc[-1] + x)
+    for i in range(len(v)):
+        a, b = max(0, i - h), min(len(v), i + h + 1)
+        out.append((acc[b] - acc[a]) / (b - a))
+    return out
+
+
+def derive_motion(tt, lat, lon, kmh):
+    """Recalcule, depuis le seul GPS (temps en s, degrés, km/h), les trois grandeurs d'un fichier brut :
+    accélération longitudinale (G, + accélération / - freinage), accélération latérale (G, + virage à droite)
+    et angle d'inclinaison (degrés, + à droite), avec l'angle = atan(accélération latérale / g) (moto en équilibre)."""
+    n = len(tt)
+    if n < 8:
+        return None
+    r = 6371000.0
+    la0, lo0 = lat[0], lon[0]
+    c = math.cos(math.radians(la0))
+    x = [math.radians(lo - lo0) * c * r for lo in lon]
+    y = [math.radians(la - la0) * r for la in lat]
+    v = _avg([max(0.0, s) / 3.6 for s in kmh], 3)
+    xs, ys = _avg(x, 5), _avg(y, 5)
+    k = 3
+    head, prev = [], 0.0
+    for i in range(n):
+        a, b = max(0, i - k), min(n - 1, i + k)
+        dx, dy = xs[b] - xs[a], ys[b] - ys[a]
+        h = math.atan2(dx, dy) if (dx * dx + dy * dy) > 0.04 else prev
+        while h - prev > math.pi:
+            h -= 2 * math.pi
+        while h - prev < -math.pi:
+            h += 2 * math.pi
+        head.append(h)
+        prev = h
+    yaw, glo = [], []
+    for i in range(n):
+        a, b = max(0, i - k), min(n - 1, i + k)
+        dt = tt[b] - tt[a]
+        if dt <= 0:
+            yaw.append(0.0)
+            glo.append(0.0)
+            continue
+        yaw.append((head[b] - head[a]) / dt if v[i] > 3.0 else 0.0)
+        glo.append((v[b] - v[a]) / dt / G0)
+    yaw = _avg(yaw, 5)
+    glat = [max(-3.0, min(3.0, v[i] * yaw[i] / G0)) for i in range(n)]
+    glo = [max(-3.0, min(3.0, g)) for g in _avg(glo, 3)]
+    lean = [math.degrees(math.atan(g)) for g in glat]
+    return glo, glat, lean
+
+
+def detect_laps(tt, lat, lon, kmh):
+    """Numéro de tour pour chaque point, quand le fichier n'en donne pas : un tour est compté à chaque retour près
+    du point de départ (premier passage au-dessus de 30 km/h), après s'en être éloigné d'au moins 200 m."""
+    n = len(tt)
+    start = next((i for i in range(n) if kmh[i] > 30), None)
+    if start is None:
+        return None
+    r = 6371000.0
+    c = math.cos(math.radians(lat[start]))
+
+    def dist(i):
+        return math.hypot(math.radians(lon[i] - lon[start]) * c * r, math.radians(lat[i] - lat[start]) * r)
+
+    out, lap, far = [0] * n, 0, False
+    for i in range(start, n):
+        d = dist(i)
+        if d > 200:
+            far = True
+        elif d < 30 and far and kmh[i] > 20:
+            lap += 1
+            far = False
+        out[i] = lap
+    return out if max(out) >= 1 else None
 
 
 def _table_to_loaded(kind, label, names, units, rows):
@@ -270,6 +361,47 @@ def _table_to_loaded(kind, label, names, units, rows):
             factor, certain = guess_speed_factor([t[i] for i in keep], [lat[i] for i in keep], [lon[i] for i in keep], [vals[roles["speed"]][i] for i in keep])
             if factor != 1.0:
                 note.append(f"vitesse convertie (× {factor:g}) d'après le tracé")
+    # noms lisibles, puis grandeurs absentes du fichier recalculées depuis le GPS (G, angle, tours)
+    names = [_RENAME.get(low[i], names[i]) for i in range(len(names))]
+    low = [re.sub(r"\s+", " ", n.lower()) for n in names]
+    notes_calc = []
+    if "speed" in roles and len(keep) > 20:
+        ok = [i for i in keep if lat[i] is not None and lon[i] is not None and vals[roles["speed"]][i] is not None]
+        if len(ok) > 20:
+            tt = [t[i] - t0 for i in ok]
+            la_ = [lat[i] for i in ok]
+            lo_ = [lon[i] for i in ok]
+            kmh = [vals[roles["speed"]][i] * factor for i in ok]
+            wanted = [("g longitudinal", "G longitudinal (calculé)", "g"), ("g latéral", "G latéral (calculé)", "g"),
+                      ("angle", "Angle (calculé)", "°")]
+            have = {w[0]: w[0] in low for w in wanted}
+            if not all(have.values()):
+                res = derive_motion(tt, la_, lo_, kmh)
+                if res:
+                    for (key, label, unit), serie in zip(wanted, res):
+                        if have[key]:
+                            continue
+                        col = [None] * len(rows)
+                        for i, x in zip(ok, serie):
+                            col[i] = round(x, 4)
+                        names.append(label)
+                        units.append(unit)
+                        vals.append(col)
+                        low.append(label.lower())
+                        notes_calc.append(label.split(" (")[0])
+            if "tour" not in low:
+                laps = detect_laps(tt, la_, lo_, kmh)
+                if laps:
+                    col = [None] * len(rows)
+                    for i, x in zip(ok, laps):
+                        col[i] = x
+                    names.append("Tour")
+                    units.append("")
+                    vals.append(col)
+                    low.append("tour")
+                    notes_calc.append("tours détectés d'après le tracé")
+    if notes_calc:
+        note.append("recalculé : " + ", ".join(notes_calc))
     skip = {"record", "index", "no", "nr", "#", "n°", "id"}
     other = [
         i for i in range(len(names))
@@ -430,3 +562,57 @@ def load_any(path):
             f"Fichier reconnu comme « {label} » mais ses colonnes sont illisibles (temps, latitude ou longitude introuvables)."
         )
     return loaded
+
+
+# ---------------------------------------------------------------- comparaison de deux fichiers
+B_BASE = DYN_BASE + 0x100  # identifiants des voies de la 2e session
+B_SUFFIX = " [B]"
+
+
+def _lap_start_ms(res, lap=1):
+    """Instant (ms) où le fichier passe au tour `lap`, ou None s'il n'a pas de voie « Tour »."""
+    for cid, ents in res.dyn.items():
+        for j, ent in enumerate(ents):
+            if ent and ent[0] == "Tour":
+                for ms, c, data in res.frames:
+                    if c == cid and len(data) >= 8:
+                        v = struct.unpack("<ff", bytes(data[:8]))[j]
+                        if v == v and int(round(v)) == lap:
+                            return ms
+    return None
+
+
+def merge_compare(a, b):
+    """Réunit deux sessions GPS dans un même jeu de trames : les voies de b prennent le suffixe « [B] » et son tracé
+    devient des voies cachées. Les deux sont alignées sur le début du tour 1 quand les deux fichiers le connaissent."""
+    if b.kind in ("trk", "usbcan", "serial") or not b.frames:
+        raise ValueError("Le fichier à comparer doit être une session GPS (RaceBox, RaceChrono, CSV…), pas une capture CAN.")
+    ta, tb = _lap_start_ms(a), _lap_start_ms(b)
+    d = (ta - tb) if (ta is not None and tb is not None) else 0
+    sh_a, sh_b = max(0, -d), max(0, d)
+    dyn = dict(a.dyn)
+    remap = {}
+    for k, (cid, ents) in enumerate(sorted(b.dyn.items())):
+        remap[cid] = B_BASE + k
+        dyn[B_BASE + k] = [(e[0] + B_SUFFIX, e[1], e[2]) if e else None for e in ents]
+    pos_id, mot_id = B_BASE + len(b.dyn), B_BASE + len(b.dyn) + 1
+    dyn[pos_id] = [("~lat B", "°", TYPE_GPS), ("~lon B", "°", TYPE_GPS)]
+    dyn[mot_id] = [("GPS Vitesse" + B_SUFFIX, "km/h", TYPE_GPS), ("GPS Cap" + B_SUFFIX, "°", TYPE_GPS)]
+    frames = [(ms + sh_a, cid, data) for ms, cid, data in a.frames]
+    base = None
+    for ms, cid, data in b.frames:
+        if cid == ID_GPS_POS and len(data) >= 8:
+            la, lo = struct.unpack("<ii", bytes(data[:8]))
+            if base is None:
+                base = (round(la / 1e7), round(lo / 1e7))
+            frames.append((ms + sh_b, pos_id, struct.pack("<ff", la / 1e7 - base[0], lo / 1e7 - base[1])))
+        elif cid == ID_GPS_MOT and len(data) >= 4:
+            sp, hd = struct.unpack("<HH", bytes(data[:4]))
+            frames.append((ms + sh_b, mot_id, struct.pack("<ff", sp / 100.0, hd / 100.0)))
+        elif cid in remap:
+            frames.append((ms + sh_b, remap[cid], data))
+    frames.sort(key=lambda f: f[0])
+    how = "alignées sur le début du tour 1" if ta is not None and tb is not None else "alignées sur le début des fichiers"
+    out = Loaded(a.kind, a.label + " · comparaison", frames, dyn, f"{a.info} · comparaison {how}")
+    out.extra = {"b_pos": pos_id, "b_base": base or (0, 0)}
+    return out

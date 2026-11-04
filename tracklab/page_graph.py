@@ -2,6 +2,7 @@
 
 import bisect
 import math
+import re
 import time
 import tkinter as tk
 from tkinter import ttk
@@ -13,6 +14,7 @@ from .theme import BG, BORDER, CARD, CARD2, CYAN, FONT, GREEN, MUTED, PALETTE, S
 from .util import disp_unit, fmt_val, nice_ticks
 from .widgets import GroupedSignalList
 
+UNIDENTIFIED = re.compile(r"^(?:SRC_)?[0-9A-Fa-f]{2,3}[BWN]\d+$")  # octets / mots dont le rôle n'est pas connu
 TYPE_ORDER = (TYPE_GPS, TYPE_CAN, TYPE_SENS, TYPE_IMU, TYPE_OTHER)
 MIN_SPAN = 20.0  # fenêtre de temps la plus petite (ms)
 MAX_SPAN = 6 * 3600 * 1000.0  # la plus grande (ms)
@@ -124,6 +126,10 @@ class GraphMixin:
         """Voies issues d'un fichier RaceBox / RaceChrono… : [(identifiant, nom)]."""
         return [(cid, ent[0]) for cid, ents in self.dyn.items() for ent in ents if ent]
 
+    def hidden_keys(self):
+        """Voies techniques qui ne sont pas des courbes à proposer (position de la 2e session comparée)."""
+        return {(cid, ent[0]) for cid, ents in self.dyn.items() for ent in ents if ent and ent[0].startswith("~")}
+
     def curve_keys(self):
         return CURVE_KEYS + self.dyn_keys()
 
@@ -172,6 +178,12 @@ class GraphMixin:
         have = set(self.full_t) | set(self.hist)
         groups = {t: [] for t in TYPE_ORDER}
         for k in self.curve_keys():
+            if k in self.sel:
+                pass
+            elif k in self.hidden_keys():
+                continue
+            elif self.signal_type(k) == TYPE_CAN and (UNIDENTIFIED.match(k[1]) or (have and k not in have)):
+                continue  # signal CAN non identifié, ou sans aucune valeur dans la source ouverte : inutile de le proposer
             groups[self.signal_type(k)].append((k, self.label_of(k), (k in have) or not have or k in self.sel))
         return [(t, groups[t]) for t in TYPE_ORDER if groups[t]]
 

@@ -6,7 +6,7 @@ import time
 from tkinter import filedialog, messagebox
 
 from .config import SEEK_BACK
-from .formats import load_any
+from .formats import B_SUFFIX, load_any, merge_compare
 from .theme import GREEN, RED, SUB, YELLOW
 from .util import fmt_time
 
@@ -74,10 +74,51 @@ class PlayerMixin:
                 self.progress_hide()
                 self.dlg.showerror("Fichier non lu", str(exc))
                 return
+            self.primary, self.primary_path, self.compare_name = res, path, None
             self._load_result(path, res)
         finally:
             self.progress_hide()
             self.loading = False
+
+    def open_compare(self, *_a):
+        p = self.dlg.askopenfilename(
+            title="Fichier à comparer avec la session ouverte (RaceBox, RaceChrono, CSV GPS…)",
+            filetypes=[("Sessions GPS", "*.csv *.vbo *.tsv *.txt"), ("Tous fichiers", "*.*")],
+        )
+        if p:
+            self.load_compare(p)
+
+    def load_compare(self, path):
+        """Ajoute un 2e fichier GPS à comparer avec le premier (voies suffixées « [B] », 2e tracé sur le circuit)."""
+        a = getattr(self, "primary", None)
+        if a is None or a.kind in ("trk", "usbcan", "serial"):
+            self.dlg.showwarning("Comparaison", "Ouvrez d'abord une session GPS (RaceBox, RaceChrono, CSV…) : c'est elle qui sera comparée.")
+            return
+        self.loading = True
+        try:
+            self.progress_show(f"Lecture de {os.path.basename(path)}…", 3)
+            try:
+                merged = merge_compare(a, load_any(path))
+            except Exception as exc:
+                self.progress_hide()
+                self.dlg.showerror("Comparaison impossible", str(exc))
+                return
+            self.compare_name = os.path.basename(path)
+            self._load_result(self.primary_path, merged)
+        finally:
+            self.progress_hide()
+            self.loading = False
+
+    def end_compare(self):
+        a = getattr(self, "primary", None)
+        if a is not None and self.compare_name:
+            self.compare_name = None
+            self.loading = True
+            try:
+                self._load_result(self.primary_path, a)
+            finally:
+                self.progress_hide()
+                self.loading = False
 
     def _load_result(self, path, res):
         frames = res.frames
@@ -93,7 +134,11 @@ class PlayerMixin:
         self.span_ms = 30000.0  # fenêtre par défaut : 30 s, à partir de 0
         self.yr_cache = {}
         self.clear_data()
-        self.file_name.set(f"{os.path.basename(path)}  ·  {res.label}")
+        self.track_b = []
+        name = os.path.basename(path)
+        if getattr(self, "compare_name", None):
+            name += f"  ⇄  {self.compare_name}"
+        self.file_name.set(f"{name}  ·  {res.label}")
         if not frames:
             self.set_state("0 trame · fichier vide", RED)
             self.dlg.showwarning("Fichier vide", f"Format reconnu ({res.label}) mais aucune donnée exploitable n'a été trouvée.")
@@ -102,12 +147,59 @@ class PlayerMixin:
             self.set_state(f"{res.label} · {len(frames):,} trames{info}".replace(",", " "), SUB)
             self.view_end = None
             self.prebuild(own=False)
+            self.build_track_b(res)
             self.progress_show("Choix des courbes…", 97)
             self.choose_curves()
             self.fit_all()  # le fichier entier, curseur à zéro
             self.progress_show("Terminé", 100)
             if res.dyn:
                 self.show_page("graph")
+
+    def build_track_b(self, res):
+        """Tracé GPS de la 2e session (comparaison) : [(ms, lat, lon)], reconstruit depuis ses voies cachées."""
+        self.track_b, self.track_b_t = [], []
+        pid = res.extra.get("b_pos")
+        if not pid:
+            return
+        ts = self.full_t.get((pid, "~lat B"))
+        la, lo = self.full_v.get((pid, "~lat B")), self.full_v.get((pid, "~lon B"))
+        if not ts or not la or not lo:
+            return
+        b0, b1 = res.extra["b_base"]
+        self.track_b = [(t, a + b0, o + b1) for t, a, o in zip(ts, la, lo) if a == a and o == o]
+        self.track_b_t = [p[0] for p in self.track_b]
+
+    # ---------- tours ----------
+    def lap_key(self, suffix=""):
+        for cid, ents in self.dyn.items():
+            for ent in ents:
+                if ent and ent[0] == "Tour" + suffix:
+                    return (cid, ent[0])
+        return None
+
+    def lap_at(self, ms, suffix=""):
+        """(numéro de tour, début du tour en ms, nombre de tours) à l'instant ms, ou None sans voie « Tour »."""
+        key = self.lap_key(suffix)
+        ts, vs = self.full_t.get(key), self.full_v.get(key)
+        if not ts or not vs:
+            return None
+        cache = getattr(self, "_lap_cache", {})
+        hit = cache.get(key)
+        if hit is None or hit[0] is not ts:
+            starts, nums = [], []
+            prev = None
+            for t, v in zip(ts, vs):
+                if v == v and v != prev:
+                    starts.append(t)
+                    nums.append(int(round(v)))
+                    prev = v
+            hit = cache[key] = (ts, starts, nums, max(nums) if nums else 0)
+            self._lap_cache = cache
+        _ts, starts, nums, top = hit
+        i = bisect.bisect_right(starts, ms) - 1
+        if i < 0:
+            return (0, 0.0, top)
+        return (nums[i], starts[i], top)
 
     # mots qui désignent en général une grandeur intéressante à regarder en premier
     KEY_WORDS = ("vitesse", "speed", "rpm", "régime", "regime", "gaz", "throttle", "tps", "inclin", "lean", "roll",
@@ -159,9 +251,40 @@ class PlayerMixin:
         scored.sort(key=lambda t: (-t[0], t[1]))
         return scored
 
+    def default_signals(self):
+        """Fichier GPS : vitesse, G longitudinal, G latéral et angle (ceux du fichier, sinon les valeurs recalculées)."""
+        have = [k for k in self.full_t if not k[1].endswith(B_SUFFIX)]
+
+        def pick(*names):
+            for n in names:
+                k = next((q for q in have if q[1] == n), None)
+                if k:
+                    return k
+            return None
+
+        out = [pick("GPS Vitesse"), pick("G longitudinal", "G longitudinal (calculé)"),
+               pick("G latéral", "G latéral (calculé)"), pick("Angle", "Angle (calculé)")]
+        out = [k for k in out if k]
+        return out if len(out) >= 3 and out[0][1] == "GPS Vitesse" else []
+
     def choose_curves(self, limit=8):
         """À l'ouverture d'un fichier : active automatiquement les signaux qui semblent significatifs
         (au plus `limit`, en variant les types pour ne pas avoir que du GPS ou que du CAN)."""
+        keep = self.default_signals()
+        if keep:
+            self.sel = set(keep)
+            self.color_map = {}
+            for k in keep:
+                self.assign_color(k)
+            for k in list(keep):  # comparaison : la même grandeur de la 2e session, de la même couleur
+                kb = next((q for q in self.full_t if q[1] == k[1] + B_SUFFIX), None)
+                if kb:
+                    self.sel.add(kb)
+                    self.color_map[kb] = self.color_map[k]
+            self.band_h = {}
+            self.ref_key = None
+            self.signal_list.set_groups(self.signal_groups(), self.sel)
+            return keep
         scored = self.scan_signals()
         keep, per_type = [], {}
         cap = limit if len({self.signal_type(k) for _s, k in scored}) < 2 else 5  # un seul type présent : pas de plafond par type
