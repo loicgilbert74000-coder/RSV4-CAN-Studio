@@ -370,11 +370,27 @@ def demo_test(app, win):
     say(f"démo : OK (zoom initial {c0})")
 
 
+def emit_file(name, path):
+    """Envoie un fichier binaire dans le journal (base64), comme les captures d'écran."""
+    with open(path, "rb") as f:
+        b64 = base64.b64encode(f.read()).decode()
+    print(f"@@VID {name} {len(b64)}", flush=True)
+    for i in range(0, len(b64), 3000):
+        print("@@ " + b64[i:i + 3000], flush=True)
+    print("@@END", flush=True)
+
+
 def video_frames(app, win, sim):
-    """Séquences d'images pour la vidéo animée (TRACKLAB_VIDEO_FRAMES=1) : lecture réelle des données, panneaux redimensionnés."""
+    """Clips fluides (30 images/s) pour la vidéo (TRACKLAB_VIDEO_FRAMES=1) : l'état de l'appli est avancé image par image,
+    sans dépendre de la vitesse de la machine, puis chaque clip est encodé en H.264 et envoyé dans le journal."""
     import csv
     import datetime
     import math
+    import subprocess
+
+    import imageio_ffmpeg
+
+    from PySide6 import QtCore, QtGui
 
     from .resources import demo_path
 
@@ -382,28 +398,37 @@ def video_frames(app, win, sim):
     win.resize(1600, 960)
     win.show()
     pump(app, 0.5)
-    N = {"tele": 60, "courbes": 75, "cmpt": 55, "cmpg": 35, "resize": 45, "trames": 35}
+    ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+    CW, CH = 1440, 864
 
-    def grab(name, i):
-        pump(app, 0.10)
-        emit_image(f"s_{name}_{i:03d}", win.grab(), 1120, 60)
+    def clip(name, seconds, step):
+        """step(i, n) règle l'état de l'appli pour l'image i ; l'image est ensuite capturée et encodée."""
+        n = int(seconds * 30)
+        path = f"clip_{name}.mp4"
+        ff = subprocess.Popen([ffmpeg, "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{CW}x{CH}", "-r", "30",
+                               "-i", "-", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p", path],
+                              stdin=subprocess.PIPE)
+        for i in range(n):
+            step(i, n)
+            pump(app, 0.045)
+            im = win.grab().toImage().scaled(CW, CH, QtCore.Qt.IgnoreAspectRatio, QtCore.Qt.SmoothTransformation)
+            im = im.convertToFormat(QtGui.QImage.Format_RGB888)
+            ff.stdin.write(bytes(im.constBits())[: CW * CH * 3])
+        ff.stdin.close()
+        ff.wait()
+        emit_file(name, path)
+        print(f"clip {name} : {n} images", flush=True)
 
     # --- télémétrie : les compteurs suivent les données
     core.load(sim)
     pump(app, 1.5)
     core.show_page("tele")
-    n = N["tele"]
-    for i in range(n):
-        core.seek(0.22 + 0.34 * i / n)
-        grab("tele", i)
+    clip("tele", 6, lambda i, n: core.seek(0.22 + 0.30 * i / n))
     # --- trames
     core.show_page("frames")
     win.frames.ed["Afficher les ID (hex)"].setText("100")
     pump(app, 0.5)
-    n = N["trames"]
-    for i in range(n):
-        core.seek(0.30 + 0.06 * i / n)
-        grab("trames", i)
+    clip("trames", 4, lambda i, n: core.seek(0.30 + 0.05 * i / n))
     win.frames.reset_filters()
     # --- courbes : une session qui tourne, circuit zoomé qui suit le point
     demo = demo_path()
@@ -417,42 +442,32 @@ def video_frames(app, win, sim):
     pump(app, 3.0)
     m.set_zoom(4.0)
 
-    def play_state(t):
-        core.seek(t * 1000.0 / total)
-        g.set_view(t - 22, t + 8)
-        m.center = m._clamp(m.position())
-        m._refresh()
+    def play(t0, rate, seconds):
+        def step(i, n):
+            t = t0 + rate * i / 30.0
+            core.seek(t * 1000.0 / total)
+            g.set_view(t - 22, t + 8)
+            m.center = m._clamp(m.position())
+            m._refresh()
+        return step
 
-    n = N["courbes"]
-    for i in range(n):
-        play_state(320.0 + i * 0.55)
-        grab("courbes", i)
-    # --- sélection de signaux : états successifs
+    clip("courbes", 8, play(320.0, 3.0, 8))
+    # --- redimensionnement des panneaux
     m.reset_view()
     core.seek(0.40)
     g.set_view(core.cursor_ms() / 1000 - 25, core.cursor_ms() / 1000 + 25)
     pump(app, 1.0)
-    extra = [k for n_ in ("Altitude", "GyroZ", "GPS Cap") for k in core.full_t if k[1] == n_]
-    states = [lambda: None, lambda: core.toggle_curve(extra[0]), lambda: core.toggle_curve(extra[1]), lambda: core.toggle_curve(extra[2]),
-              lambda: (core.stack.set(True), g.build()), lambda: None, lambda: (core.stack.set(False), g.build()),
-              lambda: core.toggle_curve(extra[1]), lambda: core.toggle_curve(extra[2])]
-    for i, fn_ in enumerate(states):
-        fn_()
-        pump(app, 0.5)
-        grab("sel", i)
-    core.toggle_curve(extra[0])
-    pump(app, 0.4)
-    # --- redimensionnement des panneaux
     sp, ls = g.split.sizes(), g.lsplit.sizes()
     T, TL = sum(sp), sum(ls)
-    n = N["resize"]
-    for i in range(n):
+
+    def resize(i, n):
         u = 0.5 - 0.5 * math.cos(2 * math.pi * i / (n - 1))
         a, c_ = int(sp[0] + 190 * u), int(sp[2] + 100 * u)
         g.split.setSizes([a, T - a - c_, c_])
         b = int(ls[0] + 200 * u)
         g.lsplit.setSizes([b, TL - b])
-        grab("resize", i)
+
+    clip("resize", 5, resize)
     g.split.setSizes(sp)
     g.lsplit.setSizes(ls)
     # --- comparaison : session B fictive (démo ralentie de 4 %)
@@ -471,7 +486,7 @@ def video_frames(app, win, sim):
     pb = os.path.join(os.path.dirname(sim) or ".", "session_B.csv")
     with open(pb, "w", encoding="utf-8", newline="") as f:
         csv.writer(f).writerows(out)
-    for mode, key in (("time", "cmpt"), ("gps", "cmpg")):
+    for mode, key, secs in (("time", "cmpt", 6), ("gps", "cmpg", 5)):
         if mode == "time":
             core.load_compare(pb, "time")
         else:
@@ -479,10 +494,7 @@ def video_frames(app, win, sim):
         pump(app, 3.0)
         total = core.frames[-1][0]
         m.set_zoom(3.0)
-        n = N[key]
-        for i in range(n):
-            play_state(330.0 + i * 0.55)
-            grab(key, i)
+        clip(key, secs, play(330.0, 3.0, secs))
     print("VIDEO FRAMES OK", flush=True)
 
 
