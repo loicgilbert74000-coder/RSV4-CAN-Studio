@@ -67,15 +67,15 @@ def pump(app, secs):
         time.sleep(0.005)
 
 
-def emit_image(name, pixmap):
+def emit_image(name, pixmap, width=1100):
     """Affiche une capture d'écran dans le journal (JPEG en base64) pour pouvoir la consulter sans téléchargement."""
     from PySide6 import QtCore
 
-    pix = pixmap.scaledToWidth(1100, QtCore.Qt.SmoothTransformation)
+    pix = pixmap.scaledToWidth(width, QtCore.Qt.SmoothTransformation)
     ba = QtCore.QByteArray()
     buf = QtCore.QBuffer(ba)
     buf.open(QtCore.QIODevice.WriteOnly)
-    pix.save(buf, "JPG", 72)
+    pix.save(buf, "JPG", 72 if width <= 1100 else 82)
     b64 = base64.b64encode(bytes(ba)).decode()
     print(f"@@IMG {name} {len(b64)}", flush=True)
     for i in range(0, len(b64), 3000):
@@ -370,6 +370,98 @@ def demo_test(app, win):
     say(f"démo : OK (zoom initial {c0})")
 
 
+def video_shots(app, win, sim):
+    """Captures haute définition pour la vidéo de présentation (TRACKLAB_VIDEO_SHOTS=1)."""
+    import csv
+    import datetime
+
+    from PySide6 import QtCore
+
+    from .resources import demo_path
+
+    core, g = win.core, win.graph
+    win.resize(1600, 960)
+    win.show()
+    W = 1600
+
+    def shot(name, widget=None):
+        pump(app, 0.9)
+        emit_image(name, (widget or win).grab(), W)
+
+    # --- télémétrie et trames : capture CAN simulée
+    core.load(sim)
+    pump(app, 1.5)
+    core.show_page("tele")
+    core.seek(0.45)
+    shot("v_tele")
+    core.show_page("frames")
+    core.seek(0.45)
+    pump(app, 0.8)
+    shot("v_trames")
+    win.frames.ed["Afficher les ID (hex)"].setText("100")
+    pump(app, 0.8)
+    shot("v_trames_filtre")
+    win.frames.reset_filters()
+    core.show_page("esp")
+    shot("v_param")
+    # --- session de démonstration seule
+    demo = demo_path()
+    core.load(demo)
+    pump(app, 2.0)
+    core.show_page("graph")
+    core.seek(0.40)
+    g.map.store.enabled = os.environ.get("TRACKLAB_NO_TILES") != "1"
+    pump(app, 5.0)
+    shot("v_courbes")
+    g.set_view(core.cursor_ms() / 1000 - 25, core.cursor_ms() / 1000 + 25)
+    g.map.set_zoom(4.0)
+    pump(app, 4.0)
+    shot("v_courbes_zoom")
+    # --- gestion des signaux : on ajoute des courbes, mode empilé
+    for k in [k for k in core.full_t if k[1] in ("Altitude", "GyroZ")]:
+        core.toggle_curve(k)
+    pump(app, 0.8)
+    shot("v_liste")
+    core.stack.set(True)
+    g.build()
+    shot("v_empilees")
+    for k in [k for k in core.full_t if k[1] in ("Altitude", "GyroZ")]:
+        core.toggle_curve(k)
+    core.stack.set(False)
+    g.build()
+    g.map.reset_view()
+    # --- 2e session : la démo ralentie de 3 % (session B fictive, pour illustrer)
+    rows = list(csv.reader(open(demo, encoding="utf-8")))
+    head, body = rows[0], rows[1:]
+    ti, si = head.index("Time"), head.index("Speed")
+    t0 = datetime.datetime.fromisoformat(body[0][ti].replace("Z", "+00:00"))
+    out = [head]
+    for r in body:
+        t = datetime.datetime.fromisoformat(r[ti].replace("Z", "+00:00"))
+        t2 = t0 + (t - t0) * 1.04
+        r = list(r)
+        r[ti] = t2.strftime("%Y-%m-%dT%H:%M:%S.") + f"{t2.microsecond // 1000:03d}Z"
+        r[si] = f"{float(r[si]) / 1.04 * (0.97 if int(r[head.index('Lap')]) == 3 else 1):.2f}"
+        out.append(r)
+    pb = os.path.join(os.path.dirname(sim) or ".", "session_B.csv")
+    with open(pb, "w", encoding="utf-8", newline="") as f:
+        csv.writer(f).writerows(out)
+    core.load_compare(pb, "time")
+    pump(app, 3.0)
+    core.seek(0.45)
+    g.set_view(core.cursor_ms() / 1000 - 40, core.cursor_ms() / 1000 + 40)
+    pump(app, 1.0)
+    shot("v_cmp_temps")
+    core.set_compare_mode("gps")
+    pump(app, 3.0)
+    core.seek(0.45)
+    g.set_view(core.cursor_ms() / 1000 - 40, core.cursor_ms() / 1000 + 40)
+    g.map.set_zoom(3.0)
+    pump(app, 3.0)
+    shot("v_cmp_gps")
+    print("VIDEO SHOTS OK", flush=True)
+
+
 def run_selftest(app, win, args):
     path = args[0]
     core = win.core
@@ -384,6 +476,9 @@ def run_selftest(app, win, args):
     pump(app, 1.0)
     print(f"chargé : {len(core.frames)} trames, {len(core.full_t)} signaux, {time.time() - t0:.1f} s", flush=True)
     assert core.frames and core.full_t
+    if os.environ.get("TRACKLAB_VIDEO_SHOTS"):
+        video_shots(app, win, path)
+        return 0
     if os.environ.get("TRACKLAB_DEMO_ONLY"):
         demo_test(app, win)
         print("DEMO OK", flush=True)
