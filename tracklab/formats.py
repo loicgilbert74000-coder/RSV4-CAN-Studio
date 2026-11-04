@@ -582,13 +582,109 @@ def _lap_start_ms(res, lap=1):
     return None
 
 
-def merge_compare(a, b):
+def _dyn_series(res, name):
+    """(temps en ms, valeurs) d'une voie nommée d'un fichier GPS chargé, ou None."""
+    for cid, ents in res.dyn.items():
+        for j, ent in enumerate(ents):
+            if ent and ent[0] == name:
+                ts, vs = [], []
+                for ms, c, data in res.frames:
+                    if c == cid and len(data) >= 8:
+                        ts.append(ms)
+                        vs.append(struct.unpack("<ff", bytes(data[:8]))[j])
+                return ts, vs
+    return None
+
+
+def _gps_xy(res):
+    """(temps ms, x, y) du tracé GPS d'un fichier, en mètres autour de sa première position."""
+    t, la, lo = [], [], []
+    for ms, c, data in res.frames:
+        if c == ID_GPS_POS and len(data) >= 8:
+            a, o = struct.unpack("<ii", bytes(data[:8]))
+            t.append(ms)
+            la.append(a / 1e7)
+            lo.append(o / 1e7)
+    return t, la, lo
+
+
+def gps_warp(a, b):
+    """Met la 2e session en regard de la 1re POSITION par POSITION : pour chaque point GPS de b, instant de a où la moto
+    était au même endroit (dans le même tour, en avançant seulement). Renvoie (temps de b, instants de a correspondants)."""
+    import bisect
+
+    ta, la_a, lo_a = _gps_xy(a)
+    tb, la_b, lo_b = _gps_xy(b)
+    if len(ta) < 10 or len(tb) < 10:
+        return None
+    r = 6371000.0
+    c = math.cos(math.radians(la_a[0]))
+    xa = [math.radians(o - lo_a[0]) * c * r for o in lo_a]
+    ya = [math.radians(v - la_a[0]) * r for v in la_a]
+    xb = [math.radians(o - lo_a[0]) * c * r for o in lo_b]
+    yb = [math.radians(v - la_a[0]) * r for v in la_b]
+
+    def laps(res, times):
+        ser = _dyn_series(res, "Tour")
+        if not ser:
+            return [0] * len(times)
+        st, sv = ser
+        out = []
+        for t in times:
+            i = bisect.bisect_right(st, t) - 1
+            v = sv[max(i, 0)]
+            out.append(int(round(v)) if v == v else 0)
+        return out
+
+    lap_a, lap_b = laps(a, ta), laps(b, tb)
+
+    def runs(seq):
+        """Tronçons consécutifs de même numéro de tour : [(tour, début, fin, n° d'occurrence de ce tour)]."""
+        out, seen = [], {}
+        for i, L in enumerate(seq):
+            if out and out[-1][0] == L:
+                out[-1][2] = i
+            else:
+                seen[L] = seen.get(L, 0) + 1
+                out.append([L, i, i, seen[L]])
+        return out
+
+    runs_a = runs(lap_a)
+    import numpy as np
+
+    XA, YA = np.asarray(xa), np.asarray(ya)
+
+    def target(L, occ):
+        same = [r for r in runs_a if r[0] == L]
+        if not same:
+            near = min({r[0] for r in runs_a}, key=lambda q: abs(q - L))
+            same = [r for r in runs_a if r[0] == near]
+        return next((r for r in same if r[3] == occ), same[-1])
+
+    match, last = [], 0
+    for rb in runs(lap_b):
+        _L, j0, j1, occ = rb
+        _l, i0, i1, _o = target(rb[0], occ)
+        p = last = i0
+        for j in range(j0, j1 + 1):
+            s0, s1 = max(i0, p - 30), min(i1, p + 500) + 1
+            d = (XA[s0:s1] - xb[j]) ** 2 + (YA[s0:s1] - yb[j]) ** 2
+            k = max(last, s0 + int(np.argmin(d)))
+            match.append(k)
+            p = last = k
+    return tb, [ta[k] for k in match]
+
+
+def merge_compare(a, b, mode="time"):
     """Réunit deux sessions GPS dans un même jeu de trames : les voies de b prennent le suffixe « [B] » et son tracé
-    devient des voies cachées. Les deux sont alignées sur le début du tour 1 quand les deux fichiers le connaissent."""
+    devient des voies cachées. Mode « time » : alignées sur le début du tour 1 (comparaison temporelle). Mode « gps » :
+    le temps de b est recalé pour que les deux motos soient au même endroit au même instant de l'axe (comparaison par
+    position GPS : freinages et relances se superposent)."""
     if b.kind in ("trk", "usbcan", "serial") or not b.frames:
         raise ValueError("Le fichier à comparer doit être une session GPS (RaceBox, RaceChrono, CSV…), pas une capture CAN.")
+    warp = gps_warp(a, b) if mode == "gps" else None
     ta, tb = _lap_start_ms(a), _lap_start_ms(b)
-    d = (ta - tb) if (ta is not None and tb is not None) else 0
+    d = (ta - tb) if (ta is not None and tb is not None and warp is None) else 0
     sh_a, sh_b = max(0, -d), max(0, d)
     dyn = dict(a.dyn)
     remap = {}
@@ -599,20 +695,35 @@ def merge_compare(a, b):
     dyn[pos_id] = [("~lat B", "°", TYPE_GPS), ("~lon B", "°", TYPE_GPS)]
     dyn[mot_id] = [("GPS Vitesse" + B_SUFFIX, "km/h", TYPE_GPS), ("GPS Cap" + B_SUFFIX, "°", TYPE_GPS)]
     frames = [(ms + sh_a, cid, data) for ms, cid, data in a.frames]
+    if warp:
+        import numpy as np
+
+        w_src, w_dst = np.asarray(warp[0], dtype=np.float64), np.asarray(warp[1], dtype=np.float64)
+
+        def tmap(ms):
+            return int(round(float(np.interp(ms, w_src, w_dst))))
+    else:
+        def tmap(ms):
+            return ms + sh_b
     base = None
     for ms, cid, data in b.frames:
         if cid == ID_GPS_POS and len(data) >= 8:
             la, lo = struct.unpack("<ii", bytes(data[:8]))
             if base is None:
                 base = (round(la / 1e7), round(lo / 1e7))
-            frames.append((ms + sh_b, pos_id, struct.pack("<ff", la / 1e7 - base[0], lo / 1e7 - base[1])))
+            frames.append((tmap(ms), pos_id, struct.pack("<ff", la / 1e7 - base[0], lo / 1e7 - base[1])))
         elif cid == ID_GPS_MOT and len(data) >= 4:
             sp, hd = struct.unpack("<HH", bytes(data[:4]))
-            frames.append((ms + sh_b, mot_id, struct.pack("<ff", sp / 100.0, hd / 100.0)))
+            frames.append((tmap(ms), mot_id, struct.pack("<ff", sp / 100.0, hd / 100.0)))
         elif cid in remap:
-            frames.append((ms + sh_b, remap[cid], data))
+            frames.append((tmap(ms), remap[cid], data))
     frames.sort(key=lambda f: f[0])
-    how = "alignées sur le début du tour 1" if ta is not None and tb is not None else "alignées sur le début des fichiers"
+    if warp:
+        how = "par position GPS"
+    elif ta is not None and tb is not None:
+        how = "dans le temps (début du tour 1 aligné)"
+    else:
+        how = "dans le temps (début des fichiers aligné)"
     out = Loaded(a.kind, a.label + " · comparaison", frames, dyn, f"{a.info} · comparaison {how}")
-    out.extra = {"b_pos": pos_id, "b_base": base or (0, 0)}
+    out.extra = {"b_pos": pos_id, "b_base": base or (0, 0), "mode": "gps" if warp else "time"}
     return out

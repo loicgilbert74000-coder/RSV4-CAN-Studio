@@ -88,7 +88,7 @@ class PlayerMixin:
         if p:
             self.load_compare(p)
 
-    def load_compare(self, path):
+    def load_compare(self, path, mode=None):
         """Ajoute un 2e fichier GPS à comparer avec le premier (voies suffixées « [B] », 2e tracé sur le circuit)."""
         a = getattr(self, "primary", None)
         if a is None or a.kind in ("trk", "usbcan", "serial"):
@@ -98,13 +98,30 @@ class PlayerMixin:
         try:
             self.progress_show(f"Lecture de {os.path.basename(path)}…", 3)
             try:
-                merged = merge_compare(a, load_any(path))
+                sec = load_any(path)
+                self.compare_mode = mode or getattr(self, "compare_mode", "time")
+                merged = merge_compare(a, sec, self.compare_mode)
             except Exception as exc:
                 self.progress_hide()
                 self.dlg.showerror("Comparaison impossible", str(exc))
                 return
+            self.secondary = sec
             self.compare_name = os.path.basename(path)
             self._load_result(self.primary_path, merged)
+        finally:
+            self.progress_hide()
+            self.loading = False
+
+    def set_compare_mode(self, mode):
+        """Bascule la comparaison entre « time » (temps) et « gps » (position GPS) sans rouvrir les fichiers."""
+        a, sec = getattr(self, "primary", None), getattr(self, "secondary", None)
+        if a is None or sec is None or not self.compare_name or mode == getattr(self, "compare_mode", "time"):
+            return
+        self.compare_mode = mode
+        self.loading = True
+        try:
+            self.progress_show("Recalage des deux sessions…", 5)
+            self._load_result(self.primary_path, merge_compare(a, sec, mode))
         finally:
             self.progress_hide()
             self.loading = False
@@ -113,6 +130,7 @@ class PlayerMixin:
         a = getattr(self, "primary", None)
         if a is not None and self.compare_name:
             self.compare_name = None
+            self.secondary = None
             self.loading = True
             try:
                 self._load_result(self.primary_path, a)
@@ -176,6 +194,13 @@ class PlayerMixin:
                 if ent and ent[0] == "Tour" + suffix:
                     return (cid, ent[0])
         return None
+
+    def lap_table(self, suffix=""):
+        """([débuts de tour en ms], [numéros], nombre de tours) ou None."""
+        if self.lap_at(0.0, suffix) is None:
+            return None
+        _ts, starts, nums, top = self._lap_cache[self.lap_key(suffix)]
+        return starts, nums, top
 
     def lap_at(self, ms, suffix=""):
         """(numéro de tour, début du tour en ms, nombre de tours) à l'instant ms, ou None sans voie « Tour »."""

@@ -1,6 +1,13 @@
 """Constantes de l'application : modèles de moto, tables de signaux, groupes d'affichage, réglages."""
 
-from .signals import SIGNALS
+from .signals import SIGNALS as _TOUS
+
+# Équipements de moto de route : sans objet sur une moto de piste, ils ne sont ni décodés ni proposés.
+ROUTE_SEULEMENT = {
+    "HiBeam", "Fuel_Low", "Fuel_Res_St", "Fuel_Level", "Fuel_Cons", "Right_Dir", "Left_Dir", "226B0", "226B1", "226B2",
+    "SideStand_Sw", "Odometer", "Urg_serv", "MIL", "TC_menu_set_butt", "Dir_Conn_Buttons", "Joystick", "Joystick_Pushed",
+}
+SIGNALS = [s for s in _TOUS if s[1] not in ROUTE_SEULEMENT]
 
 SPEEDS = {"x0.25": 0.25, "x0.5": 0.5, "x1": 1, "x2": 2, "x4": 4, "x8": 8}
 BAND_MIN = 56  # hauteur mini et maxi d'une bande en mode empilé (px)

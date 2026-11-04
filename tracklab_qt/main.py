@@ -305,8 +305,9 @@ def demo_test(app, win):
     core.seek(0.4)
     pump(app, 0.6)
     g.update_lap()
-    say(f"démo : tour affiché = « {g.l_lap.text()} »")
-    assert "Tour" in g.l_lap.text()
+    info = core.lap_at(core.cursor_ms())
+    say(f"démo : tour en cours = {info}, lignes du bandeau = {len(g.laps.rows())}")
+    assert info and info[0] >= 1 and g.laps.rows() and g.laps.height() >= 24
     emit_image("demo_courbes", win.grab())
     m = g.map
     m.store.enabled = os.environ.get("TRACKLAB_NO_TILES") != "1"
@@ -315,6 +316,9 @@ def demo_test(app, win):
     pump(app, 1.5)
     assert m.zoom > 4.9 and m.center is not None, "zoom du circuit sans effet"
     emit_image("demo_circuit_zoom", m.grab())
+    rng = m._lap_range(m._pts_ms, "")
+    say(f"démo : circuit, tour en cours = points {rng} sur {len(m._pts)}")
+    assert rng and (rng[1] - rng[0]) < len(m._pts) * 0.5, "le circuit trace tous les tours"
     before = m.center
     QTest.mousePress(m, QtCore.Qt.LeftButton, pos=QtCore.QPoint(m.width() // 2, m.height() // 2))
     QTest.mouseMove(m, QtCore.QPoint(m.width() // 2 + 60, m.height() // 2 + 40))
@@ -344,9 +348,22 @@ def demo_test(app, win):
     core.seek(0.5)
     pump(app, 0.8)
     g.update_lap()
-    say(f"démo : comparaison, {len(core.track_b)} points B, tour = « {g.l_lap.text()} »")
-    assert "B ·" in g.l_lap.text()
+    assert len(g.laps.rows()) == 2 and core.lap_at(core.cursor_ms(), " [B]")
+    # même couleur pour une voie A et sa jumelle B, y compris ajoutée à la main
+    ka = next(k for k in core.sel if k[1] == "Angle")
+    kb = next(k for k in core.sel if k[1] == "Angle [B]")
+    assert core.color_of(ka) == core.color_of(kb)
+    say(f"démo : comparaison temps, {len(core.track_b)} points B")
     emit_image("demo_comparaison", win.grab())
+    core.set_compare_mode("gps")
+    pump(app, 3.0)
+    assert core.compare_mode == "gps" and core.track_b
+    core.seek(0.5)
+    pump(app, 0.8)
+    pa, pb = m.position(), m.position_b()
+    say(f"démo : comparaison GPS, A {pa} B {pb}")
+    assert abs(pa[0] - pb[0]) < 5e-5 and abs(pa[1] - pb[1]) < 5e-5, "les deux points ne sont pas au même endroit"
+    emit_image("demo_comparaison_gps", win.grab())
     core.end_compare()
     pump(app, 1.5)
     assert not core.compare_name and not [k for k in core.sel if k[1].endswith(" [B]")]

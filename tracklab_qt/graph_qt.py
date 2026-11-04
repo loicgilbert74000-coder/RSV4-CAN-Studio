@@ -84,7 +84,8 @@ class CircuitMap(QtWidgets.QWidget):
         self._geo = None  # (z, k, ox, oy) du dernier dessin
         self._shown = None
         self._last_geo = 0.0
-        self._pts, self._pts_key, self._pts_t = None, None, 0.0
+        self._pts, self._pts_key, self._pts_t, self._pts_ms = None, None, 0.0, None
+        self._ptsb, self._ptsb_ms, self._ptsb_key = [], None, None
         self._fit = None  # (clé, z0, k0, bbox, XA, YA, XB, YB) : emprise complète, pixels du monde au niveau z0
         self.zoom = 1.0
         self.center = None  # (lat, lon) du centre quand on est zoomé
@@ -111,15 +112,45 @@ class CircuitMap(QtWidgets.QWidget):
         key = (id(c.track_full), len(c.track_full), bool(file_mode), None if file_mode else len(c.track))
         now = time.monotonic()
         if key != self._pts_key and not (not file_mode and self._pts is not None and now - self._pts_t < 0.6):
-            pts = [(la, lo) for _t, la, lo in c.track_full] if file_mode else list(c.track)
-            self._pts = [q for q in pts if abs(q[0]) > 1e-6 or abs(q[1]) > 1e-6]
+            if file_mode:
+                rows = [(t, la, lo) for t, la, lo in c.track_full if abs(la) > 1e-6 or abs(lo) > 1e-6]
+                self._pts = [(la, lo) for _t, la, lo in rows]
+                self._pts_ms = np.asarray([r[0] for r in rows], dtype=np.float64)
+            else:
+                self._pts = [q for q in list(c.track) if abs(q[0]) > 1e-6 or abs(q[1]) > 1e-6]
+                self._pts_ms = None
             self._pts_key, self._pts_t = key, now
         return self._pts or []
 
     def points_b(self):
         c = self.core
         tb = getattr(c, "track_b", None)
-        return [(la, lo) for _t, la, lo in tb if abs(la) > 1e-6 or abs(lo) > 1e-6] if tb and self._file_mode() else []
+        if not tb or not self._file_mode():
+            self._ptsb, self._ptsb_ms, self._ptsb_key = [], None, None
+            return []
+        if self._ptsb_key != id(tb):
+            rows = [(t, la, lo) for t, la, lo in tb if abs(la) > 1e-6 or abs(lo) > 1e-6]
+            self._ptsb = [(la, lo) for _t, la, lo in rows]
+            self._ptsb_ms = np.asarray([r[0] for r in rows], dtype=np.float64)
+            self._ptsb_key = id(tb)
+        return self._ptsb
+
+    def _lap_range(self, ms_arr, suffix):
+        """(début, fin) des indices du tracé pour le tour en cours ; None = tout le tracé (pas de tours dans le fichier)."""
+        c = self.core
+        if ms_arr is None:
+            return None
+        tab = c.lap_table(suffix)
+        if not tab or not tab[0]:
+            return None
+        starts, _nums, _top = tab
+        cur = c.cursor_ms()
+        i = bisect.bisect_right(starts, cur) - 1
+        t0 = starts[i] if i >= 0 else -1.0
+        t1 = starts[i + 1] if i + 1 < len(starts) else float("inf")
+        a = int(np.searchsorted(ms_arr, t0, side="left"))
+        b = int(np.searchsorted(ms_arr, t1, side="left"))
+        return max(0, a - 1), min(len(ms_arr), b + 1)
 
     def _interp(self, track, ts, t):
         i = bisect.bisect_right(ts, t)
@@ -321,19 +352,21 @@ class CircuitMap(QtWidgets.QWidget):
         x, y = world_px(la, lo, z)
         return QtCore.QPointF(ox + x * k, oy + y * k)
 
-    def _trace(self, q, geo, X, Y, z0, w, h, color):
-        """Trace une trace GPS (pixels du monde au niveau z0) : seuls les segments visibles sont reliés."""
+    def _trace(self, q, geo, X, Y, z0, w, h, color, rng=None):
+        """Trace une trace GPS (pixels du monde au niveau z0), ou seulement le tour en cours (rng = indices)."""
         z, k, ox, oy = geo
+        if rng is not None:
+            X, Y = X[rng[0]:rng[1]], Y[rng[0]:rng[1]]
+        if len(X) < 2:
+            return
         f = 2.0 ** (z - z0) * k
         sx, sy = ox + X * f, oy + Y * f
         n = len(sx)
-        if self.zoom <= 1.0001 and n > 3000:
-            idx = np.unique(np.append(np.arange(0, n, max(1, n // 3000)), n - 1))
+        if n > 2500:
+            idx = np.unique(np.append(np.arange(0, n, max(1, n // 2500)), n - 1))
             sx, sy = sx[idx], sy[idx]
-            n = len(sx)
         vis = (sx > -20) & (sx < w + 20) & (sy > -20) & (sy < h + 20)
-        conn = (vis[:-1] | vis[1:]).astype(np.int32)
-        conn = np.append(conn, 0)
+        conn = np.append((vis[:-1] | vis[1:]).astype(np.int32), 0)
         if not conn.any():
             return
         path = pg.functions.arrayToQPath(sx, sy, connect=conn)
@@ -354,7 +387,6 @@ class CircuitMap(QtWidgets.QWidget):
         q.setClipPath(clip)
         geo = self._geometry(pts, ptsb, w, h)
         z, k, ox, oy = geo
-        _key, z0, _k0, _bb, XA, YA, XB, YB = self._fit
         missing = 0
         n = 2 ** z
         tx0, tx1 = int(math.floor((0 - ox) / k / 256)), int(math.floor((w - ox) / k / 256))
@@ -371,14 +403,6 @@ class CircuitMap(QtWidgets.QWidget):
         sat = len(self.store.mem) > 0 and missing < (tx1 - tx0 + 1) * (ty1 - ty0 + 1)
         if sat:
             q.fillRect(QtCore.QRectF(0, 0, w, h), qc("#000000", 70))
-        if XB is not None:
-            self._trace(q, geo, XB, YB, z0, w, h, ORANGE)
-        self._trace(q, geo, XA, YA, z0, w, h, CYAN)
-        # départ
-        s = self._xy(geo, *pts[0])
-        q.setPen(QtGui.QPen(qc("#ffffff"), 2))
-        q.setBrush(qc(BG))
-        q.drawEllipse(s, 4, 4)
         if sat:
             q.setFont(font(9))
             q.setPen(qc("#ffffff", 190))
@@ -416,11 +440,22 @@ class CircuitMap(QtWidgets.QWidget):
             now = time.monotonic()
             if c.live and self._base is not None and now - self._last_geo < 0.6:
                 pass  # en direct, le fond n'est recalculé que de temps en temps
+            elif c.playing and self._base is not None and self.zoom > 1.0001 and now - self._last_geo < 0.04:
+                pass  # lecture zoomée : le fond suit le point à ~25 images/s, le reste du dessin reste fluide
             else:
                 self._base, self._geo = self._render_base(pts, ptsb, w, h)
                 self._base_key = key
                 self._last_geo = now
         p.drawPixmap(0, 0, self._base)
+        if self._geo and self._fit:
+            _key, z0, _k0, _bb, XA, YA, XB, YB = self._fit
+            if XB is not None:
+                self._trace(p, self._geo, XB, YB, z0, w, h, ORANGE, self._lap_range(self._ptsb_ms, " [B]"))
+            self._trace(p, self._geo, XA, YA, z0, w, h, CYAN, self._lap_range(self._pts_ms, ""))
+            s0 = self._xy(self._geo, *pts[0])  # départ
+            p.setPen(QtGui.QPen(qc("#ffffff"), 2))
+            p.setBrush(qc(BG))
+            p.drawEllipse(s0, 4, 4)
         p.setFont(font(12, True))
         p.setPen(qc("#000000", 160))
         p.drawText(QtCore.QPointF(11, 19), "Circuit")
@@ -477,6 +512,88 @@ class LegendRow(QtWidgets.QFrame):
         if e.button() == Qt.LeftButton and not self.x.underMouse():
             self.page.core.ref_key = self.key
             self.page.refresh_ref()
+
+
+class LapStrip(QtWidgets.QWidget):
+    """Bandeau juste au-dessus des courbes : un repère « Tour N » à chaque début de tour, placé sur l'axe du temps ;
+    le tour en cours est en gras, avec le temps écoulé dans ce tour. Deux lignes en comparaison (A cyan, B orange)."""
+
+    ROW = 24
+
+    def __init__(self, page):
+        super().__init__()
+        self.page = page
+        self._st = None
+        self.setFixedHeight(self.ROW)
+
+    def rows(self):
+        c = self.page.core
+        if c.live or not c.frames:
+            return []
+        if getattr(c, "compare_name", None):
+            return [("A · ", "", CYAN), ("B · ", " [B]", ORANGE)]
+        return [("", "", CYAN)]
+
+    def refresh(self):
+        n = len(self.rows())
+        h = max(1, n) * self.ROW if n else 1
+        if self.height() != h:
+            self.setFixedHeight(h)
+        self.update()
+
+    def paintEvent(self, _e):
+        pg_ = self.page
+        rows = self.rows()
+        if not rows or not pg_.plots:
+            return
+        c = pg_.core
+        p = painter(self)
+        vb = pg_.plots[0].vb
+        r = vb.sceneBoundingRect()
+        off = self.mapFromGlobal(pg_.gl.mapToGlobal(QtCore.QPoint(0, 0))).x()
+        x0, x1 = r.left() + off, r.right() + off
+        a, b = vb.viewRange()[0]
+        if b <= a or x1 <= x0:
+            return
+        k = (x1 - x0) / (b - a)
+        cur = c.cursor_ms()
+        for n, (name, suffix, color) in enumerate(rows):
+            tab = c.lap_table(suffix)
+            if not tab:
+                continue
+            starts, nums, top = tab
+            y = n * self.ROW
+            for i, st in enumerate(starts):
+                en = starts[i + 1] if i + 1 < len(starts) else c.frames[-1][0]
+                ta, tb = st / 1000.0, en / 1000.0
+                if tb < a or ta > b:
+                    continue
+                px0, px1 = x0 + (max(ta, a) - a) * k, x0 + (min(tb, b) - a) * k
+                active = st <= cur < en or (i == len(starts) - 1 and cur >= st)
+                if ta >= a:  # trait de début de tour
+                    p.setPen(QtGui.QPen(qc(color, 200 if nums[i] > 0 else 90), 1.5))
+                    p.drawLine(QtCore.QPointF(px0, y + 3), QtCore.QPointF(px0, y + self.ROW - 3))
+                if active:
+                    p.fillRect(QtCore.QRectF(px0, y + 2, px1 - px0, self.ROW - 4), qc(color, 28))
+                if nums[i] <= 0:
+                    txt, fnt = "Hors tour", font(11)
+                elif active:
+                    sec = max(0.0, (cur - st) / 1000.0)
+                    txt, fnt = f"{name}Tour {nums[i]}/{top} · {int(sec // 60)}:{sec % 60:04.1f}", font(13, True)
+                else:
+                    txt, fnt = f"{name}Tour {nums[i]}", font(12, True)
+                p.setFont(fnt)
+                p.setPen(qc(color if nums[i] > 0 else MUTED, 255 if active else 175))
+                if px1 - px0 > 60:
+                    p.drawText(QtCore.QRectF(px0 + 6, y, px1 - px0 - 8, self.ROW), Qt.AlignVCenter | Qt.AlignLeft, txt)
+
+    def state(self):
+        c = self.page.core
+        if not self.rows() or not self.page.plots:
+            return (None,)
+        vb = self.page.plots[0].vb
+        return (tuple(round(v, 3) for v in vb.viewRange()[0]), round(vb.sceneBoundingRect().left()), round(vb.sceneBoundingRect().right()),
+                int(c.cursor_ms() // 100), len(self.rows()), id(c.full_t))
 
 
 class GraphPage(QtWidgets.QWidget):
@@ -538,17 +655,32 @@ class GraphPage(QtWidgets.QWidget):
         centre = QtWidgets.QVBoxLayout()
         centre.setSpacing(6)
         top = QtWidgets.QHBoxLayout()
-        self.l_lap = Label("", CYAN, 17, True)
-        self.l_lap.setMinimumWidth(240)
-        top.addWidget(self.l_lap)
-        top.addStretch(1)
-        self.b_cmp = self._btn("Comparer avec un fichier…", ORANGE)
-        self.b_cmp.clicked.connect(core.open_compare)
-        self.b_cmp_end = self._btn("Fin de la comparaison", MUTED)
-        self.b_cmp_end.clicked.connect(core.end_compare)
-        self.b_cmp_end.setVisible(False)
-        top.addWidget(self.b_cmp)
+        top.addWidget(Label("Sessions", SUB, 12, True))
+        self.b_openA = self._btn("Ouvrir A…", CYAN)
+        self.b_openA.setToolTip("Ouvre la session principale (remplace A ; retire B)")
+        self.b_openA.clicked.connect(lambda: core.open_pc_file())
+        self.b_openB = self._btn("Ouvrir B…", ORANGE)
+        self.b_openB.setToolTip("Ouvre une 2e session GPS à comparer avec A (courbes en pointillés, 2e tracé sur le circuit)")
+        self.b_openB.clicked.connect(lambda: core.open_compare())
+        self.b_cmp_end = self._btn("Retirer B", MUTED)
+        self.b_cmp_end.clicked.connect(lambda: core.end_compare())
+        self.b_mode_t = self._tab("Temps")
+        self.b_mode_g = self._tab("Position GPS")
+        self.b_mode_t.setToolTip("Les deux sessions sont alignées sur le début du tour 1 : on compare à temps égal")
+        self.b_mode_g.setToolTip("Les deux sessions sont recalées sur la position GPS : on compare au même endroit de la piste")
+        self.b_mode_t.clicked.connect(lambda: core.set_compare_mode("time"))
+        self.b_mode_g.clicked.connect(lambda: core.set_compare_mode("gps"))
+        self.l_cmp = Label("Comparaison :", SUB, 12, True)
+        top.addWidget(self.b_openA)
+        top.addWidget(self.b_openB)
+        top.addSpacing(14)
+        top.addWidget(self.l_cmp)
+        top.addWidget(self.b_mode_t)
+        top.addWidget(self.b_mode_g)
         top.addWidget(self.b_cmp_end)
+        top.addStretch(1)
+        for w_ in (self.l_cmp, self.b_mode_t, self.b_mode_g, self.b_cmp_end):
+            w_.setVisible(False)
         centre.addLayout(top)
         bar = QtWidgets.QHBoxLayout()
         self.b_over, self.b_stack = self._tab("Superposées"), self._tab("Empilées")
@@ -584,6 +716,8 @@ class GraphPage(QtWidgets.QWidget):
         self.gl.scene().sigMouseClicked.connect(self.on_click)
         for r in range(POOL):
             self._make_plot(r).setVisible(False)
+        self.laps = LapStrip(self)
+        centre.addWidget(self.laps)
         self.scroll = QtWidgets.QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
@@ -1074,38 +1208,21 @@ class GraphPage(QtWidgets.QWidget):
         self.map.tick()
         self.update_lap()
 
-    @staticmethod
-    def _lap_text(info, name=""):
-        if info is None:
-            return ""
-        lap, start, top = info
-        return f"{name}Hors tour" if lap <= 0 else f"{name}Tour {lap}/{top}"
-
     def update_lap(self):
-        """Tour en cours (et temps écoulé dans ce tour) en haut des courbes ; les deux sessions en comparaison."""
+        """Bandeau des tours et boutons de comparaison."""
         c = self.core
         cmp_on = bool(getattr(c, "compare_name", None))
         if self.b_cmp_end.isVisible() != cmp_on:
-            self.b_cmp_end.setVisible(cmp_on)
-            self.b_cmp.setText("Changer de fichier…" if cmp_on else "Comparer avec un fichier…")
-        if c.live or not c.frames:
-            txt = ""
-        else:
-            ms = c.cursor_ms()
-            parts = []
-            for suffix, name in (("", "A · " if cmp_on else ""), (" [B]", "B · ")) if cmp_on else (("", ""),):
-                info = c.lap_at(ms, suffix)
-                if info is None:
-                    continue
-                t = self._lap_text(info, name)
-                if info[0] > 0:
-                    sec = max(0.0, (ms - info[1]) / 1000.0)
-                    t += f" · {int(sec // 60)}:{sec % 60:04.1f}"
-                parts.append(t)
-            txt = "      ".join(parts)
-        if txt != getattr(self, "_lap_shown", None):
-            self._lap_shown = txt
-            self.l_lap.setText(txt)
+            for w_ in (self.l_cmp, self.b_mode_t, self.b_mode_g, self.b_cmp_end):
+                w_.setVisible(cmp_on)
+        if cmp_on:
+            gps = getattr(c, "compare_mode", "time") == "gps"
+            self.b_mode_t.setChecked(not gps)
+            self.b_mode_g.setChecked(gps)
+        st = self.laps.state()
+        if st != getattr(self, "_lap_st", None):
+            self._lap_st = st
+            self.laps.refresh()
 
     def refresh_live(self):
         c = self.core

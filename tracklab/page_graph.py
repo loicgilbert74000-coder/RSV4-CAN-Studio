@@ -169,6 +169,21 @@ class GraphMixin:
         return self.color_map.get(key) or PALETTE[CURVE_INDEX.get(key, 0) % len(PALETTE)]
 
     def assign_color(self, key):
+        """Couleur d'une courbe. La voie de la 2e session (« [B] ») prend la couleur de la même voie de la 1re."""
+        if key[1].endswith(" [B]"):
+            twin = next((k for k in self.color_map if k[1] == key[1][:-4]), None)
+            if twin:
+                self.color_map[key] = self.color_map[twin]
+                return
+        else:
+            self._assign_color(key)
+            for k in self.sel:  # la voie B déjà tracée suit la nouvelle couleur de sa jumelle
+                if k[1] == key[1] + " [B]":
+                    self.color_map[k] = self.color_map[key]
+            return
+        self._assign_color(key)
+
+    def _assign_color(self, key):
         used = {self.color_map[k] for k in self.sel if k in self.color_map}
         free = [c for c in PALETTE if c not in used]
         self.color_map[key] = free[0] if free else PALETTE[len(self.color_map) % len(PALETTE)]
