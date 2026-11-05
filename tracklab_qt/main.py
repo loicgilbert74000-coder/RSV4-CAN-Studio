@@ -830,7 +830,9 @@ def video_new(app, win, sim):
     g.map.store.enabled = not notiles
     core.seek(0.40)
     pump(app, 3.0)
-    names = ("RPM", "Hand_Throttle", "Brake_Press", "GPS Vitesse")
+    names = ("RPM", "Brake_Press", "GPS Vitesse", "GPS Vitesse [B]")
+    for k in [k for k in list(core.sel) if k[1] not in names and not k[1].startswith(("Régime", "Pression"))]:
+        core.toggle_curve(k)
     for k in [k for k in core.full_t if k[1] in names and k not in core.sel]:
         core.toggle_curve(k)
     pump(app, 0.8)
