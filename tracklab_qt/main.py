@@ -771,7 +771,7 @@ def video_new(app, win, sim):
 
     import imageio_ffmpeg
 
-    from PySide6 import QtCore, QtGui
+    from PySide6 import QtCore, QtGui, QtWidgets
     from PySide6.QtTest import QTest
 
     from .resources import demo_path, demo_path_b
@@ -863,8 +863,9 @@ def video_new(app, win, sim):
         g.on_hover(QtCore.QPointF(x, r.center().y()))
     clip("n_survol", 8, sweep)
     shot("n_survol", 0.5)
+    QtWidgets.QInputDialog.getText = staticmethod(lambda *a, **k: ("Freinage tardif", True))
     QTest.keyClick(win, QtCore.Qt.Key_M)
-    pump(app, 0.8)
+    pump(app, 1.0)
     shot("n_marqueur", 0.5)
     g.hover_off()
     print("VN : pas à pas au clavier", flush=True)

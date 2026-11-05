@@ -318,6 +318,13 @@ class MainWindow(QtWidgets.QMainWindow):
     STEP_KEYS = {QtCore.Qt.Key_Right: 1, QtCore.Qt.Key_Left: -1, QtCore.Qt.Key_Down: 1, QtCore.Qt.Key_Up: -1}
 
 
+    def _marker_dialog(self):
+        from .analyse_qt import add_marker
+
+        add_marker(self.core, self)
+        self.analyse.fill_marks()
+        self.graph.marks.refresh()
+
     def handle_step_key(self, ev):
         core = self.core
         fw = QtWidgets.QApplication.focusWidget()
@@ -340,11 +347,7 @@ class MainWindow(QtWidgets.QMainWindow):
             core.step_frames(n)
             return True
         if k == QtCore.Qt.Key_M and not (mods & (QtCore.Qt.ControlModifier | QtCore.Qt.AltModifier)):
-            from .analyse_qt import add_marker
-
-            add_marker(core, self)
-            self.analyse.fill_marks()
-            self.graph.marks.refresh()
+            QtCore.QTimer.singleShot(0, self._marker_dialog)  # hors du filtre d'événements : la boîte de saisie est modale
             return True
         if k == QtCore.Qt.Key_Home:
             core.reset()
