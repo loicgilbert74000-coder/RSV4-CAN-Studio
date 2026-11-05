@@ -1,5 +1,7 @@
 """Fenêtre principale TrackLab (Qt) : barre du haut, platine de lecture, pages et pied de page."""
 
+import time
+
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from tracklab.config import MODELS, SPEEDS  # noqa: F401
@@ -142,7 +144,7 @@ class MainWindow(QtWidgets.QMainWindow):
             lay.addSpacing(4)
 
         core.key_open = DeckButton("eject", "OUVRIR A", core.open_file, color="#3cc0ff", width=64)
-        core.key_open_b = DeckButton("eject", "OUVRIR B", core.open_compare, color="#ff8a3d", width=64)
+        core.key_open_b = DeckButton("eject", "OUVRIR B", core.open_file_b, color="#ff8a3d", width=64)
         lay.addWidget(core.key_open)
         lay.addWidget(core.key_open_b)
         sep()
@@ -424,13 +426,14 @@ class MainWindow(QtWidgets.QMainWindow):
     def open_choice(self):
         core = self.core
         d = QtWidgets.QDialog(self)
-        d.setWindowTitle("Ouvrir")
+        as_b = getattr(core, "_open_as_b", 0.0) > time.monotonic() and getattr(core, "primary", None) is not None
+        d.setWindowTitle("Ouvrir B" if as_b else "Ouvrir")
         d.resize(560, 420)
         lay = QtWidgets.QVBoxLayout(d)
         lay.setContentsMargins(20, 16, 20, 16)
-        lay.addWidget(Label("Ouvrir", TEXT, 20, True))
+        lay.addWidget(Label("Ouvrir B · à comparer avec A" if as_b else "Ouvrir", "#ff8a3d" if as_b else TEXT, 20, True))
         b = btn("Un fichier du PC…  (trames CAN, RaceBox, RaceChrono, Tracklab)", TEXT, CARD2, 13)
-        b.clicked.connect(lambda: (d.close(), core.open_pc_file()))
+        b.clicked.connect(lambda: (d.close(), core.open_pc_file(as_b=as_b)))
         lay.addWidget(b)
         lay.addWidget(Label("Enregistrements Tracklab (carte et copies du PC)", SUB, 13, True))
         panel = RecPanel(core, 8)

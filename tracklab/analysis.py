@@ -519,12 +519,12 @@ def wheelie_score(S):
 
 
 def stoppie_score(S):
-    """Indicateur de stoppie 0..1 (estimé) : freinage très fort (≥ 0,9 g) avec roue arrière plus lente que l'avant (CAN)
+    """Indicateur de stoppie 0..1 (estimé) : freinage très fort (≥ 0,7 g) avec roue arrière plus lente que l'avant (CAN)
     ou forte vitesse de tangage (gyroscope)."""
     gl = S.ex("Lon_Acc") if S.ex("Lon_Acc") is not None else S.glong
     if gl is None:
         return None
-    brk = np.clip((-np.nan_to_num(gl) - 0.9) / 0.3, 0, 1)
+    brk = np.clip((-np.nan_to_num(gl) - 0.7) / 0.3, 0, 1)
     f, r = S.ex("Speed_Front"), S.ex("Speed_Rear")
     if f is not None and r is not None:
         return np.clip(((f - r) / np.maximum(f, 20.0) * 100.0 - 2.0) / 6.0, 0, 1) * brk
@@ -534,7 +534,7 @@ def stoppie_score(S):
     return np.clip(np.abs(np.nan_to_num(gy)) / 70.0, 0, 1) * brk
 
 
-def count_events(S, score, rows, thr=0.5, min_s=0.25):
+def count_events(S, score, rows, thr=0.5, min_s=0.16):
     """Nombre d'événements (score > thr pendant au moins min_s) et durée cumulée, par tour : {numéro de tour: (n, secondes)}."""
     out = {}
     if score is None:

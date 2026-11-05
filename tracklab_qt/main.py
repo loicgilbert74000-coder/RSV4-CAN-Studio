@@ -378,9 +378,16 @@ def demo_test(app, win):
     m.reset_view()
     assert m.zoom == 1.0
     # comparaison
-    core.load_compare(demo)
+    import time as _time
+
+    from .resources import demo_path_b
+
+    demo_b = demo_path_b()
+    assert demo_b, "second fichier de démonstration introuvable"
+    core._open_as_b = _time.monotonic() + 60  # comme après « Ouvrir B » : le fichier choisi devient la session B
+    core.load(demo_b)
     pump(app, 2.5)
-    assert core.compare_name and core.track_b, "comparaison non chargée"
+    assert core.compare_name == "portimao_B.csv" and core.track_b, "comparaison non chargée"
     nb = [k for k in core.sel if k[1].endswith(" [B]")]
     assert len(nb) >= 3, nb
     core.seek(0.5)

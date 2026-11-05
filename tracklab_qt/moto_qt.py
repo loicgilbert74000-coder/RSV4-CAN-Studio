@@ -103,7 +103,7 @@ class MotoTabs:
         v.addWidget(Label("Voies ESTIMÉES à partir des mesures, pas lues dans le calculateur de la moto (TC / anti-wheeling). Patinage arrière = "
                           "(roue arrière − roue avant) / roue avant, vitesses de roues CAN, au-dessus de 20 km/h. Wheelie 0..1 : roue avant plus "
                           "lente que l'arrière ET accélération > 0,4 g (CAN), sinon vitesse de tangage au gyroscope ET accélération (fichier GPS). "
-                          "Stoppie : freinage > 0,9 g avec roue arrière plus lente ou fort tangage. Seuils d'événement : 0,5.", MUTED, 11))
+                          "Stoppie : freinage > 0,7 g avec roue arrière plus lente ou fort tangage. Seuils d'événement : 0,5.", MUTED, 11))
         tabs.addTab(w, "Wheelie / patinage")
 
         # -- Moteur & rapports

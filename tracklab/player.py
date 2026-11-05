@@ -16,9 +16,17 @@ class PlayerMixin:
 
     def open_file(self):
         """Ouvrir : choix entre un fichier du PC et un enregistrement Tracklab."""
+        self._open_as_b = 0.0
         self.open_choice()
 
-    def open_pc_file(self):
+    def open_file_b(self):
+        """Ouvrir B : exactement la même fenêtre que Ouvrir A ; le fichier choisi est comparé à la session A ouverte."""
+        self._open_as_b = time.monotonic() + 600.0  # valable jusqu'au choix d'un fichier (consommé par load)
+        self.open_choice()
+
+    def open_pc_file(self, as_b=False):
+        if as_b:
+            self._open_as_b = time.monotonic() + 600.0
         p = self.dlg.askopenfilename(
             title="Ouvrir un fichier (trames CAN, RaceBox, RaceChrono, Tracklab…) : le type est reconnu automatiquement",
             filetypes=[
@@ -65,6 +73,11 @@ class PlayerMixin:
         self.board.reset()
 
     def load(self, path):
+        until = getattr(self, "_open_as_b", 0.0)
+        self._open_as_b = 0.0
+        if until > time.monotonic() and getattr(self, "primary", None) is not None:
+            self.load_compare(path)  # « Ouvrir B » : le fichier devient la session B
+            return
         self.loading = True
         try:
             self.progress_show(f"Lecture de {os.path.basename(path)}…", 3)
@@ -81,12 +94,7 @@ class PlayerMixin:
             self.loading = False
 
     def open_compare(self, *_a):
-        p = self.dlg.askopenfilename(
-            title="Fichier à comparer avec la session ouverte (RaceBox, RaceChrono, CSV GPS…)",
-            filetypes=[("Sessions GPS", "*.csv *.vbo *.tsv *.txt"), ("Tous fichiers", "*.*")],
-        )
-        if p:
-            self.load_compare(p)
+        self.open_file_b()
 
     def load_compare(self, path, mode=None):
         """Ajoute un 2e fichier GPS à comparer avec le premier (voies suffixées « [B] », 2e tracé sur le circuit)."""
