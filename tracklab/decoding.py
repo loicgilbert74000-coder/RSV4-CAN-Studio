@@ -6,15 +6,49 @@ from collections import deque
 import math
 import struct
 
-from .config import BY_CID, HAND_ALWAYS, HAND_EXPERIMENTAL
+from .config import BY_CID, HAND_ALWAYS, HAND_EXPERIMENTAL, SIGNALS
 from .formats import DYN_BASE
 from .names import fr
 from .protocol import ESP_IDS, extract_bits
 from .util import disp_unit, fmt_ms, fmt_val, wifi_quality
 
 
+# nom d'une voie d'un fichier (RaceChrono, RaceBox + CAN…) -> signal CAN connu de la page Télémétrie (régime, gaz, roues…)
+_CAN_BY_NAME = {}
+for _cid, _nm, *_r in SIGNALS:
+    _CAN_BY_NAME.setdefault(_nm, (_cid, _nm))
+_CAN_BY_NAME["TPS"] = (1537, "Hand_Throttle")
+_CAN_BY_NAME.pop("Battery_Volt", None)  # unité différente (mV) : la batterie n'alimente que son indicateur
+
+
 class DecodingMixin:
     """Décodage des trames CAN et des trames de l'ESP32."""
+
+    def file_to_telemetry(self, t, name, v):
+        """Un fichier qui contient des voies moto (régime, rapport, gaz, vitesses de roues, températures…) alimente aussi les
+        jauges et les tuiles de la page Télémétrie, comme le ferait le CAN en direct."""
+        key = _CAN_BY_NAME.get(name)
+        if key:
+            self.put(key[0], key[1], v, t, "file")
+        if name == "RPM":
+            self.rpm.set(v)
+        elif name == "Gear":
+            g = int(round(v))
+            self.gear.set(g)
+            self.gear_val.config(text=str(g))
+        elif name == "TPS":
+            self.show("throttle", v, text=f"{v:.0f}")
+            self.tps_lbl.config(text=f"TPS {v:.0f} %  (fichier)")
+        elif name == "Engine_Temp":
+            self.show("temp", v)
+        elif name == "Oil_Temp":
+            self.show("oil", v)
+        elif name in ("Battery_V", "Battery_Volt"):
+            self.show("battery", v, text=f"{v:.1f}")
+        elif name == "Speed_Front":
+            self.show("front", v, text=f"{v:.1f}")
+        elif name == "Speed_Rear":
+            self.show("rear", v, text=f"{v:.1f}")
 
     def put(self, cid, name, val, t, src):
         """Enregistre une valeur : valeur courante, historique pour les courbes, mise à jour de la tuile."""
@@ -109,6 +143,7 @@ class DecodingMixin:
             for ent, v in zip(ents, vals):
                 if ent and not math.isnan(v):
                     self.put(cid, ent[0], v, t, "file")
+                    self.file_to_telemetry(t, ent[0], v)
                     parts.append(f"{ent[0]} {fmt_val(v)}{(' ' + ent[1]) if ent[1] else ''}")
             return " | ".join(parts) or None
         if cid == 2032 and len(data) >= 8:
@@ -128,6 +163,8 @@ class DecodingMixin:
             self.put(cid, "GPS Cap", co, t, "esp")
             self.put(cid, "Satellites", sats, t, "esp")
             self.put(cid, "Qualité fix", fix, t, "esp")
+            if not self.live:  # fichier : la jauge de vitesse suit le GPS (le CAN, s'il y en a, passe par file_to_telemetry)
+                self.speedg.set(sp)
             return f"GPS {sp:.1f} km/h · cap {co:.0f}° · {sats} satellites · fix {fix}"
         if cid == 2042 and len(data) >= 6:
             rssi = int.from_bytes(data[1:2], "little", signed=True)

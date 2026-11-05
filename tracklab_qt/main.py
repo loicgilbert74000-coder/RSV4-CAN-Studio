@@ -413,6 +413,20 @@ def demo_test(app, win):
     core.end_compare()
     pump(app, 1.5)
     assert not core.compare_name and not [k for k in core.sel if k[1].endswith(" [B]")]
+    # ---- page Télémétrie alimentée par les voies moto du fichier
+    core.end_compare()
+    pump(app, 1.0)
+    core.show_page("tele")
+    core.seek(0.3)
+    pump(app, 1.5)
+    for k in ((256, "RPM"), (256, "Gear"), (1537, "Hand_Throttle"), (608, "Speed_Front"), (608, "Speed_Rear"), (512, "Engine_Temp"),
+              (609, "Brake_Press"), (276, "TC_Slip_Lp")):
+        assert k in core.vals, f"télémétrie : {k} non alimenté par le fichier"
+    say(f"télémétrie : régime {core.vals[(256, 'RPM')][0]:.0f}, rapport {core.vals[(256, 'Gear')][0]:.0f}, "
+        f"gaz {core.vals[(1537, 'Hand_Throttle')][0]:.0f} %")
+    emit_image("demo_telemetrie", win.grab(), width=1000)
+    core.show_page("graph")
+    pump(app, 0.5)
     # ---- page Analyse : tours, virages, écart, G-G, marqueurs, voie calculée, exports, circuit coloré
     import tempfile
 
