@@ -578,23 +578,23 @@ class CircuitMap(QtWidgets.QWidget):
 class LegendRow(QtWidgets.QFrame):
     """Une ligne de la légende : nom, min … max, valeur au curseur, croix de suppression ; clic = axe de gauche."""
 
-    def __init__(self, page, key, color):
+    def __init__(self, page):
         super().__init__()
-        self.page, self.key, self.color = page, key, color
+        self.page, self.key, self.color = page, None, BORDER
         self.setCursor(Qt.PointingHandCursor)
         lay = QtWidgets.QGridLayout(self)
         lay.setContentsMargins(10, 6, 8, 6)
         lay.setSpacing(1)
         core = page.core
-        self.name = Label(core.legend_label(key), TEXT, 13, True)
+        self.name = Label("", TEXT, 13, True)
         self.rng = Label("", MUTED, 11)
-        self.cur = Label("", color, 13, True)
+        self.cur = Label("", TEXT, 13, True)
         self.x = QtWidgets.QToolButton()
         self.x.setText("✕")
         self.x.setCursor(Qt.PointingHandCursor)
         self.x.setStyleSheet(f"QToolButton{{background:{CARD2};color:{SUB};border:none;border-radius:4px;padding:1px 5px;}}"
                              f"QToolButton:hover{{color:{TEXT};background:{HOVER};}}")
-        self.x.clicked.connect(lambda: core.remove_curve(key))
+        self.x.clicked.connect(lambda: self.key is not None and core.remove_curve(self.key))
         for lb in (self.name, self.rng, self.cur):  # le texte long est coupé au lieu d'élargir la légende
             lb.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Preferred)
             lb.setMinimumWidth(0)
@@ -603,6 +603,16 @@ class LegendRow(QtWidgets.QFrame):
         lay.addWidget(self.rng, 1, 0, 1, 2)
         lay.addWidget(self.cur, 2, 0, 1, 2)
         self.set_ref(False)
+
+    def bind(self, key, color):
+        """Réutilise cette ligne pour un autre signal (les lignes sont créées une fois pour toutes : en créer et en détruire à
+        chaque changement de courbes faisait planter PySide)."""
+        self.key, self.color = key, color
+        self.name.setText(self.page.core.legend_label(key))
+        self.rng.setText("")
+        self.cur.config(text="", fg=color)
+        self.set_ref(False)
+        self.setVisible(True)
 
     def set_ref(self, on):
         self.setStyleSheet(
@@ -793,6 +803,7 @@ class GraphPage(QtWidgets.QWidget):
         self._last_legend = 0.0
         self._last_live = 0.0
         self._rows = {}
+        self._leg_pool = []
         self._tmax = 1.0
         self._fit = False
         core.signal_list = None
@@ -943,6 +954,11 @@ class GraphPage(QtWidgets.QWidget):
         self.legend_lay.setContentsMargins(0, 0, 0, 0)
         self.legend_lay.setSpacing(6)
         self.legend_lay.addStretch(1)
+        for _ in range(self.LEG_POOL):  # lignes de légende créées une fois pour toutes (voir build_legend)
+            row = LegendRow(self)
+            row.setVisible(False)
+            self.legend_lay.insertWidget(self.legend_lay.count() - 1, row)
+            self._leg_pool.append(row)
         sc = QtWidgets.QScrollArea()
         sc.setWidgetResizable(True)
         sc.setFrameShape(QtWidgets.QFrame.NoFrame)
@@ -1313,16 +1329,22 @@ class GraphPage(QtWidgets.QWidget):
         super().resizeEvent(e)
         QtCore.QTimer.singleShot(0, self.relayout)
 
+    LEG_POOL = 48
+
     def build_legend(self, keys):
-        for i in reversed(range(self.legend_lay.count() - 1)):
-            w = self.legend_lay.itemAt(i).widget()
-            if w:
-                w.hide()
-                w.deleteLater()  # destruction différée : la ligne cliquée peut encore être en train de traiter son événement
+        if not self._leg_pool:  # créées une seule fois, puis simplement réaffectées
+            for _ in range(self.LEG_POOL):
+                row = LegendRow(self)
+                row.setVisible(False)
+                self.legend_lay.insertWidget(self.legend_lay.count() - 1, row)
+                self._leg_pool.append(row)
+        for row in self._leg_pool:
+            if row.isVisible():
+                row.setVisible(False)
+            row.key = None
         self._rows = {}
-        for k in keys:
-            row = LegendRow(self, k, self.core.color_of(k))
-            self.legend_lay.insertWidget(self.legend_lay.count() - 1, row)
+        for k, row in zip(keys, self._leg_pool):
+            row.bind(k, self.core.color_of(k))
             self._rows[k] = row
         self.update_legend(force=True)
 
