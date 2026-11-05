@@ -744,6 +744,7 @@ class GraphPage(QtWidgets.QWidget):
         self.core = core
         self.plots, self.lines, self.curves = [], [], {}
         self._pool_plots, self._pool_lines, self._pool_curves = [], [], {}
+        self._pool_hover = []
         self.follow = True
         self._np = {}
         self._guard = False
@@ -872,6 +873,13 @@ class GraphPage(QtWidgets.QWidget):
         centre.addWidget(self.laps)
         self.marks = MarkStrip(self)
         centre.addWidget(self.marks)
+        self.l_hover = QtWidgets.QLabel("")
+        self.l_hover.setTextFormat(Qt.RichText)
+        self.l_hover.setFixedHeight(24)
+        self.l_hover.setStyleSheet(f"background:{CARD};border-radius:6px;padding:0 8px;")
+        self.l_hover.setText(f"<span style='color:{MUTED}'>Survole les courbes : un curseur vertical affiche ici les valeurs</span>")
+        centre.addWidget(self.l_hover)
+        self.gl.scene().sigMouseMoved.connect(self.on_hover)
         self.scroll = QtWidgets.QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
@@ -1040,6 +1048,11 @@ class GraphPage(QtWidgets.QWidget):
         ln.sigPositionChangeFinished.connect(self.on_line_done)
         ln.sigPositionChanged.connect(self.on_line_move)
         p.addItem(ln)
+        hv = pg.InfiniteLine(pos=0.0, angle=90, movable=False, pen=pg.mkPen("#dfe8f7", width=1, style=QtCore.Qt.DashLine))
+        hv.setZValue(90)
+        hv.setVisible(False)
+        p.addItem(hv)
+        self._pool_hover.append(hv)
         self._pool_plots.append(p)
         self._pool_lines.append(ln)
         return p
@@ -1219,6 +1232,8 @@ class GraphPage(QtWidgets.QWidget):
                     self.relayout()
                     return True
                 self.gl.viewport().setCursor(QtCore.Qt.SizeVerCursor if self._handle_at(pos) >= 0 else QtCore.Qt.ArrowCursor)
+            elif t == E.Leave:
+                self.hover_off()
             elif t in (E.MouseButtonPress, E.MouseButtonDblClick) and ev.button() == QtCore.Qt.LeftButton:
                 pos = ev.position().toPoint() if hasattr(ev, "position") else ev.pos()
                 r = self._handle_at(pos)
@@ -1358,6 +1373,34 @@ class GraphPage(QtWidgets.QWidget):
                 na = a + math.floor((t - a) / span) * span
                 self.set_view(na, na + span)
         self.update_legend()
+
+    def on_hover(self, pos):
+        """Curseur vertical sous la souris + valeurs de toutes les courbes affichées, juste au-dessus des courbes."""
+        if getattr(self, "_building", False) or not self.plots or not self.isVisible():
+            return
+        hit = next((p for p in self.plots if p.vb.sceneBoundingRect().contains(pos)), None)
+        if hit is None:
+            self.hover_off()
+            return
+        x = hit.vb.mapSceneToView(pos).x()
+        for hv in self._pool_hover[:len(self.plots)]:
+            hv.setValue(x)
+            hv.setVisible(True)
+        c = self.core
+        sec = max(0.0, x)
+        parts = [f"<b style='color:{TEXT}'>{int(sec // 60)}:{sec % 60:05.2f}</b>"]
+        for k in self.curves:
+            v = self.value_at(k, x)
+            if v is None:
+                continue
+            unit = c.unit_of(k)
+            parts.append(f"<span style='color:{c.color_of(k)}'>{c.legend_label(k)[:22]} <b>{fmt_val(v)}</b> {unit}</span>")
+        self.l_hover.setText("&nbsp;&nbsp;·&nbsp;&nbsp;".join(parts))
+
+    def hover_off(self):
+        for hv in self._pool_hover:
+            if hv.isVisible():
+                hv.setVisible(False)
 
     def add_mark(self):
         from .analyse_qt import add_marker

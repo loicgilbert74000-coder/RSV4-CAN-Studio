@@ -266,6 +266,13 @@ class AnalysePage(QtWidgets.QWidget):
         h.addStretch(1)
         h.addWidget(self.l_delta)
         v.addLayout(h)
+        self.l_hover = QtWidgets.QLabel("")
+        self.l_hover.setTextFormat(Qt.RichText)
+        self.l_hover.setFixedHeight(26)
+        self.l_hover.setStyleSheet(f"background:{CARD2};border-radius:6px;padding:0 8px;")
+        self._hover_hint()
+        v.addWidget(self.l_hover)
+        self._ov = None
         self.p_over = pg.PlotWidget(background=BG)
         self.p_over.showGrid(x=True, y=True, alpha=0.15)
         self.p_over.setLabel("bottom", "Distance dans le tour", units="m")
@@ -279,6 +286,13 @@ class AnalysePage(QtWidgets.QWidget):
         self.p_delta.addLine(y=0, pen=pg.mkPen(MUTED, width=1))
         self.cv_delta = self.p_delta.plot([], [], pen=pg.mkPen(YELLOW, width=2))
         self.p_delta.setXLink(self.p_over)
+        self.hv_over = pg.InfiniteLine(angle=90, movable=False, pen=pg.mkPen("#dfe8f7", width=1, style=QtCore.Qt.DashLine))
+        self.hv_delta = pg.InfiniteLine(angle=90, movable=False, pen=pg.mkPen("#dfe8f7", width=1, style=QtCore.Qt.DashLine))
+        for hv, pw in ((self.hv_over, self.p_over), (self.hv_delta, self.p_delta)):
+            hv.setVisible(False)
+            pw.addItem(hv)
+        self.p_over.scene().sigMouseMoved.connect(lambda pos: self.on_hover(pos, self.p_over))
+        self.p_delta.scene().sigMouseMoved.connect(lambda pos: self.on_hover(pos, self.p_delta))
         v.addWidget(self.p_over, 3)
         v.addWidget(Label("Écart de temps (s) : positif = le tour comparé est plus lent à cet endroit", MUTED, 11))
         v.addWidget(self.p_delta, 2)
@@ -451,20 +465,53 @@ class AnalysePage(QtWidgets.QWidget):
     def fill_overlay(self):
         a, b = self.sel(self.c_ref), self.sel(self.c_cmp)
         key = CHANNELS[max(0, self.c_chan.currentIndex())][1]
-        for cv, it in ((self.cv_ref, a), (self.cv_cmp, b)):
+        data = {}
+        for nm, cv, it in (("ref", self.cv_ref, a), ("cmp", self.cv_cmp, b)):
             if it is None:
                 cv.setData([], [])
             else:
                 d, v = self._axis(it, key)
                 cv.setData(d, v)
+                data[nm] = (d, v)
         self.l_delta.setText("")
+        self._ov = data
         if a and b and a[2] is not b[2]:
             d, dl = an.delta_curve(a[1], a[2], b[1], b[2])
             self.cv_delta.setData(d, dl)
+            data["delta"] = (d, dl)
             if len(dl):
                 self.l_delta.setText(f"Écart final {dl[-1]:+.3f} s · maxi {dl.max():+.3f} s · mini {dl.min():+.3f} s")
         else:
             self.cv_delta.setData([], [])
+
+    def _hover_hint(self):
+        self.l_hover.setText(f"<span style='color:{MUTED}'>Survole les courbes : un curseur vertical affiche ici les valeurs</span>")
+
+    def on_hover(self, pos, pw):
+        """Curseur vertical sous la souris (sur les deux graphiques) et valeurs lues à cette distance."""
+        inside = pw.getPlotItem().vb.sceneBoundingRect().contains(pos)
+        if not self.isVisible() or self._ov is None or not inside:
+            if self._ov is not None and self.hv_over.isVisible() and not inside:
+                self.hv_over.setVisible(False)
+                self.hv_delta.setVisible(False)
+                self._hover_hint()
+            return
+        x = pw.getPlotItem().vb.mapSceneToView(pos).x()
+        self.hv_over.setValue(x)
+        self.hv_delta.setValue(x)
+        self.hv_over.setVisible(True)
+        self.hv_delta.setVisible(True)
+        label = self.c_chan.currentText()
+        unit = label[label.find("(") + 1:label.find(")")] if "(" in label else ""
+        parts = [f"<b style='color:{TEXT}'>{x:.0f} m</b>"]
+        for nm, col, lab in (("ref", CYAN, "Réf"), ("cmp", ORANGE, "Comparé")):
+            if nm in self._ov and len(self._ov[nm][0]) > 1:
+                d, v = self._ov[nm]
+                parts.append(f"<span style='color:{col}'>{lab} <b>{np.interp(x, d, v):.2f}</b> {unit}</span>")
+        if "delta" in self._ov and len(self._ov["delta"][0]) > 1:
+            d, v = self._ov["delta"]
+            parts.append(f"<span style='color:{YELLOW}'>Écart <b>{np.interp(x, d, v):+.3f}</b> s</span>")
+        self.l_hover.setText("&nbsp;&nbsp;·&nbsp;&nbsp;".join(parts))
 
     def corners_of(self, item):
         return an.detect_corners(item[1], item[2]) if item else []
