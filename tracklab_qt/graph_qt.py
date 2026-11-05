@@ -1005,16 +1005,20 @@ class GraphPage(QtWidgets.QWidget):
                     lay.setRowMaximumHeight(r, h)
                     lay.setRowPreferredHeight(r, h)
                 else:
-                    lay.setRowMinimumHeight(r, 0.0)
-                    lay.setRowMaximumHeight(r, big)
+                    lay.setRowMinimumHeight(r, -1.0)
+                    lay.setRowMaximumHeight(r, -1.0)
+                    lay.setRowPreferredHeight(r, -1.0)
+            self._rows_custom = True
             tot = int(sum(self._row_h)) + 4 * n
             self.gl.setMinimumHeight(tot)
             self.gl.setMaximumHeight(tot)
         else:
-            for r in range(POOL):
-                lay.setRowMinimumHeight(r, 0.0)
-                lay.setRowMaximumHeight(r, big)
-                lay.setRowPreferredHeight(r, -1.0)
+            if getattr(self, "_rows_custom", False):  # retour aux valeurs par défaut de Qt (-1 = non défini)
+                for r in range(POOL):
+                    lay.setRowMinimumHeight(r, -1.0)
+                    lay.setRowMaximumHeight(r, -1.0)
+                    lay.setRowPreferredHeight(r, -1.0)
+                self._rows_custom = False
             self.gl.setMaximumHeight(16777215)
             self.gl.setMinimumHeight(max(300, 150 * n) if stacked else 300)
 
