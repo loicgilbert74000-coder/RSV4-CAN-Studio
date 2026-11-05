@@ -785,11 +785,13 @@ def video_new(app, win, sim):
     notiles = os.environ.get("TRACKLAB_NO_TILES") == "1"
 
     def shot(name, wait=0.8):
+        print("VN shot", name, flush=True)
         pump(app, wait)
         emit_image(name, win.grab(), 1920, 88)
 
     def clip(name, seconds, step):
         n = int(seconds * 30)
+        print("VN clip", name, flush=True)
         path = f"clip_{name}.mp4"
         ff = subprocess.Popen([ffmpeg, "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{CW}x{CH}", "-r", "30",
                                "-i", "-", "-c:v", "libx264", "-preset", "veryfast", "-crf", "26", "-pix_fmt", "yuv420p", path],
@@ -811,6 +813,7 @@ def video_new(app, win, sim):
         emit_file(name, path)
         print(f"clip {name} : {n} images", flush=True)
 
+    print("VN : session A (Portimão simulé) + B ; télémétrie alime", flush=True)
     # --- session A (Portimão simulé) + B ; télémétrie alimentée par le fichier
     core.load(demo_path())
     pump(app, 2.0)
@@ -821,6 +824,7 @@ def video_new(app, win, sim):
     core.seek(0.30)
     shot("n_deck", 1.2)
     clip("n_tele", 12, lambda i, n: core.seek(0.30 + 0.12 * i / n))
+    print("VN : courbes : circuit coloré, zoom qui suit", flush=True)
     # --- courbes : circuit coloré, zoom qui suit
     core.show_page("graph")
     g.map.store.enabled = not notiles
@@ -846,6 +850,7 @@ def video_new(app, win, sim):
         g.map.set_color_mode(modes[min(len(modes) - 1, int(i / n * len(modes)))])
     clip("n_modes", 12, play)
     g.map.set_color_mode("speed")
+    print("VN : survol + marqueur", flush=True)
     # --- survol + marqueur
     g.map.reset_view()
     core.seek(0.45)
@@ -862,6 +867,7 @@ def video_new(app, win, sim):
     pump(app, 0.8)
     shot("n_marqueur", 0.5)
     g.hover_off()
+    print("VN : pas à pas au clavier", flush=True)
     # --- pas à pas au clavier
     core.pause()
     core.seek(0.45)
@@ -871,6 +877,7 @@ def video_new(app, win, sim):
         mod = QtCore.Qt.ShiftModifier if i > n // 2 else QtCore.Qt.NoModifier
         QTest.keyClick(win, QtCore.Qt.Key_Right, mod)
     clip("n_pas", 6, pas)
+    print("VN : courbes empilées + poignée", flush=True)
     # --- courbes empilées + poignée
     core.stack.set(True)
     pump(app, 1.5)
@@ -889,6 +896,7 @@ def video_new(app, win, sim):
     QTest.mouseRelease(vp, QtCore.Qt.LeftButton, QtCore.Qt.NoModifier, pos)
     core.stack.set(False)
     pump(app, 0.5)
+    print("VN : page Analyse", flush=True)
     # --- page Analyse
     from .analyse_qt import add_math_channel
 
@@ -906,6 +914,7 @@ def video_new(app, win, sim):
         shot(f"n_an{i}", 0.4)
     mt = an.moto
     mt.add_wheelie()
+    print("VN : retour courbes : voie calculée", flush=True)
     # --- retour courbes : voie calculée
     core.show_page("graph")
     core.seek(0.40)

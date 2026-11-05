@@ -38,6 +38,8 @@ jobs:
           python -m pip install imageio-ffmpeg
           python -m tracklab_qt.main --selftest sim.trk
       - name: Captures 1920x1080 des nouvelles fonctions pour la video
+        timeout-minutes: 14
+        continue-on-error: true
         if: contains(github.event.head_commit.message, '[video]')
         env:
           QT_QPA_PLATFORM: offscreen
