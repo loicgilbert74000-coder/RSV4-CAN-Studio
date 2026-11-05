@@ -764,6 +764,158 @@ def video_shots(app, win, sim):
     print("VIDEO SHOTS OK", flush=True)
 
 
+def video_new(app, win, sim):
+    """Captures 1920x1080 et clips 30 images/s des dernières fonctions (TRACKLAB_VIDEO_NEW=1), pour la vidéo paysage."""
+    import math
+    import subprocess
+
+    import imageio_ffmpeg
+
+    from PySide6 import QtCore, QtGui
+    from PySide6.QtTest import QTest
+
+    from .resources import demo_path, demo_path_b
+
+    core, g = win.core, win.graph
+    win.resize(1920, 1080)
+    win.show()
+    pump(app, 0.5)
+    ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+    CW, CH = 1920, 1080
+    notiles = os.environ.get("TRACKLAB_NO_TILES") == "1"
+
+    def shot(name, wait=0.8):
+        pump(app, wait)
+        emit_image(name, win.grab(), 1920, 88)
+
+    def clip(name, seconds, step):
+        n = int(seconds * 30)
+        path = f"clip_{name}.mp4"
+        ff = subprocess.Popen([ffmpeg, "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{CW}x{CH}", "-r", "30",
+                               "-i", "-", "-c:v", "libx264", "-preset", "veryfast", "-crf", "26", "-pix_fmt", "yuv420p", path],
+                              stdin=subprocess.PIPE)
+        for i in range(n):
+            step(i, n)
+            pump(app, 0.04)
+            im = win.grab().toImage()
+            if im.width() != CW or im.height() != CH:
+                im = im.scaled(CW, CH, QtCore.Qt.IgnoreAspectRatio, QtCore.Qt.SmoothTransformation)
+            im = im.convertToFormat(QtGui.QImage.Format_RGB888)
+            bpl = im.bytesPerLine()
+            raw = bytes(im.constBits())
+            if bpl != CW * 3:
+                raw = b"".join(raw[r * bpl:r * bpl + CW * 3] for r in range(CH))
+            ff.stdin.write(raw[: CW * CH * 3])
+        ff.stdin.close()
+        ff.wait()
+        emit_file(name, path)
+        print(f"clip {name} : {n} images", flush=True)
+
+    # --- session A (Portimão simulé) + B ; télémétrie alimentée par le fichier
+    core.load(demo_path())
+    pump(app, 2.0)
+    core.load_compare(demo_path_b(), "time")
+    pump(app, 3.0)
+    total = core.frames[-1][0]
+    core.show_page("tele")
+    core.seek(0.30)
+    shot("n_deck", 1.2)
+    clip("n_tele", 12, lambda i, n: core.seek(0.30 + 0.12 * i / n))
+    # --- courbes : circuit coloré, zoom qui suit
+    core.show_page("graph")
+    g.map.store.enabled = not notiles
+    core.seek(0.40)
+    pump(app, 3.0)
+    names = ("RPM", "Hand_Throttle", "Brake_Press", "GPS Vitesse")
+    for k in [k for k in core.full_t if k[1] in names and k not in core.sel]:
+        core.toggle_curve(k)
+    pump(app, 0.8)
+    g.set_view(core.cursor_ms() / 1000 - 25, core.cursor_ms() / 1000 + 25)
+    g.map.set_zoom(4.0)
+    g.map.set_color_mode("speed")
+    pump(app, 2.0)
+    shot("n_courbes", 1.0)
+    modes = ["speed", "long", "angle", "ahead", "gain"]
+
+    def play(i, n):
+        t = 300.0 + 3.0 * i / 30.0
+        core.seek(t * 1000.0 / total)
+        g.set_view(t - 22, t + 8)
+        g.map.center = g.map._clamp(g.map.position())
+        g.map._refresh()
+        g.map.set_color_mode(modes[min(len(modes) - 1, int(i / n * len(modes)))])
+    clip("n_modes", 12, play)
+    g.map.set_color_mode("speed")
+    # --- survol + marqueur
+    g.map.reset_view()
+    core.seek(0.45)
+    g.set_view(core.cursor_ms() / 1000 - 30, core.cursor_ms() / 1000 + 30)
+    pump(app, 1.0)
+    r = g.plots[0].vb.sceneBoundingRect()
+
+    def sweep(i, n):
+        x = r.left() + 40 + (r.width() - 80) * (0.5 - 0.5 * math.cos(math.pi * i / n))
+        g.on_hover(QtCore.QPointF(x, r.center().y()))
+    clip("n_survol", 8, sweep)
+    shot("n_survol", 0.5)
+    QTest.keyClick(win, QtCore.Qt.Key_M)
+    pump(app, 0.8)
+    shot("n_marqueur", 0.5)
+    g.hover_off()
+    # --- pas à pas au clavier
+    core.pause()
+    core.seek(0.45)
+    pump(app, 0.5)
+
+    def pas(i, n):
+        mod = QtCore.Qt.ShiftModifier if i > n // 2 else QtCore.Qt.NoModifier
+        QTest.keyClick(win, QtCore.Qt.Key_Right, mod)
+    clip("n_pas", 6, pas)
+    # --- courbes empilées + poignée
+    core.stack.set(True)
+    pump(app, 1.5)
+    shot("n_empile", 0.5)
+    e = g._row_edges()
+    ymid = (e[0][1] + e[1][0]) / 2.0
+    pos = g.gl.mapFromScene(QtCore.QPointF(60.0, ymid))
+    vp = g.gl.viewport()
+    QTest.mousePress(vp, QtCore.Qt.LeftButton, QtCore.Qt.NoModifier, pos)
+    state = {"y": pos.y()}
+
+    def poignee(i, n):
+        dy = int(70 * math.sin(math.pi * i / (n - 1)))
+        QTest.mouseMove(vp, QtCore.QPoint(pos.x(), pos.y() + dy))
+    clip("n_poignee", 5, poignee)
+    QTest.mouseRelease(vp, QtCore.Qt.LeftButton, QtCore.Qt.NoModifier, pos)
+    core.stack.set(False)
+    pump(app, 0.5)
+    # --- page Analyse
+    from .analyse_qt import add_math_channel
+
+    an = win.analyse
+    core.show_page("analyse")
+    pump(app, 1.0)
+    an.refresh(force=True)
+    pump(app, 0.8)
+    for i in range(an.tabs.count()):
+        an.tabs.setCurrentIndex(i)
+        pump(app, 0.5)
+        if i == 1:
+            r_ = an.p_over.getPlotItem().vb.sceneBoundingRect()
+            an.on_hover(QtCore.QPointF(r_.left() + r_.width() * 0.55, r_.center().y()), an.p_over)
+        shot(f"n_an{i}", 0.4)
+    mt = an.moto
+    mt.add_wheelie()
+    # --- retour courbes : voie calculée
+    core.show_page("graph")
+    core.seek(0.40)
+    pump(app, 1.0)
+    g.set_view(core.cursor_ms() / 1000 - 40, core.cursor_ms() / 1000 + 40)
+    pump(app, 1.0)
+    shot("n_calc", 0.5)
+    print("VIDEO NEW OK", flush=True)
+
+
 def run_selftest(app, win, args):
     path = args[0]
     core = win.core
@@ -780,6 +932,9 @@ def run_selftest(app, win, args):
     assert core.frames and core.full_t
     if os.environ.get("TRACKLAB_VIDEO_FRAMES"):
         video_frames(app, win, path)
+        return 0
+    if os.environ.get("TRACKLAB_VIDEO_NEW"):
+        video_new(app, win, path)
         return 0
     if os.environ.get("TRACKLAB_VIDEO_SHOTS"):
         video_shots(app, win, path)
