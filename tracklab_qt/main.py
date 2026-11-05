@@ -427,6 +427,13 @@ def demo_test(app, win):
         an_page.tabs.setCurrentIndex(i)
         pump(app, 0.4)
         emit_image(f"analyse_onglet{i}", win.grab(), width=900)
+    mt = an_page.moto
+    assert mt.t_brake.rowCount() >= 5 and mt.t_line.rowCount() >= 5 and mt.t_grip.rowCount() >= 5, "onglets moto vides"
+    assert mt.t_ev.rowCount() >= 3, "wheelie / patinage : tableau vide"
+    say(f"moto : freinage {mt.t_brake.rowCount()} virages, régularité : {mt.l_loss.text()}")
+    say(f"moto : {mt.l_trend.text()} · {mt.l_grip.text()}")
+    kw = mt.add_wheelie()
+    assert any("Wheelie" in k[1] for k in core.full_t), "voie wheelie absente"
     an_page.tabs.setCurrentIndex(1)
     pump(app, 0.3)
     r_ = an_page.p_over.getPlotItem().vb.sceneBoundingRect()
@@ -467,6 +474,11 @@ def demo_test(app, win):
     pump(app, 0.8)
     assert win.graph.map.color_values() is not None
     emit_image("demo_circuit_vitesse", win.grab())
+    for mode in ("ahead", "gain"):
+        win.graph.map.set_color_mode(mode)
+        pump(app, 0.5)
+        assert win.graph.map.color_values() is not None, f"circuit coloré {mode} vide"
+        emit_image(f"demo_circuit_{mode}", win.grab(), width=900)
     win.graph.map.set_color_mode(None)
     say("analyse : OK")
     # pas à pas au clavier (vraies touches envoyées à la fenêtre)

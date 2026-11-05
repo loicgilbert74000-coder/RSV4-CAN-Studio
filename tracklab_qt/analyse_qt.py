@@ -329,6 +329,10 @@ class AnalysePage(QtWidgets.QWidget):
         v.addWidget(self.l_gg)
         self.tabs.addTab(w, "Diagramme G-G")
 
+        from .moto_qt import MotoTabs
+
+        self.moto = MotoTabs(self)
+
         # -- Marqueurs
         w = QtWidgets.QWidget()
         v = QtWidgets.QVBoxLayout(w)
@@ -420,6 +424,7 @@ class AnalysePage(QtWidgets.QWidget):
         self.fill_overlay()
         self.fill_corners()
         self.fill_gg()
+        self.moto.fill()
 
     # ------------------------------------------------------------------ onglets
     def fill_laps(self):

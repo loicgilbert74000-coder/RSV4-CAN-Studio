@@ -17,7 +17,7 @@ B_SUFFIX = " [B]"
 class Session:
     """Une session (A ou B) sur une base de temps commune : t en secondes, vitesse en km/h, G, angle, tour, distance."""
 
-    def __init__(self, t, speed, glat, glong, angle, lap, lap_starts, lap_nums, lat=None, lon=None):
+    def __init__(self, t, speed, glat, glong, angle, lap, lap_starts, lap_nums, lat=None, lon=None, extra=None):
         self.t = np.asarray(t, float)
         self.speed = np.asarray(speed, float)
         self.glat = glat
@@ -29,6 +29,10 @@ class Session:
         dt = np.diff(self.t, prepend=self.t[0] if len(self.t) else 0.0)
         self.dist = np.cumsum(np.nan_to_num(self.speed) / 3.6 * dt)  # mètres depuis le début
         self.lat, self.lon = lat, lon
+        self.extra = extra or {}  # voies facultatives (CAN, gyroscope) sur la même base de temps
+
+    def ex(self, name):
+        return self.extra.get(name)
 
     @property
     def n(self):
@@ -55,6 +59,10 @@ def _interp(t_src, v_src, t_dst):
     return np.interp(t_dst, t_src[ok], v_src[ok])
 
 
+EXTRA_CHANNELS = ("RPM", "Gear", "Engine_Temp", "Oil_Temp", "Speed_Front", "Speed_Rear", "Pitch_Rate_2", "Pitch_Angle", "GyroY",
+                  "Brake_Press", "Lon_Acc")
+
+
 def build_session(get, suffix="", lap_table=None):
     """get(nom) -> (temps en ms, valeurs) ou None ; suffix « [B] » pour la 2e session.
     lap_table : ([débuts en ms], [numéros]) ou None."""
@@ -79,6 +87,11 @@ def build_session(get, suffix="", lap_table=None):
     glat = chan("G latéral", "G latéral (calculé)")
     glong = chan("G longitudinal", "G longitudinal (calculé)")
     angle = chan("Angle", "Angle (calculé)")
+    extra = {}
+    for nm in EXTRA_CHANNELS:
+        v = chan(nm)
+        if v is not None:
+            extra[nm] = v
     if lap_table:
         starts = np.asarray(lap_table[0], float) / 1000.0
         nums = list(lap_table[1])
@@ -86,7 +99,7 @@ def build_session(get, suffix="", lap_table=None):
         lap = np.asarray(nums)[idx] if nums else np.zeros(len(t), int)
     else:
         starts, nums, lap = np.array([]), [], np.zeros(len(t), int)
-    return Session(t, speed, glat, glong, angle, lap, starts, nums)
+    return Session(t, speed, glat, glong, angle, lap, starts, nums, extra=extra)
 
 
 # ------------------------------------------------------------------ tours
@@ -214,7 +227,9 @@ def detect_corners(S, row, g_min=0.30, v_min=30.0, gap_s=0.6, min_s=0.8):
             continue
         seg_sp = sp[a:b + 1]
         k = a + int(np.argmin(seg_sp))
+        i0 = row["i0"]
         out.append({
+            "ia": i0 + a, "ik": i0 + k, "ib": i0 + b,
             "n": len(out) + 1,
             "side": "droite" if sg > 0 else "gauche",
             "dist": float(S.dist[row["i0"] + a] - d0),
@@ -259,7 +274,7 @@ def gg_points(S, row=None):
 _FUNCS = {
     "abs": np.abs, "sqrt": np.sqrt, "sin": lambda x: np.sin(np.radians(x)), "cos": lambda x: np.cos(np.radians(x)),
     "tan": lambda x: np.tan(np.radians(x)), "atan": lambda x: np.degrees(np.arctan(x)), "log": np.log,
-    "min": np.minimum, "max": np.maximum, "sign": np.sign,
+    "min": np.minimum, "max": np.maximum, "sign": np.sign, "clip": np.clip,
 }
 _OPS = {ast.Add: np.add, ast.Sub: np.subtract, ast.Mult: np.multiply, ast.Div: np.divide, ast.Pow: np.power,
         ast.Mod: np.mod}
@@ -345,3 +360,247 @@ def lap_rows_for_export(rows, sectors=None):
             line += [f"{x:.3f}" for x in sectors.get(r["num"], [])]
         out.append(line)
     return out
+
+
+# ------------------------------------------------------------------ analyse moto
+def _runs_true(mask, min_len=1):
+    """[(début, fin exclue)] des suites de True d'un masque."""
+    out, i, n = [], 0, len(mask)
+    while i < n:
+        if mask[i]:
+            j = i
+            while j + 1 < n and mask[j + 1]:
+                j += 1
+            if j - i + 1 >= min_len:
+                out.append((i, j + 1))
+            i = j + 1
+        else:
+            i += 1
+    return out
+
+
+def corner_metrics(S, row, c, brake_g=0.25, accel_g=0.10, lean_trail=10.0):
+    """Freinage avant le virage, trail braking et reprise après la corde (d'après le G longitudinal : le TPS n'est pas décodé).
+    Retourne un dict (valeurs None si le G longitudinal ou l'angle manquent)."""
+    out = {"n": c["n"], "side": c["side"]}
+    if S.glong is None:
+        return out
+    gl = np.nan_to_num(S.glong)
+    t, sp, d = S.t, S.speed, S.dist
+    lo = max(row["i0"], c["ia"] - int(12 / max(np.median(np.diff(t)), 1e-3)))  # on remonte au plus de 12 s avant l'entrée
+    # freinage : dernière phase de freinage qui se termine entre l'entrée et la corde
+    seg = _runs_true(gl[lo:c["ik"] + 1] < -brake_g, 3)
+    seg = [(a + lo, b + lo) for a, b in seg]
+    seg = [x for x in seg if x[1] >= c["ia"] - 1]
+    if seg:
+        a, b = seg[-1][0], seg[-1][1]
+        # fusion avec les phases précédentes très proches (relâché une fraction de seconde)
+        for pa, pb in reversed(seg[:-1]):
+            if t[a] - t[pb - 1] < 0.4:
+                a = pa
+        out.update({
+            "brake_dist": float(d[c["ik"]] - d[a]),  # distance entre le début du freinage et la corde
+            "brake_g": float(-gl[a:b].min()),
+            "brake_dur": float(t[b - 1] - t[a]),
+            "brake_lost": float(sp[a] - sp[min(b, len(sp) - 1)]),
+            "brake_v0": float(sp[a]),
+        })
+        if S.angle is not None:
+            ang = np.abs(np.nan_to_num(S.angle))
+            tr = (gl[a:b] < -brake_g) & (ang[a:b] > lean_trail)
+            dts = np.diff(t[a:b + 1], append=t[b - 1] + 0.04) if b > a else np.array([])
+            out["trail_dur"] = float(np.sum(dts[:len(tr)][tr]))
+            out["trail_ratio"] = float(out["trail_dur"] / max(out["brake_dur"], 1e-3))
+            out["trail_angle"] = float(np.max(ang[a:b][tr])) if tr.any() else 0.0
+    # reprise : première accélération soutenue après la corde
+    hi = min(row["i1"], c["ib"] + int(6 / max(np.median(np.diff(t)), 1e-3)))
+    on = gl[c["ik"]:hi] > accel_g
+    runs = _runs_true(on, 5)
+    if runs:
+        r0 = runs[0][0] + c["ik"]
+        out["reprise_dist"] = float(d[r0] - d[c["ik"]])
+        out["reprise_angle"] = None if S.angle is None else float(abs(S.angle[r0]))
+        j = int(np.searchsorted(d[r0:row["i1"]], d[r0] + 100.0))
+        out["v_plus100"] = float(sp[min(r0 + j, row["i1"] - 1)])
+        out["reprise_g"] = float(gl[r0:min(r0 + 50, row["i1"])].max())
+    return out
+
+
+def grip_reference(S):
+    """G combiné (latéral + longitudinal) de référence : 98e centile de la session = « 100 % d'adhérence utilisée »."""
+    if S.glat is None or S.glong is None:
+        return None
+    g = np.hypot(np.nan_to_num(S.glat), np.nan_to_num(S.glong))
+    return float(np.percentile(g, 98)) or None
+
+
+def grip_usage(S, row, c=None, ref=None):
+    """Pourcentage d'adhérence utilisée (G combiné / référence) : maxi du virage c, ou moyenne du tour au-dessus de 0,5 g."""
+    ref = ref or grip_reference(S)
+    if not ref:
+        return None
+    g = np.hypot(np.nan_to_num(S.glat), np.nan_to_num(S.glong))
+    if c is not None:
+        return float(100.0 * np.percentile(g[c["ia"]:c["ib"] + 1], 95) / ref)  # 95e centile : insensible aux pics de bruit
+    sl = g[row["i0"]:row["i1"]]
+    return float(100.0 * sl[sl > 0.5].mean() / ref) if (sl > 0.5).any() else None
+
+
+def line_quality(S, rows, tol_m=60.0, margin_m=40.0):
+    """Régularité par virage sur les tours valides : vitesse de corde moyenne / écart-type, temps de passage et perte moyenne
+    par rapport au meilleur passage. Le tableau est classé par perte moyenne décroissante."""
+    best = best_lap(rows)
+    if not best:
+        return []
+    cref = detect_corners(S, best)
+    laps = [r for r in rows if r["valid"]]
+    data = {c["n"]: {"c": c, "apex": [], "time": []} for c in cref}
+    for r in laps:
+        cl = detect_corners(S, r)
+        pairs = compare_corners(cref, cl, tol_m)
+        d, t = _lap_axis(S, r)
+        for a, b in pairs:
+            if b is None:
+                continue
+            e = data[a["n"]]
+            e["apex"].append(b["v_apex"])
+            d0, d1 = a["dist"] - margin_m, a["dist"] + a["dur"] * a["v_in"] / 3.6 + margin_m
+            e["time"].append(float(np.interp(d1, d, t) - np.interp(d0, d, t)))
+    out = []
+    for n, e in data.items():
+        if len(e["apex"]) < 2:
+            continue
+        tm = np.array(e["time"])
+        out.append({"n": n, "side": e["c"]["side"], "dist": e["c"]["dist"], "laps": len(tm),
+                    "apex_mean": float(np.mean(e["apex"])), "apex_std": float(np.std(e["apex"])),
+                    "apex_best": float(np.max(e["apex"])), "t_best": float(tm.min()),
+                    "loss_mean": float(tm.mean() - tm.min()), "loss_max": float(tm.max() - tm.min())})
+    out.sort(key=lambda x: -x["loss_mean"])
+    return out
+
+
+def lap_trend(rows):
+    """Évolution sur les tours valides : pente (par tour) du temps, de l'angle max et du G latéral max."""
+    v = [r for r in rows if r["valid"]]
+    out = {"laps": [r["num"] for r in v], "time": [r["time"] for r in v], "angle": [r["angle"] for r in v],
+           "glat": [r["glat"] for r in v], "slope": {}}
+    if len(v) >= 3:
+        x = np.arange(len(v), dtype=float)
+        for k in ("time", "angle", "glat"):
+            y = np.array([np.nan if q is None else q for q in out[k]], float)
+            if not np.isnan(y).any():
+                out["slope"][k] = float(np.polyfit(x, y, 1)[0])
+    return out
+
+
+# ---- wheelie / stoppie / patinage (estimés, non issus du calculateur moto)
+def slip_rear(S):
+    """Patinage arrière estimé en % : (roue arrière − roue avant) / roue avant, au-dessus de 20 km/h (vitesses de roues CAN)."""
+    f, r = S.ex("Speed_Front"), S.ex("Speed_Rear")
+    if f is None or r is None:
+        return None
+    return (r - f) / np.maximum(f, 20.0) * 100.0
+
+
+def wheelie_score(S):
+    """Indicateur de wheelie 0..1 (estimé). Avec les roues CAN : roue avant plus lente que l'arrière (≥ 2 %) ET accélération
+    forte (≥ 0,4 g). Sinon, avec le fichier GPS : forte accélération ET vitesse de tangage ≥ 35 °/s au gyroscope."""
+    gl = S.ex("Lon_Acc") if S.ex("Lon_Acc") is not None else S.glong
+    if gl is None:
+        return None
+    acc = np.clip((np.nan_to_num(gl) - 0.4) / 0.4, 0, 1)
+    sl = slip_rear(S)
+    if sl is not None:
+        return np.clip((sl - 2.0) / 6.0, 0, 1) * acc
+    gy = S.ex("Pitch_Rate_2") if S.ex("Pitch_Rate_2") is not None else S.ex("GyroY")
+    if gy is None:
+        return None
+    return np.clip(np.abs(np.nan_to_num(gy)) / 70.0, 0, 1) * acc
+
+
+def stoppie_score(S):
+    """Indicateur de stoppie 0..1 (estimé) : freinage très fort (≥ 0,9 g) avec roue arrière plus lente que l'avant (CAN)
+    ou forte vitesse de tangage (gyroscope)."""
+    gl = S.ex("Lon_Acc") if S.ex("Lon_Acc") is not None else S.glong
+    if gl is None:
+        return None
+    brk = np.clip((-np.nan_to_num(gl) - 0.9) / 0.3, 0, 1)
+    f, r = S.ex("Speed_Front"), S.ex("Speed_Rear")
+    if f is not None and r is not None:
+        return np.clip(((f - r) / np.maximum(f, 20.0) * 100.0 - 2.0) / 6.0, 0, 1) * brk
+    gy = S.ex("Pitch_Rate_2") if S.ex("Pitch_Rate_2") is not None else S.ex("GyroY")
+    if gy is None:
+        return None
+    return np.clip(np.abs(np.nan_to_num(gy)) / 70.0, 0, 1) * brk
+
+
+def count_events(S, score, rows, thr=0.5, min_s=0.25):
+    """Nombre d'événements (score > thr pendant au moins min_s) et durée cumulée, par tour : {numéro de tour: (n, secondes)}."""
+    out = {}
+    if score is None:
+        return out
+    for r in rows:
+        sl = score[r["i0"]:r["i1"]]
+        t = S.t[r["i0"]:r["i1"]]
+        n, dur = 0, 0.0
+        for a, b in _runs_true(sl > thr):
+            d = t[b - 1] - t[a]
+            if d >= min_s:
+                n += 1
+                dur += d
+        out.setdefault(r["num"], (0, 0.0))
+        o = out[r["num"]]
+        out[r["num"]] = (o[0] + n, o[1] + dur)
+    return out
+
+
+# ---- moteur et rapports (CAN)
+def engine_by_lap(S, rows):
+    """Par tour : régime max, temps passé près du rupteur (≥ 97 % du régime max de la session), températures eau / huile."""
+    rpm = S.ex("RPM")
+    if rpm is None:
+        return []
+    rmax = float(np.nanmax(rpm))
+    out = []
+    for r in rows:
+        sl = slice(r["i0"], r["i1"])
+        t = S.t[sl]
+        dts = np.diff(t, append=t[-1] + 0.04)
+        hi = rpm[sl] >= 0.97 * rmax
+        row = {"num": r["num"], "rpm_max": float(np.nanmax(rpm[sl])), "rpm_mean": float(np.nanmean(rpm[sl])),
+               "limiter_s": float(np.sum(dts[hi]))}
+        for k, nm in (("eng", "Engine_Temp"), ("oil", "Oil_Temp")):
+            v = S.ex(nm)
+            row[k] = None if v is None else float(np.nanmax(v[sl]))
+        out.append(row)
+    return out
+
+
+def gear_shift_speeds(S):
+    """Vitesse moyenne (km/h) aux passages de rapport montants : {(de, vers): vitesse} ; vide sans rapport engagé."""
+    g = S.ex("Gear")
+    if g is None:
+        return {}
+    gi = np.round(np.nan_to_num(g)).astype(int)
+    acc = {}
+    for i in np.nonzero(np.diff(gi) != 0)[0]:
+        a, b = gi[i], gi[i + 1]
+        if 1 <= a <= 6 and b == a + 1:
+            acc.setdefault((a, b), []).append(float(S.speed[i]))
+    return {k: float(np.mean(v)) for k, v in sorted(acc.items())}
+
+
+def corner_gear_rpm(S, c):
+    """Rapport et régime à l'entrée / à la corde / à la sortie du virage (None si le CAN n'est pas dans le fichier)."""
+    out = {}
+    g, rpm = S.ex("Gear"), S.ex("RPM")
+    for nm, arr in (("gear", g), ("rpm", rpm)):
+        if arr is not None:
+            out[nm] = tuple(float(arr[i]) for i in (c["ia"], c["ik"], c["ib"]))
+    return out
+
+
+def potential_lap(rows, sectors_best, theo):
+    """Gain potentiel entre le meilleur tour et le tour théorique."""
+    b = best_lap(rows)
+    return None if (not b or theo is None) else float(b["time"] - theo)

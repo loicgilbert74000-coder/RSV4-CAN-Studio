@@ -353,7 +353,8 @@ class CircuitMap(QtWidgets.QWidget):
         return QtCore.QPointF(ox + x * k, oy + y * k)
 
     COLOR_MODES = (("Tracé uni", None), ("Couleur : vitesse", "speed"), ("Couleur : freinage / accélération", "long"),
-                   ("Couleur : angle", "angle"))
+                   ("Couleur : angle", "angle"),
+                   ("Couleur : qui est devant (réf. / comparé)", "ahead"), ("Couleur : où je gagne / perds du temps", "gain"))
     color_mode = None
 
     def set_color_mode(self, mode):
@@ -366,6 +367,8 @@ class CircuitMap(QtWidgets.QWidget):
         c = self.core
         if not self.color_mode or self._pts_ms is None:
             return None
+        if self.color_mode in ("ahead", "gain"):
+            return self._compare_values()
         key = (self.color_mode, id(c.full_t), len(self._pts_ms))
         if getattr(self, "_col_key", None) == key:
             return self._col_vals
@@ -385,6 +388,43 @@ class CircuitMap(QtWidgets.QWidget):
             else:
                 m = float(np.percentile(np.abs(v), 98)) or 1.0
                 vals = np.clip(np.abs(v) / m, 0, 1)
+        self._col_key, self._col_vals = key, vals
+        return vals
+
+    def _compare_values(self):
+        """Tracé du tour de référence (page Analyse) coloré d'après l'écart de temps avec le tour comparé :
+        « ahead » = écart cumulé (rouge : la référence est devant, bleu : derrière) ; « gain » = gain ou perte locale de temps."""
+        from tracklab import analysis as an
+
+        win = self.window()
+        pg_ = getattr(win, "analyse", None)
+        if pg_ is None:
+            return None
+        pg_.refresh()
+        a, b = pg_.sel(pg_.c_ref), pg_.sel(pg_.c_cmp)
+        if a is None or b is None or a[2] is b[2] or a[1] is not pg_.A:
+            return None
+        key = (self.color_mode, id(a[2]), id(b[2]), len(self._pts_ms))
+        if getattr(self, "_col_key", None) == key:
+            return self._col_vals
+        S, r = a[1], a[2]
+        d, dl = an.delta_curve(S, r, b[1], b[2], points=300)
+        vals = np.full(len(self._pts_ms), 0.5)
+        if len(d):
+            if self.color_mode == "gain":
+                loc = np.gradient(dl, d)  # s par mètre : positif = la référence gagne du temps ici
+                loc = -np.convolve(np.pad(loc, 4, mode="edge"), np.ones(9) / 9, mode="valid")
+                m = float(np.percentile(np.abs(loc), 95)) or 1.0
+                curve = 0.5 + 0.5 * np.clip(-loc / m, -1, 1)
+            else:
+                m = float(np.max(np.abs(dl))) or 1.0
+                curve = 0.5 + 0.5 * np.clip(dl / m, -1, 1)
+            sl = slice(r["i0"], r["i1"])
+            ts = S.t[sl] * 1000.0
+            x = S.dist[sl] - S.dist[r["i0"]]
+            lap_vals = np.interp(x, d, curve)
+            ok = (self._pts_ms >= ts[0]) & (self._pts_ms <= ts[-1])
+            vals[ok] = np.interp(self._pts_ms[ok], ts, lap_vals)
         self._col_key, self._col_vals = key, vals
         return vals
 
