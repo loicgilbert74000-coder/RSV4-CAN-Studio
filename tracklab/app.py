@@ -479,10 +479,11 @@ class App(TelemetryMixin, GraphMixin, EspMixin, FramesMixin, PlayerMixin, Decodi
             else:
                 mode, text, color = "pause", "❚❚ PAUSE", YELLOW
             name, _, label = self.file_name.get().partition("  ·  ")
+            extra = {"name_b": self.compare_name} if getattr(self, "compare_name", None) else {}
             self.lcd.show(
                 mode=mode, mode_text=text, mode_color=color, view=view, source="FICHIER", cur=cur // 100 * 100, total=total,
                 name=name, info=f"{label + ' · ' if label else ''}{n:,} trames".replace(",", " "),
-                frac=round(cur / total, 3) if total else 0.0, seekable=True, rec=False,
+                frac=round(cur / total, 3) if total else 0.0, seekable=True, rec=False, **extra,
             )
             self.key_play.set_look(lit=mode == "play")
             self.key_pause.set_look(lit=mode == "pause")

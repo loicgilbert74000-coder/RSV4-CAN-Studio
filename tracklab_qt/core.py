@@ -104,7 +104,7 @@ class Core(App):
         self.init_state()
         self.build_esp_vars()
         # contrôles muets en attendant ceux de l'interface
-        for name in ("rpm", "speedg", "gear", "gear_val", "tps_lbl", "board", "lcd", "key_open", "key_start", "key_play",
+        for name in ("rpm", "speedg", "gear", "gear_val", "tps_lbl", "board", "lcd", "key_open", "key_open_b", "key_start", "key_play",
                      "key_pause", "key_speed", "rec_btn", "conn_btn", "signal_list", "chart", "taxis", "footnote",
                      "bus_note", "model_cb", "rec_info", "rec_dot", "rec_state", "rec_btn2", "conn_lbl", "conn_dot",
                      "throttle_val", "gaz_bar"):

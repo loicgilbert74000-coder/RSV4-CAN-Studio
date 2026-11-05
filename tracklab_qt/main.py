@@ -7,8 +7,46 @@ import sys
 import time
 
 
+def install_crash_log():
+    """Journal des plantages : %LOCALAPPDATA%/TrackLab/crash.log (pile Python même si Qt plante, exceptions non gérées)."""
+    import faulthandler
+    import threading
+    import time
+    import traceback
+
+    base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+    folder = os.path.join(base, "TrackLab")
+    try:
+        os.makedirs(folder, exist_ok=True)
+        path = os.path.join(folder, "crash.log")
+        if os.path.exists(path) and os.path.getsize(path) > 500_000:
+            os.replace(path, path + ".old")
+        f = open(path, "a", buffering=1, encoding="utf-8")
+        f.write(f"\n===== démarrage {time.strftime('%Y-%m-%d %H:%M:%S')} =====\n")
+        faulthandler.enable(file=f, all_threads=True)
+        keep = f
+    except Exception:
+        return None
+
+    def log(kind, et, ev, tb):
+        try:
+            keep.write(f"\n--- {kind} {time.strftime('%H:%M:%S')} ---\n" + "".join(traceback.format_exception(et, ev, tb)))
+        except Exception:
+            pass
+
+    def hook(et, ev, tb):
+        log("exception", et, ev, tb)
+        sys.__excepthook__(et, ev, tb)
+
+    sys.excepthook = hook
+    threading.excepthook = lambda a: log("thread " + str(a.thread), a.exc_type, a.exc_value, a.exc_traceback)
+    return path
+
+
 def main():
     args = sys.argv[1:]
+    if "--selftest" not in args:
+        install_crash_log()
     selftest = "--selftest" in args
     if selftest:
         import faulthandler
@@ -367,6 +405,44 @@ def demo_test(app, win):
     core.end_compare()
     pump(app, 1.5)
     assert not core.compare_name and not [k for k in core.sel if k[1].endswith(" [B]")]
+    # pas à pas au clavier (vraies touches envoyées à la fenêtre)
+    core.pause()
+    core.seek(0.3)
+    pump(app, 0.5)
+    t0 = core.cursor_ms()
+    QTest.keyClick(win, QtCore.Qt.Key_Right)
+    pump(app, 0.3)
+    t1 = core.cursor_ms()
+    QTest.keyClick(win, QtCore.Qt.Key_Right, QtCore.Qt.ShiftModifier)
+    pump(app, 0.3)
+    t2 = core.cursor_ms()
+    QTest.keyClick(win, QtCore.Qt.Key_Left)
+    pump(app, 0.3)
+    t3 = core.cursor_ms()
+    say(f"démo : pas à pas {t0:.0f} -> {t1:.0f} -> {t2:.0f} -> {t3:.0f} ms")
+    assert t1 > t0 and t2 > t1 and t3 < t2, "les flèches n'avancent pas trame par trame"
+    # noms A/B dans l'afficheur et boutons du bandeau
+    assert core.key_open.isVisible() and core.key_open_b.isVisible()
+    assert not hasattr(g, "b_openA")
+    # courbes empilées : poignée entre deux courbes
+    core.stack.set(True)
+    pump(app, 1.0)
+    if len(g.plots) >= 2:
+        h_before = [p.sceneBoundingRect().height() for p in g.plots]
+        vp = g.gl.viewport()
+        e = g._row_edges()
+        ymid = (e[0][1] + e[1][0]) / 2.0
+        pos = g.gl.mapFromScene(QtCore.QPointF(60.0, ymid))
+        assert g._handle_at(pos) == 0, "poignée introuvable"
+        QTest.mousePress(vp, QtCore.Qt.LeftButton, QtCore.Qt.NoModifier, pos)
+        QTest.mouseMove(vp, QtCore.QPoint(pos.x(), pos.y() + 40))
+        QTest.mouseRelease(vp, QtCore.Qt.LeftButton, QtCore.Qt.NoModifier, QtCore.QPoint(pos.x(), pos.y() + 40))
+        pump(app, 0.5)
+        h_after = [p.sceneBoundingRect().height() for p in g.plots]
+        say(f"démo : hauteurs {[round(x) for x in h_before[:2]]} -> {[round(x) for x in h_after[:2]]}")
+        assert h_after[0] > h_before[0] + 20 and h_after[1] < h_before[1] - 20, "la poignée ne redimensionne pas"
+    core.stack.set(False)
+    pump(app, 0.5)
     say(f"démo : OK (zoom initial {c0})")
 
 

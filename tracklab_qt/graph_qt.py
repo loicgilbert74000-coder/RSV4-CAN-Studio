@@ -656,12 +656,6 @@ class GraphPage(QtWidgets.QWidget):
         centre.setSpacing(6)
         top = QtWidgets.QHBoxLayout()
         top.addWidget(Label("Sessions", SUB, 12, True))
-        self.b_openA = self._btn("Ouvrir A…", CYAN)
-        self.b_openA.setToolTip("Ouvre la session principale (remplace A ; retire B)")
-        self.b_openA.clicked.connect(lambda: core.open_pc_file())
-        self.b_openB = self._btn("Ouvrir B…", ORANGE)
-        self.b_openB.setToolTip("Ouvre une 2e session GPS à comparer avec A (courbes en pointillés, 2e tracé sur le circuit)")
-        self.b_openB.clicked.connect(lambda: core.open_compare())
         self.b_cmp_end = self._btn("Retirer B", MUTED)
         self.b_cmp_end.clicked.connect(lambda: core.end_compare())
         self.b_mode_t = self._tab("Temps")
@@ -671,8 +665,6 @@ class GraphPage(QtWidgets.QWidget):
         self.b_mode_t.clicked.connect(lambda: core.set_compare_mode("time"))
         self.b_mode_g.clicked.connect(lambda: core.set_compare_mode("gps"))
         self.l_cmp = Label("Comparaison :", SUB, 12, True)
-        top.addWidget(self.b_openA)
-        top.addWidget(self.b_openB)
         top.addSpacing(14)
         top.addWidget(self.l_cmp)
         top.addWidget(self.b_mode_t)
@@ -714,6 +706,10 @@ class GraphPage(QtWidgets.QWidget):
         self.gl.setBackground(BG)
         self.gl.ci.layout.setSpacing(2)
         self.gl.scene().sigMouseClicked.connect(self.on_click)
+        self._row_h = None  # hauteurs choisies à la souris en mode empilé (None = automatique)
+        self._row_drag = None
+        self.gl.viewport().installEventFilter(self)
+        self.gl.viewport().setMouseTracking(True)
         for r in range(POOL):
             self._make_plot(r).setVisible(False)
         self.laps = LapStrip(self)
@@ -931,7 +927,9 @@ class GraphPage(QtWidgets.QWidget):
         self._tmax = hi_t
         stacked = bool(c.stack.get())
         n = 1 if (not stacked or not keys) else min(len(keys), POOL)
-        self.gl.setMinimumHeight(max(300, 150 * n) if stacked else 300)
+        if self._row_h is not None and (not stacked or len(self._row_h) != n):
+            self._row_h = None  # le nombre de courbes a changé : retour à la hauteur automatique
+        self.apply_row_heights(n, stacked)
         for i, pl in enumerate(self._pool_plots):
             pl.setVisible(i < n)
         self.plots = self._pool_plots[:n]
@@ -992,6 +990,91 @@ class GraphPage(QtWidgets.QWidget):
         self.on_cursor(force=True)
         self.relayout()
         QtCore.QTimer.singleShot(0, self.relayout)
+
+    # -- hauteur des courbes empilées réglable à la souris (poignées entre les lignes) --
+    GRAB = 5  # tolérance en pixels autour de la limite entre deux courbes
+
+    def apply_row_heights(self, n, stacked):
+        lay = self.gl.ci.layout
+        big = 16777215.0
+        if stacked and self._row_h is not None and len(self._row_h) == n:
+            for r in range(POOL):
+                if r < n:
+                    h = float(self._row_h[r])
+                    lay.setRowMinimumHeight(r, h)
+                    lay.setRowMaximumHeight(r, h)
+                    lay.setRowPreferredHeight(r, h)
+                else:
+                    lay.setRowMinimumHeight(r, 0.0)
+                    lay.setRowMaximumHeight(r, big)
+            tot = int(sum(self._row_h)) + 4 * n
+            self.gl.setMinimumHeight(tot)
+            self.gl.setMaximumHeight(tot)
+        else:
+            for r in range(POOL):
+                lay.setRowMinimumHeight(r, 0.0)
+                lay.setRowMaximumHeight(r, big)
+                lay.setRowPreferredHeight(r, -1.0)
+            self.gl.setMaximumHeight(16777215)
+            self.gl.setMinimumHeight(max(300, 150 * n) if stacked else 300)
+
+    def _row_edges(self):
+        out = []
+        for p in self.plots:
+            rect = p.sceneBoundingRect()
+            out.append((rect.top(), rect.bottom()))
+        return out
+
+    def _handle_at(self, pos):
+        """Indice r si la souris est sur la limite entre la courbe r et la r+1 (mode empilé), sinon -1."""
+        if not self.core.stack.get() or len(self.plots) < 2:
+            return -1
+        y = self.gl.mapToScene(pos).y()
+        edges = self._row_edges()
+        for r in range(len(edges) - 1):
+            lim = (edges[r][1] + edges[r + 1][0]) / 2.0
+            if abs(y - lim) <= self.GRAB:
+                return r
+        return -1
+
+    def eventFilter(self, obj, ev):
+        if obj is not self.gl.viewport():
+            return False
+        t = ev.type()
+        E = QtCore.QEvent
+        try:
+            if t == E.MouseMove:
+                pos = ev.position().toPoint() if hasattr(ev, "position") else ev.pos()
+                if self._row_drag is not None:
+                    r, y0, h0 = self._row_drag
+                    dy = self.gl.mapToScene(pos).y() - y0
+                    lo = 50.0
+                    a = min(max(h0[r] + dy, lo), h0[r] + h0[r + 1] - lo)
+                    hs = list(h0)
+                    hs[r], hs[r + 1] = a, h0[r] + h0[r + 1] - a
+                    self._row_h = hs
+                    self.apply_row_heights(len(hs), True)
+                    self.relayout()
+                    return True
+                self.gl.viewport().setCursor(QtCore.Qt.SizeVerCursor if self._handle_at(pos) >= 0 else QtCore.Qt.ArrowCursor)
+            elif t in (E.MouseButtonPress, E.MouseButtonDblClick) and ev.button() == QtCore.Qt.LeftButton:
+                pos = ev.position().toPoint() if hasattr(ev, "position") else ev.pos()
+                r = self._handle_at(pos)
+                if r >= 0:
+                    if t == E.MouseButtonDblClick:  # double-clic sur une poignée : hauteurs égales de nouveau
+                        self._row_h = None
+                        self.apply_row_heights(len(self.plots), True)
+                        self.relayout()
+                        return True
+                    h0 = self._row_h or [max(60.0, p.sceneBoundingRect().height()) for p in self.plots]
+                    self._row_drag = (r, self.gl.mapToScene(pos).y(), list(h0))
+                    return True
+            elif t == E.MouseButtonRelease and self._row_drag is not None:
+                self._row_drag = None
+                return True
+        except Exception:  # une poignée ratée ne doit jamais faire tomber l'appli
+            self._row_drag = None
+        return False
 
     def relayout(self):
         """Force le recalcul de la mise en page des tracés (après avoir affiché des tracés jusque-là cachés, la zone
@@ -1113,6 +1196,19 @@ class GraphPage(QtWidgets.QWidget):
                 na = a + math.floor((t - a) / span) * span
                 self.set_view(na, na + span)
         self.update_legend()
+
+    def ensure_cursor(self):
+        """Après un pas à pas : si le curseur sort de la vue, on la décale pour le garder visible."""
+        if not self.plots:
+            return
+        t = self.cursor_s()
+        a, b = self.view_range()
+        span = b - a
+        if t > b - span * 0.02:
+            self.set_view(t - span * 0.5, t + span * 0.5)
+        elif t < a + span * 0.02:
+            self.set_view(t - span * 0.5, t + span * 0.5)
+        self.on_cursor(force=True)
 
     def on_line_move(self, ln):
         if self._guard:

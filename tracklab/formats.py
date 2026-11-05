@@ -375,6 +375,20 @@ def _table_to_loaded(kind, label, names, units, rows):
             wanted = [("g longitudinal", "G longitudinal (calculé)", "g"), ("g latéral", "G latéral (calculé)", "g"),
                       ("angle", "Angle (calculé)", "°")]
             have = {w[0]: w[0] in low for w in wanted}
+            if have["angle"] and not have["g latéral"]:
+                # l'angle est dans le fichier : on ne le recalcule pas ; seule la force G latérale manquante en est déduite
+                ai = low.index("angle")
+                col = [None] * len(rows)
+                for i in keep:
+                    v = vals[ai][i]
+                    if v is not None:
+                        col[i] = round(max(-3.0, min(3.0, math.tan(math.radians(v)))), 4)
+                names.append("G latéral (calculé)")
+                units.append("g")
+                vals.append(col)
+                low.append("g latéral (calculé)")
+                notes_calc.append("G latéral (déduit de l'angle du fichier)")
+                have["g latéral"] = True
             if not all(have.values()):
                 res = derive_motion(tt, la_, lo_, kmh)
                 if res:

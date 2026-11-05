@@ -154,8 +154,6 @@ class PlayerMixin:
         self.clear_data()
         self.track_b = []
         name = os.path.basename(path)
-        if getattr(self, "compare_name", None):
-            name += f"  ⇄  {self.compare_name}"
         self.file_name.set(f"{name}  ·  {res.label}")
         if not frames:
             self.set_state("0 trame · fichier vide", RED)
@@ -460,6 +458,25 @@ class PlayerMixin:
             self.set_state("Lecture en cours", GREEN)
         else:
             self.set_state(f"En pause · {fmt_time(self.t_now)}", YELLOW)
+
+    def step_frames(self, n):
+        """Avance (n > 0) ou recule (n < 0) de n instants distincts du fichier, comme un pas à pas : flèches du clavier."""
+        if not self.frames or self.live:
+            return
+        if self.playing:
+            self.pause()
+        times = self.frame_times
+        cache = getattr(self, "_uniq", None)
+        if cache is None or cache[0] is not times:
+            cache = self._uniq = (times, sorted(set(times)))
+        uniq = cache[1]
+        i = max(0, bisect.bisect_right(uniq, self.cursor_ms() + 0.001) - 1)
+        j = max(0, min(len(uniq) - 1, i + n))
+        total = self.frames[-1][0]
+        self.seek((uniq[j] + 0.5) / total if total else 0.0)
+        hook = getattr(self.ui, "graph_ensure_cursor", None)
+        if hook:
+            hook()
 
     def reset(self):
         self.pause()

@@ -8,7 +8,7 @@ import time
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from tracklab.theme import BG, BORDER, CARD, CARD2, CYAN, GREEN, HOVER, LIME, MUTED, PINK, RED, SIDE, SUB, TEXT, YELLOW  # noqa: F401
+from tracklab.theme import BG, BORDER, CARD, CARD2, CYAN, GREEN, HOVER, LIME, MUTED, ORANGE, PINK, RED, SIDE, SUB, TEXT, YELLOW  # noqa: F401
 from tracklab.widgets import ease_toward
 
 Qt = QtCore.Qt
@@ -504,7 +504,7 @@ class DeckLcd(QtWidgets.QWidget):
         super().__init__()
         self.on_seek = on_seek
         self.s = dict(mode="idle", mode_text="PRÊT", mode_color=MUTED, view="", source="", cur=0, total=0,
-                      name="Aucun fichier", info="", frac=0.0, seekable=False, rec=False)
+                      name="Aucun fichier", name_b="", info="", frac=0.0, seekable=False, rec=False)
         self.dragging, self.drag_frac, self._blink = False, 0.0, False
         self.setFixedHeight(height)
         self.setMinimumWidth(300)
@@ -574,8 +574,20 @@ class DeckLcd(QtWidgets.QWidget):
         name = s["name"] if len(s["name"]) <= maxc else s["name"][: maxc - 1] + "…"
         info = s["info"] if len(s["info"]) <= maxc else s["info"][: maxc - 1] + "…"
         p.setFont(font(12, True, MONO))
-        p.setPen(qc(TEXT))
-        p.drawText(QtCore.QRectF(190, 12, w - 200, 16), Qt.AlignVCenter | Qt.AlignLeft, name)
+        if s.get("name_b"):  # comparaison : A en bleu, B en orange
+            half = max(8, (maxc - 8) // 2)
+            na = s["name"] if len(s["name"]) <= half else s["name"][: half - 1] + "…"
+            nb = s["name_b"] if len(s["name_b"]) <= half else s["name_b"][: half - 1] + "…"
+            fm = QtGui.QFontMetricsF(p.font())
+            x = 190.0
+            for tag, nm, col in (("A ", na, CYAN), ("   B ", nb, ORANGE)):
+                p.setPen(qc(col))
+                t = tag + nm
+                p.drawText(QtCore.QRectF(x, 12, w - x - 10, 16), Qt.AlignVCenter | Qt.AlignLeft, t)
+                x += fm.horizontalAdvance(t)
+        else:
+            p.setPen(qc(TEXT))
+            p.drawText(QtCore.QRectF(190, 12, w - 200, 16), Qt.AlignVCenter | Qt.AlignLeft, name)
         p.setFont(font(10, False, MONO))
         p.setPen(qc("#3f8aa8"))
         p.drawText(QtCore.QRectF(190, 25, w - 200, 14), Qt.AlignVCenter | Qt.AlignLeft, info)

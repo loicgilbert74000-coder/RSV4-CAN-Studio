@@ -19,6 +19,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("TrackLab Electronics · Diagnostic & Télémétrie CAN")
+        QtWidgets.QApplication.instance().installEventFilter(self)
         self.resize(1536, 960)
         self.setMinimumSize(1180, 760)
         try:
@@ -121,8 +122,10 @@ class MainWindow(QtWidgets.QMainWindow):
             lay.addWidget(f)
             lay.addSpacing(4)
 
-        core.key_open = DeckButton("eject", "OUVRIR", core.open_file, color="#3cc0ff")
+        core.key_open = DeckButton("eject", "OUVRIR A", core.open_file, color="#3cc0ff", width=64)
+        core.key_open_b = DeckButton("eject", "OUVRIR B", core.open_compare, color="#ff8a3d", width=64)
         lay.addWidget(core.key_open)
+        lay.addWidget(core.key_open_b)
         sep()
         core.key_start = DeckButton("start", "DÉBUT", core.reset, color="#3cc0ff")
         core.key_play = DeckButton("play", "LECTURE", core.play, color=GREEN)
@@ -287,6 +290,50 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def update_esp_live(self, now, rate):
         self.esp_page.update_live(now, rate)
+
+    # ---- pas à pas au clavier
+    STEP_KEYS = {QtCore.Qt.Key_Right: 1, QtCore.Qt.Key_Left: -1, QtCore.Qt.Key_Down: 1, QtCore.Qt.Key_Up: -1}
+
+    def eventFilter(self, obj, ev):
+        if ev.type() == QtCore.QEvent.KeyPress and self.isActiveWindow():
+            try:
+                if self.handle_step_key(ev):
+                    return True
+            except Exception:
+                pass
+        return super().eventFilter(obj, ev)
+
+    def handle_step_key(self, ev):
+        core = self.core
+        fw = QtWidgets.QApplication.focusWidget()
+        if isinstance(fw, (QtWidgets.QLineEdit, QtWidgets.QAbstractSpinBox, QtWidgets.QTextEdit, QtWidgets.QPlainTextEdit)):
+            return False
+        if isinstance(fw, QtWidgets.QComboBox) and fw.view().isVisible():
+            return False
+        if not core.frames or core.live or core.current_page not in ("graph", "frames", "tele"):
+            return False
+        k = ev.key()
+        mods = ev.modifiers()
+        if k in self.STEP_KEYS:
+            n = self.STEP_KEYS[k]
+            if mods & QtCore.Qt.ShiftModifier:
+                n *= 10
+            if mods & QtCore.Qt.ControlModifier:
+                n *= 100
+            if core.current_page == "frames" and k in (QtCore.Qt.Key_Up, QtCore.Qt.Key_Down) and not (mods & (QtCore.Qt.ShiftModifier | QtCore.Qt.ControlModifier)):
+                return False  # dans le tableau, haut/bas défilent normalement
+            core.step_frames(n)
+            return True
+        if k == QtCore.Qt.Key_Home:
+            core.reset()
+            return True
+        if k == QtCore.Qt.Key_End:
+            core.seek(1.0)
+            return True
+        return False
+
+    def graph_ensure_cursor(self):
+        self.graph.ensure_cursor()
 
     # ---- courbes
     def graph_fit_all(self):
