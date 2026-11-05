@@ -7,12 +7,13 @@ from tracklab.theme import BG, BORDER, CARD, CARD2, GREEN, MUTED, RED, SIDE, SUB
 
 from .core import Core
 from .esp_qt import EspPage, RecPanel, bind
+from .analyse_qt import AnalysePage
 from .graph_qt import GraphPage
 from .pages_qt import FramesPage, QtDialogs, TelemetryPage, btn
 from .widgets_qt import (Card, DeckButton, DeckLcd, Dot, GearButton, Label, NavTab, ProgressOverlay, Qt, _LcdProxy,
                          font)
 
-PAGES = [("tele", "Télémétrie"), ("graph", "Courbes"), ("frames", "Trames Tracklab"), ("esp", "Paramétrage Tracklab")]
+PAGES = [("tele", "Télémétrie"), ("graph", "Courbes"), ("analyse", "Analyse"), ("frames", "Trames Tracklab"), ("esp", "Paramétrage Tracklab")]
 
 
 class _StepKeyFilter(QtCore.QObject):
@@ -63,9 +64,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.stack = QtWidgets.QStackedWidget()
         self.tele = TelemetryPage(core)
         self.graph = GraphPage(core)
+        self.analyse = AnalysePage(core)
         self.frames = FramesPage(core)
         self.esp_page = EspPage(core)
-        for p in (self.tele, self.graph, self.frames, self.esp_page):
+        for p in (self.tele, self.graph, self.analyse, self.frames, self.esp_page):
             self.stack.addWidget(p)
         col.addWidget(self.stack, 1)
         col.addWidget(self.build_footer())
@@ -226,6 +228,8 @@ class MainWindow(QtWidgets.QMainWindow):
             tab.set_on(k == key)
         if key == "frames":
             self.frames.rebuild()
+        if key == "analyse":
+            self.analyse.refresh()
 
     def apply_model_ui(self, key):
         core = self.core
@@ -319,11 +323,11 @@ class MainWindow(QtWidgets.QMainWindow):
             return False
         if isinstance(fw, QtWidgets.QComboBox) and fw.view().isVisible():
             return False
-        if not core.frames or core.live or core.current_page not in ("graph", "frames", "tele"):
+        if not core.frames or core.live or core.current_page not in ("graph", "frames", "tele", "analyse"):
             return False
         k = ev.key()
         mods = ev.modifiers()
-        if k in self.STEP_KEYS:
+        if k in self.STEP_KEYS and core.current_page != "analyse":
             n = self.STEP_KEYS[k]
             if mods & QtCore.Qt.ShiftModifier:
                 n *= 10
@@ -332,6 +336,13 @@ class MainWindow(QtWidgets.QMainWindow):
             if core.current_page == "frames" and k in (QtCore.Qt.Key_Up, QtCore.Qt.Key_Down) and not (mods & (QtCore.Qt.ShiftModifier | QtCore.Qt.ControlModifier)):
                 return False  # dans le tableau, haut/bas défilent normalement
             core.step_frames(n)
+            return True
+        if k == QtCore.Qt.Key_M and not (mods & (QtCore.Qt.ControlModifier | QtCore.Qt.AltModifier)):
+            from .analyse_qt import add_marker
+
+            add_marker(core, self)
+            self.analyse.fill_marks()
+            self.graph.marks.refresh()
             return True
         if k == QtCore.Qt.Key_Home:
             core.reset()

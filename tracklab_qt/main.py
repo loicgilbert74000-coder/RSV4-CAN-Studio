@@ -405,6 +405,56 @@ def demo_test(app, win):
     core.end_compare()
     pump(app, 1.5)
     assert not core.compare_name and not [k for k in core.sel if k[1].endswith(" [B]")]
+    # ---- page Analyse : tours, virages, écart, G-G, marqueurs, voie calculée, exports, circuit coloré
+    import tempfile
+
+    from .analyse_qt import add_math_channel
+
+    an_page = win.analyse
+    core.show_page("analyse")
+    pump(app, 1.0)
+    an_page.refresh(force=True)
+    pump(app, 0.5)
+    assert len(an_page.items) >= 4, f"tours trouvés : {len(an_page.items)}"
+    assert an_page.t_laps.rowCount() >= 5
+    say(f"analyse : {len(an_page.items)} tours, {an_page.l_best.text()}")
+    assert "Meilleur tour 2:03" in an_page.l_best.text(), an_page.l_best.text()
+    assert an_page.t_corn.rowCount() >= 5, "virages non détectés"
+    assert an_page.cv_delta.getData()[0] is not None and len(an_page.cv_delta.getData()[0]) > 10, "écart de temps vide"
+    assert len(an_page.sc_ref.data) > 100, "diagramme G-G vide"
+    emit_image("analyse_tours", win.grab())
+    for i in range(an_page.tabs.count()):
+        an_page.tabs.setCurrentIndex(i)
+        pump(app, 0.4)
+        emit_image(f"analyse_onglet{i}", win.grab(), width=900)
+    core.markers = [{"ms": 60000.0, "text": "Freinage tardif"}]
+    an_page.fill_marks()
+    win.graph.marks.refresh()
+    assert an_page.t_marks.rowCount() == 1
+    key = add_math_channel(core, "Vitesse m/s", "m/s", "[GPS Vitesse] / 3.6")
+    assert key in core.full_t and key in core.sel and len(core.full_t[key]) > 100
+    try:
+        add_math_channel(core, "Pirate", "", "__import__('os').system('x')")
+        raise AssertionError("formule dangereuse acceptée")
+    except ValueError:
+        pass
+    outdir = tempfile.mkdtemp()
+    for name, fn in (("tours.csv", an_page.export_laps), ("virages.csv", an_page.export_corners),
+                     ("courbes.csv", an_page.export_curves), ("courbes.png", an_page.export_png), ("rapport.pdf", an_page.export_pdf)):
+        path = os.path.join(outdir, name)
+        an_page._ask = lambda *_a, _p=path: _p
+        fn()
+        assert os.path.exists(path) and os.path.getsize(path) > 200, f"export {name} absent"
+    say("analyse : exports CSV / PNG / PDF créés")
+    core.show_page("graph")
+    pump(app, 0.8)
+    win.graph.cmb_color.setCurrentIndex(1)
+    win.graph.map.set_color_mode("speed")
+    pump(app, 0.8)
+    assert win.graph.map.color_values() is not None
+    emit_image("demo_circuit_vitesse", win.grab())
+    win.graph.map.set_color_mode(None)
+    say("analyse : OK")
     # pas à pas au clavier (vraies touches envoyées à la fenêtre)
     core.pause()
     core.seek(0.3)

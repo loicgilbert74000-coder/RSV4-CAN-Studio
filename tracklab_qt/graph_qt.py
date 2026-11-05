@@ -352,11 +352,60 @@ class CircuitMap(QtWidgets.QWidget):
         x, y = world_px(la, lo, z)
         return QtCore.QPointF(ox + x * k, oy + y * k)
 
-    def _trace(self, q, geo, X, Y, z0, w, h, color, rng=None):
+    COLOR_MODES = (("Tracé uni", None), ("Couleur : vitesse", "speed"), ("Couleur : freinage / accélération", "long"),
+                   ("Couleur : angle", "angle"))
+    color_mode = None
+
+    def set_color_mode(self, mode):
+        self.color_mode = mode
+        self._col_key = None
+        self.update()
+
+    def color_values(self):
+        """Valeur colorée pour chaque point du tracé A (alignée sur points()), normalisée en [0, 1] ; None si indisponible."""
+        c = self.core
+        if not self.color_mode or self._pts_ms is None:
+            return None
+        key = (self.color_mode, id(c.full_t), len(self._pts_ms))
+        if getattr(self, "_col_key", None) == key:
+            return self._col_vals
+        from .analyse_qt import core_get
+
+        name = {"speed": "GPS Vitesse", "long": "G longitudinal", "angle": "Angle"}[self.color_mode]
+        r = core_get(c)(name) or (core_get(c)(name + " (calculé)") if name != "GPS Vitesse" else None)
+        vals = None
+        if r is not None and len(r[0]) > 3:
+            v = np.interp(self._pts_ms, r[0], np.nan_to_num(r[1]))
+            if self.color_mode == "speed":
+                lo, hi = float(np.percentile(v, 2)), float(np.percentile(v, 98))
+                vals = (v - lo) / ((hi - lo) or 1.0)
+            elif self.color_mode == "long":
+                m = float(np.percentile(np.abs(v), 98)) or 1.0
+                vals = 0.5 + 0.5 * np.clip(v / m, -1, 1)  # 0 = gros freinage, 1 = forte accélération
+            else:
+                m = float(np.percentile(np.abs(v), 98)) or 1.0
+                vals = np.clip(np.abs(v) / m, 0, 1)
+        self._col_key, self._col_vals = key, vals
+        return vals
+
+    @staticmethod
+    def _ramp(x):
+        """Bleu -> vert -> jaune -> rouge pour x entre 0 et 1."""
+        x = float(min(1.0, max(0.0, x)))
+        stops = [(0.0, (60, 130, 255)), (0.35, (40, 220, 140)), (0.65, (255, 220, 50)), (1.0, (255, 60, 50))]
+        for (a, ca), (b, cb) in zip(stops, stops[1:]):
+            if x <= b:
+                u = (x - a) / (b - a)
+                return QtGui.QColor(*[int(ca[i] + (cb[i] - ca[i]) * u) for i in range(3)])
+        return QtGui.QColor(*stops[-1][1])
+
+    def _trace(self, q, geo, X, Y, z0, w, h, color, rng=None, vals=None):
         """Trace une trace GPS (pixels du monde au niveau z0), ou seulement le tour en cours (rng = indices)."""
         z, k, ox, oy = geo
         if rng is not None:
             X, Y = X[rng[0]:rng[1]], Y[rng[0]:rng[1]]
+            if vals is not None:
+                vals = vals[rng[0]:rng[1]]
         if len(X) < 2:
             return
         f = 2.0 ** (z - z0) * k
@@ -365,6 +414,8 @@ class CircuitMap(QtWidgets.QWidget):
         if n > 2500:
             idx = np.unique(np.append(np.arange(0, n, max(1, n // 2500)), n - 1))
             sx, sy = sx[idx], sy[idx]
+            if vals is not None:
+                vals = vals[idx]
         vis = (sx > -20) & (sx < w + 20) & (sy > -20) & (sy < h + 20)
         conn = np.append((vis[:-1] | vis[1:]).astype(np.int32), 0)
         if not conn.any():
@@ -373,6 +424,16 @@ class CircuitMap(QtWidgets.QWidget):
         q.setBrush(Qt.NoBrush)
         q.setPen(QtGui.QPen(qc("#000000", 170), 5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))  # liseré sombre : lisible sur l'image
         q.drawPath(path)
+        if vals is not None and len(vals) == len(sx):
+            nb = 24
+            bins = np.clip((np.nan_to_num(vals) * nb).astype(int), 0, nb - 1)
+            for b in range(nb):
+                cb = (conn.astype(bool) & (bins == b)).astype(np.int32)
+                if not cb.any():
+                    continue
+                q.setPen(QtGui.QPen(self._ramp((b + 0.5) / nb), 3, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+                q.drawPath(pg.functions.arrayToQPath(sx, sy, connect=cb))
+            return
         q.setPen(QtGui.QPen(qc(color), 3, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
         q.drawPath(path)
 
@@ -451,7 +512,7 @@ class CircuitMap(QtWidgets.QWidget):
             _key, z0, _k0, _bb, XA, YA, XB, YB = self._fit
             if XB is not None:
                 self._trace(p, self._geo, XB, YB, z0, w, h, ORANGE, self._lap_range(self._ptsb_ms, " [B]"))
-            self._trace(p, self._geo, XA, YA, z0, w, h, CYAN, self._lap_range(self._pts_ms, ""))
+            self._trace(p, self._geo, XA, YA, z0, w, h, CYAN, self._lap_range(self._pts_ms, ""), vals=self.color_values())
             s0 = self._xy(self._geo, *pts[0])  # départ
             p.setPen(QtGui.QPen(qc("#ffffff"), 2))
             p.setBrush(qc(BG))
@@ -596,6 +657,87 @@ class LapStrip(QtWidgets.QWidget):
                 int(c.cursor_ms() // 100), len(self.rows()), id(c.full_t))
 
 
+class MarkStrip(QtWidgets.QWidget):
+    """Marqueurs posés par l'utilisateur : un drapeau jaune sur l'axe du temps, la note à côté ; un clic va à l'instant."""
+
+    ROW = 20
+
+    def __init__(self, page):
+        super().__init__()
+        self.page = page
+        self.setFixedHeight(1)
+        self.setMouseTracking(True)
+        self._hit = []
+
+    def items(self):
+        from .analyse_qt import marks_sync
+
+        c = self.page.core
+        if c.live or not c.frames:
+            return []
+        marks_sync(c)
+        return getattr(c, "markers", [])
+
+    def refresh(self):
+        h = self.ROW if self.items() else 1
+        if self.height() != h:
+            self.setFixedHeight(h)
+        self.update()
+
+    def _map(self):
+        pg_ = self.page
+        if not pg_.plots:
+            return None
+        vb = pg_.plots[0].vb
+        r = vb.sceneBoundingRect()
+        off = self.mapFromGlobal(pg_.gl.mapToGlobal(QtCore.QPoint(0, 0))).x()
+        a, b = vb.viewRange()[0]
+        x0, x1 = r.left() + off, r.right() + off
+        if b <= a or x1 <= x0:
+            return None
+        return x0, a, (x1 - x0) / (b - a), x1
+
+    def paintEvent(self, _e):
+        marks = self.items()
+        m = self._map()
+        self._hit = []
+        if not marks or m is None:
+            return
+        x0, a, k, x1 = m
+        p = painter(self)
+        p.setFont(font(11, True))
+        for i, mk in enumerate(marks):
+            x = x0 + (mk["ms"] / 1000.0 - a) * k
+            if x < x0 - 2 or x > x1 + 2:
+                continue
+            p.setPen(QtGui.QPen(qc(YELLOW), 1.5))
+            p.drawLine(QtCore.QPointF(x, 2), QtCore.QPointF(x, self.ROW - 2))
+            p.setBrush(qc(YELLOW))
+            p.drawPolygon(QtGui.QPolygonF([QtCore.QPointF(x, 2), QtCore.QPointF(x + 8, 6), QtCore.QPointF(x, 10)]))
+            p.setPen(qc(YELLOW))
+            txt = mk["text"]
+            p.drawText(QtCore.QRectF(x + 11, 0, 200, self.ROW), Qt.AlignVCenter | Qt.AlignLeft, txt)
+            self._hit.append((x - 4, x + 11 + 6 * len(txt), i))
+
+    def mousePressEvent(self, e):
+        c = self.page.core
+        for x0, x1, i in self._hit:
+            if x0 <= e.position().x() <= x1:
+                total = c.frames[-1][0] if c.frames else 0
+                if total:
+                    c.seek(c.markers[i]["ms"] / total)
+                return
+
+    def state(self):
+        c = self.page.core
+        m = self.items()
+        if not m or not self.page.plots:
+            return (len(m),)
+        vb = self.page.plots[0].vb
+        return (tuple(round(v, 3) for v in vb.viewRange()[0]), round(vb.sceneBoundingRect().left()), len(m),
+                tuple(x["text"] for x in m))
+
+
 class GraphPage(QtWidgets.QWidget):
     def __init__(self, core):
         super().__init__()
@@ -632,7 +774,13 @@ class GraphPage(QtWidgets.QWidget):
         cl = QtWidgets.QVBoxLayout(card)
         cl.setContentsMargins(0, 0, 0, 0)
         self.map = CircuitMap(core)
-        cl.addWidget(self.map)
+        self.cmb_color = QtWidgets.QComboBox()
+        for label, _m in CircuitMap.COLOR_MODES:
+            self.cmb_color.addItem(label)
+        self.cmb_color.setToolTip("Colore le tracé du circuit d'après la vitesse, le freinage ou l'angle")
+        self.cmb_color.activated.connect(lambda i: self.map.set_color_mode(CircuitMap.COLOR_MODES[i][1]))
+        cl.addWidget(self.cmb_color)
+        cl.addWidget(self.map, 1)
         self.lsplit.addWidget(card)
         lbox = QtWidgets.QWidget()
         left = QtWidgets.QVBoxLayout(lbox)
@@ -671,6 +819,14 @@ class GraphPage(QtWidgets.QWidget):
         top.addWidget(self.b_mode_g)
         top.addWidget(self.b_cmp_end)
         top.addStretch(1)
+        self.b_mark = self._btn("Marqueur (M)", YELLOW)
+        self.b_mark.setToolTip("Pose une note à l'instant du curseur (enregistrée à côté du fichier)")
+        self.b_mark.clicked.connect(self.add_mark)
+        self.b_math = self._btn("f(x) Voie calculée…", CYAN)
+        self.b_math.setToolTip("Crée une voie à partir d'une formule : [GPS Vitesse] / 3.6, deriv(...), smooth(...)")
+        self.b_math.clicked.connect(self.open_math)
+        top.addWidget(self.b_mark)
+        top.addWidget(self.b_math)
         for w_ in (self.l_cmp, self.b_mode_t, self.b_mode_g, self.b_cmp_end):
             w_.setVisible(False)
         centre.addLayout(top)
@@ -714,6 +870,8 @@ class GraphPage(QtWidgets.QWidget):
             self._make_plot(r).setVisible(False)
         self.laps = LapStrip(self)
         centre.addWidget(self.laps)
+        self.marks = MarkStrip(self)
+        centre.addWidget(self.marks)
         self.scroll = QtWidgets.QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
@@ -1201,6 +1359,23 @@ class GraphPage(QtWidgets.QWidget):
                 self.set_view(na, na + span)
         self.update_legend()
 
+    def add_mark(self):
+        from .analyse_qt import add_marker
+
+        add_marker(self.core, self)
+        self.marks.refresh()
+        win = self.window()
+        if hasattr(win, "analyse"):
+            win.analyse.fill_marks()
+
+    def open_math(self):
+        from .analyse_qt import MathDialog
+
+        if not self.core.full_t or self.core.live:
+            QtWidgets.QMessageBox.information(self, "Voie calculée", "Ouvrez d'abord un fichier.")
+            return
+        MathDialog(self.core, self).exec()
+
     def ensure_cursor(self):
         """Après un pas à pas : si le curseur sort de la vue, on la décale pour le garder visible."""
         if not self.plots:
@@ -1319,6 +1494,10 @@ class GraphPage(QtWidgets.QWidget):
             gps = getattr(c, "compare_mode", "time") == "gps"
             self.b_mode_t.setChecked(not gps)
             self.b_mode_g.setChecked(gps)
+        stm = self.marks.state()
+        if stm != getattr(self, "_marks_st", None):
+            self._marks_st = stm
+            self.marks.refresh()
         st = self.laps.state()
         if st != getattr(self, "_lap_st", None):
             self._lap_st = st
