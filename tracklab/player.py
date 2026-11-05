@@ -21,12 +21,12 @@ class PlayerMixin:
 
     def open_file_b(self):
         """Ouvrir B : exactement la même fenêtre que Ouvrir A ; le fichier choisi est comparé à la session A ouverte."""
-        self._open_as_b = time.monotonic() + 600.0  # valable jusqu'au choix d'un fichier (consommé par load)
+        self._open_as_b = time.monotonic() + 120.0  # armé tant que la fenêtre est ouverte ; consommé par le premier load
         self.open_choice()
 
     def open_pc_file(self, as_b=False):
         if as_b:
-            self._open_as_b = time.monotonic() + 600.0
+            self._open_as_b = time.monotonic() + 120.0
         p = self.dlg.askopenfilename(
             title="Ouvrir un fichier (trames CAN, RaceBox, RaceChrono, Tracklab…) : le type est reconnu automatiquement",
             filetypes=[

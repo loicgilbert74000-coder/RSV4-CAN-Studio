@@ -330,6 +330,7 @@ def demo_test(app, win):
     core, g = win.core, win.graph
     demo = demo_path()
     assert demo, "session de démonstration introuvable"
+    core._open_as_b = 0.0  # le test au hasard a pu laisser « Ouvrir B » armé
     core.load(demo)
     pump(app, 2.0)
     core.show_page("graph")

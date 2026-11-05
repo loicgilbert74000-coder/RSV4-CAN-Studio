@@ -441,6 +441,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.rec_panels = [p for p in self.rec_panels if p.isVisible()] + [panel]
         if core.live:
             core.rec_list()
+        if as_b:  # fenêtre fermée sans choix : « Ouvrir B » ne reste pas armé (5 s de grâce pour finir un choix d'enregistrement)
+            d.finished.connect(lambda _r: setattr(core, "_open_as_b", min(getattr(core, "_open_as_b", 0.0), time.monotonic() + 5.0)))
+        else:
+            core._open_as_b = 0.0
         self.open_dlg = d
         d.show()
 
