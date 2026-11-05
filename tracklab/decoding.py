@@ -28,8 +28,9 @@ class DecodingMixin:
         """Un fichier qui contient des voies moto (régime, rapport, gaz, vitesses de roues, températures…) alimente aussi les
         jauges et les tuiles de la page Télémétrie, comme le ferait le CAN en direct."""
         key = _CAN_BY_NAME.get(name)
-        if key:
-            self.put(key[0], key[1], v, t, "file")
+        if key:  # valeur courante seulement (tuiles) : pas d'historique, la voie du fichier existe déjà pour les courbes
+            self.vals[key] = (v, "file")
+            self.dirty.add(key)
         if name == "RPM":
             self.rpm.set(v)
         elif name == "Gear":
