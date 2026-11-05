@@ -24,7 +24,7 @@ class _StepKeyFilter(QtCore.QObject):
 
     def eventFilter(self, obj, ev):
         try:
-            if ev.type() == QtCore.QEvent.KeyPress and self.win.isActiveWindow():
+            if ev.type() == QtCore.QEvent.KeyPress and self.win.isVisible() and QtWidgets.QApplication.activeModalWidget() is None:
                 return bool(self.win.handle_step_key(ev))
         except Exception:
             pass
