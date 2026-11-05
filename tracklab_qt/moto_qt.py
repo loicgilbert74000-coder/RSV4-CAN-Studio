@@ -33,14 +33,14 @@ class MotoTabs:
         # -- Freinage & reprise
         w = QtWidgets.QWidget()
         v = QtWidgets.QVBoxLayout(w)
-        self.t_brake = _table(["Virage", "Freinage : distance avant la corde", "Décélération max", "Durée", "Vitesse perdue",
-                               "Trail braking", "Angle en freinant", "Reprise : après la corde", "Angle à la reprise",
+        self.t_brake = _table(["Virage", "Freinage (avant corde)", "Décélération max", "Durée", "Vitesse perdue",
+                               "Trail braking", "Angle en freinant", "Reprise (après corde)", "Angle à la reprise",
                                "Vitesse à +100 m", "Δ dist. frein (cmp)", "Δ V +100 m (cmp)"])
         v.addWidget(self.t_brake, 1)
         v.addWidget(Label("Freinage = G longitudinal sous −0,25 g avant la corde. Trail braking = temps où l'on freine incliné de plus de 10°. "
                           "Reprise = première accélération soutenue (> 0,10 g) après la corde : d'après le G longitudinal, le TPS n'est pas "
                           "décodé. Δ : tour comparé moins référence.", MUTED, 11))
-        tabs.addTab(w, "Freinage & reprise")
+        tabs.addTab(w, "Freinage && reprise")
 
         # -- Régularité
         w = QtWidgets.QWidget()
@@ -116,7 +116,7 @@ class MotoTabs:
         self.t_gear = self._table(["Virage", "Rapport entrée", "Rapport corde", "Rapport sortie", "Régime entrée", "Régime corde",
                                    "Régime sortie"])
         v.addWidget(self.t_gear, 1)
-        tabs.addTab(w, "Moteur & rapports")
+        tabs.addTab(w, "Moteur && rapports")
 
     # ------------------------------------------------------------------ calculs
     def _ref(self):
