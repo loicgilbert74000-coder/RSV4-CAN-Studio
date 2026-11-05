@@ -15,11 +15,28 @@ from .widgets_qt import (Card, DeckButton, DeckLcd, Dot, GearButton, Label, NavT
 PAGES = [("tele", "Télémétrie"), ("graph", "Courbes"), ("frames", "Trames Tracklab"), ("esp", "Paramétrage Tracklab")]
 
 
+class _StepKeyFilter(QtCore.QObject):
+    """Flèches du clavier = pas à pas dans la capture chargée (sauf pendant une saisie de texte)."""
+
+    def __init__(self, win):
+        super().__init__(win)
+        self.win = win
+
+    def eventFilter(self, obj, ev):
+        try:
+            if ev.type() == QtCore.QEvent.KeyPress and self.win.isActiveWindow():
+                return bool(self.win.handle_step_key(ev))
+        except Exception:
+            pass
+        return False
+
+
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("TrackLab Electronics · Diagnostic & Télémétrie CAN")
-        QtWidgets.QApplication.instance().installEventFilter(self)
+        self._key_filter = _StepKeyFilter(self)
+        QtWidgets.QApplication.instance().installEventFilter(self._key_filter)
         self.resize(1536, 960)
         self.setMinimumSize(1180, 760)
         try:
@@ -294,14 +311,6 @@ class MainWindow(QtWidgets.QMainWindow):
     # ---- pas à pas au clavier
     STEP_KEYS = {QtCore.Qt.Key_Right: 1, QtCore.Qt.Key_Left: -1, QtCore.Qt.Key_Down: 1, QtCore.Qt.Key_Up: -1}
 
-    def eventFilter(self, obj, ev):
-        if ev.type() == QtCore.QEvent.KeyPress and self.isActiveWindow():
-            try:
-                if self.handle_step_key(ev):
-                    return True
-            except Exception:
-                pass
-        return super().eventFilter(obj, ev)
 
     def handle_step_key(self, ev):
         core = self.core
