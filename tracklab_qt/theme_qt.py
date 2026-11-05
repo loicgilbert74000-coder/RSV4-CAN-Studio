@@ -25,6 +25,17 @@ QScrollBar::handle:horizontal {{ background: #45567a; border-radius: 5px; min-wi
 QScrollBar::add-line, QScrollBar::sub-line {{ width: 0; height: 0; }}
 QScrollArea, QScrollArea > QWidget > QWidget {{ background: transparent; }}
 QFormLayout QLabel {{ color: {SUB}; }}
+QTabWidget::pane {{ border: 1px solid {BORDER}; border-radius: 8px; background: {CARD}; top: -1px; }}
+QTabBar::tab {{ background: {CARD2}; color: {SUB}; padding: 8px 16px; margin-right: 3px; border-top-left-radius: 6px;
+    border-top-right-radius: 6px; font-weight: 700; }}
+QTabBar::tab:selected {{ background: {CARD}; color: {TEXT}; border-bottom: 2px solid {CYAN}; }}
+QTabBar::tab:hover {{ background: {HOVER}; }}
+QTableWidget, QTableView {{ background: {CARD}; color: {TEXT}; gridline-color: {BORDER}; border: none; font-size: 13px;
+    selection-background-color: {HOVER}; selection-color: {TEXT}; }}
+QHeaderView::section {{ background: {CARD2}; color: {SUB}; border: none; border-right: 1px solid {BORDER}; padding: 6px;
+    font-weight: 700; }}
+QListWidget {{ background: {CARD}; color: {TEXT}; border: 1px solid {BORDER}; }}
+QDialog {{ background: {BG}; }}
 QMenu {{ background: {CARD2}; border: 1px solid {BORDER}; }}
 QMenu::item:selected {{ background: {HOVER}; }}
 """
