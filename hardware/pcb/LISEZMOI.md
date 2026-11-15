@@ -22,10 +22,13 @@ La netlist remplace le schéma : pour garder un schéma lisible, redessiner dans
 - Les supports J1 et J3 sont espacés de 22,86 mm (centre à centre). J_STACK de l'étage 2 doit tomber pile au-dessus de celui de l'étage 1 : le plus sûr est de placer le même J_STACK aux mêmes coordonnées sur les deux cartes.
 
 ## Ce qui reste à décider
-- Empreintes réelles des connecteurs de la moto (J1 est un bornier 4 voies provisoire), du fusible F1 (1812 CMS) et du module abaisseur U1 (4 broches provisoires pour un module à souder).
+- Empreintes réelles des connecteurs de la moto (J1 est un bornier 4 voies provisoire), du fusible F1 (1812 CMS) et de la bobine L1 (empreinte provisoire) ; le convertisseur U1 est un LM2596HVS-5.0 (TO-263-5) avec L1, D5, C3, C4.
 - Brochage de la prise CAN de la moto (manuel d'atelier).
 - Vérification du brochage du PESD2CAN et du SN65HVD230 sur la fiche du fabricant.
 - La broche GPIO38 (OUT1) commande aussi la LED RGB du DevKit v1.1 ; elle clignote si le firmware la pilote. Sans effet sur la sortie.
 - GPIO3 (ADC3, libre) est une broche de démarrage : ne rien brancher dessus.
 
 Non testé : ni la netlist dans KiCad, ni la carte.
+
+## Schémas importables
+`python3 generer_schema_kicad.py` écrit dans `schema_kicad/` un schéma KiCad par carte (zip, connexions par étiquettes de réseau, symboles génériques). Import testé seulement par un contrôle des étiquettes ; non vérifié dans EasyEDA ni KiCad.

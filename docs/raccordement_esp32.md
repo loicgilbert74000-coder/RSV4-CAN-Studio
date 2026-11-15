@@ -12,7 +12,8 @@ Schéma : `schema_raccordement.svg` (aussi `.png` et `.pdf`).
 | D1 | Diode SS34 (anti-inversion) |
 | D2 | TVS SMBJ18A |
 | C1 | 470 µF / 35 V |
-| – | Convertisseur 12 V → 5 V, ≥ 2 A, entrée ≥ 30 V |
+| U1 | LM2596HVS-5.0 (TO-263-5, 5 V fixe, 3 A, entrée 60 V). Le LM2596 standard est limité à 30 V, trop juste avec la TVS |
+| L1 / D5 / C3 / C4 | Bobine 33 µH 3 A / diode SS34 de roue libre / 330 µF 35 V (sortie) / 1 µF 50 V (entrée) ; C1 (470 µF 35 V) sert d'entrée |
 | D3 | PESD2CAN (option) |
 | R1/R2 | 10 kΩ / 2,7 kΩ par entrée 12 V (+100 nF, Zener 3,3 V option) |
 | R3/R4 | 10 kΩ / 20 kΩ par entrée analogique 0–5 V (+100 nF) |
@@ -49,7 +50,7 @@ L'application affiche les valeurs brutes (0–4095) « Suspension avant / arriè
 - Rouge : fixe = contrôleur CAN en défaut ; clignote = aucune trame CAN depuis 3 s.
 - Test au démarrage : les trois s'allument à tour de rôle.
 
-## ESP32-S3 : schéma rév. 4 (`schema_raccordement_ESP32-S3.*`)
+## ESP32-S3 : schéma rév. 5 (convertisseur LM2596 à puce) (`schema_raccordement_ESP32-S3.*`)
 | Fonction | GPIO (ESP32-S3 DevKitC-1) |
 |---|---|
 | CAN TXD / RXD | 5 / 4 |

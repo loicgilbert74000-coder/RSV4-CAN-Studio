@@ -1,7 +1,9 @@
 ﻿Repères;Quantité;Valeur;Empreinte KiCad;Rôle
-C1;1;470uF 35V;Capacitor_THT:CP_Radial_D10.0mm_P5.00mm;Réservoir en entrée du régulateur
+C1;1;470uF 35V;Capacitor_THT:CP_Radial_D10.0mm_P5.00mm;Entrée du convertisseur (CIN)
 C2, C101, C102, C103, C104, C105, C106, C107, C108, C201, C202;11;100nF;Capacitor_SMD:C_0805_2012Metric;Découplage 3,3 V du transceiver CAN
-D1, D4;2;SS34;Diode_SMD:D_SMA;Anti-inversion : anode sur +12V_F, cathode sur +12V_P
+C3;1;330uF 35V;Capacitor_THT:CP_Radial_D10.0mm_P5.00mm;Sortie du convertisseur, faible résistance série
+C4;1;1uF 50V;Capacitor_SMD:C_0805_2012Metric;Découplage d'entrée du convertisseur, près de la broche 1
+D1, D5, D4;3;SS34;Diode_SMD:D_SMA;Anti-inversion : anode sur +12V_F, cathode sur +12V_P
 D11, D12;2;1N4007;Diode_THT:D_DO-41_SOD81_P10.16mm_Horizontal;Roue libre charge 1
 D2;1;SMBJ18A;Diode_SMD:D_SMB;TVS unidirectionnelle
 D3;1;PESD2CAN;Package_TO_SOT_SMD:SOT-23;Protection CAN H / CAN L
@@ -15,6 +17,7 @@ J_OUT;1;Sorties : +12V, OUT1, +12V, OUT2;Connector_PinHeader_2.54mm:PinHeader_1x
 J_POT;1;Potentiomètres : (3V3, curseur, GND) x2;Connector_PinHeader_2.54mm:PinHeader_1x06_P2.54mm_Vertical;1 3V3, 2 curseur AV, 3 GND, 4 3V3, 5 curseur AR, 6 GND
 J_SD;1;Module microSD SPI : GND, VCC, MISO, MOSI, SCK, CS;Connector_PinHeader_2.54mm:PinHeader_1x06_P2.54mm_Vertical;Ordre du module : GND, VCC (5 V), MISO, MOSI, SCK, CS
 J_STACK;1;Broches mâles 2x16 vers étage 1;Connector_PinHeader_2.54mm:PinHeader_2x16_P2.54mm_Vertical;Liaison entre étages (mâle, vers le bas)
+L1;1;33uH 3A;Inductor_SMD:L_12x12mm_H8mm;Bobine de 33 uH, 3 A minimum (empreinte provisoire)
 LED_B;1;LED bleue;LED_SMD:LED_0805_2012Metric;LED bleue
 LED_G;1;LED verte;LED_SMD:LED_0805_2012Metric;LED verte
 LED_R;1;LED rouge;LED_SMD:LED_0805_2012Metric;LED rouge
@@ -27,5 +30,5 @@ R_B;1;47;Resistor_SMD:R_0805_2012Metric;LED bleue : résistance série
 R_G, R_R;2;330;Resistor_SMD:R_0805_2012Metric;LED verte : résistance série
 R_T;1;120;Resistor_SMD:R_0805_2012Metric;Résistance de terminaison (utile seulement sur banc)
 SW1;1;Bouton REC;Button_Switch_THT:SW_PUSH_6mm;Poussoir vers GND (appui = niveau bas)
-U1;1;Module abaisseur 12V->5V (>= 2 A, entrée >= 30 V);Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical;Module à souder : 1 IN+, 2 IN-, 3 OUT+, 4 OUT-
+U1;1;LM2596HVS-5.0;Package_TO_SOT_SMD:TO-263-5_TabPin3;"Convertisseur abaisseur 5 V fixe, 3 A (HV : entrée 60 V ; le LM2596 standard est limité à 30 V)"
 U2;1;SN65HVD230;Package_SO:SOIC-8_3.9x4.9mm_P1.27mm;Transceiver CAN 3,3 V (écoute seule côté firmware)
