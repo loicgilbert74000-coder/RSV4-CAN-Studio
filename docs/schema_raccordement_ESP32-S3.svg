@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1800 1960" width="1800" height="1960" font-family="DejaVu Sans, Arial, sans-serif">
 <rect width="1800" height="1960" fill="#fff"/>
 <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#555"/></marker></defs>
-<text x="40" y="42" font-size="27" font-weight="700" fill="#14171B" text-anchor="start" >TrackLab Electronics — boîtier ESP32-S3 : schéma de raccordement</text>
-<text x="40" y="68" font-size="12.5" font-weight="400" fill="#59616b" text-anchor="start" >Relais CAN (écoute seule) + GPS + entrées / sorties, vers Wi-Fi. Rouge : alimentation · Bleu : signaux · Orange : bus CAN · Tous les GND sont reliés · Deux cartes : étage 1 = DevKit ESP32-S3, étage 2 = tout le reste (liaison J_STACK 2 × 16)</text>
+<text x="40" y="42" font-size="27" font-weight="700" fill="#14171B" text-anchor="start" >TrackLab Electronics — boîtier ESP32-S3 : schéma de raccordement (prototype, composants à pattes)</text>
+<text x="40" y="68" font-size="12.5" font-weight="400" fill="#59616b" text-anchor="start" >Relais CAN (écoute seule) + GPS + entrées / sorties, vers Wi-Fi. Rouge : alimentation · Bleu : signaux · Orange : bus CAN · Tous les GND sont reliés · Étage 1 = DevKit ESP32-S3, étage 2 = le reste (J_STACK 2 × 16) · R 1/4 W axiales · LED 5 mm</text>
 <rect x="30" y="112" width="690" height="250" rx="8" fill="none" stroke="#8a929c" stroke-width="1.8" stroke-dasharray="7 5"/>
 <text x="42" y="104" font-size="14" font-weight="700" fill="#14171B" text-anchor="start" >1 · ALIMENTATION (étage 2, depuis la batterie de la moto)</text>
 <circle cx="60" cy="190" r="5" fill="#fff" stroke="#c1121f" stroke-width="2.5"/>
@@ -15,7 +15,7 @@
 <polyline points="140,190 165,190" fill="none" stroke="#c1121f" stroke-width="2" stroke-linejoin="round"/>
 <polygon points="165,179 165,201 187,190" fill="none" stroke="#14171B" stroke-width="2"/>
 <polyline points="187,179 187,201" fill="none" stroke="#14171B" stroke-width="2" stroke-linejoin="round"/>
-<text x="176" y="222" font-size="12" font-weight="400" fill="#14171B" text-anchor="middle" >D1 SS34</text>
+<text x="176" y="222" font-size="12" font-weight="400" fill="#14171B" text-anchor="middle" >D1 1N5822</text>
 <text x="176" y="237" font-size="10.5" font-weight="400" fill="#59616b" text-anchor="middle" >anti-inversion</text>
 <polyline points="187,190 405,190" fill="none" stroke="#c1121f" stroke-width="2" stroke-linejoin="round"/>
 <circle cx="250" cy="190" r="4" fill="#c1121f"/>
@@ -26,7 +26,7 @@
 <polyline points="239,236 261,236" fill="none" stroke="#14171B" stroke-width="2" stroke-linejoin="round"/>
 <polyline points="250,258 250,300" fill="none" stroke="#14171B" stroke-width="2" stroke-linejoin="round"/>
 <text x="234" y="250" font-size="10.5" font-weight="400" fill="#14171B" text-anchor="end" >D2 TVS</text>
-<text x="234" y="263" font-size="10.5" font-weight="400" fill="#14171B" text-anchor="end" >SMBJ18A</text>
+<text x="234" y="263" font-size="10.5" font-weight="400" fill="#14171B" text-anchor="end" >P6KE18A</text>
 <polyline points="300,190 300,236" fill="none" stroke="#c1121f" stroke-width="2" stroke-linejoin="round"/>
 <polyline points="286,236 314,236" fill="none" stroke="#14171B" stroke-width="2" stroke-linejoin="round"/>
 <polyline points="286,244 314,244" fill="none" stroke="#14171B" stroke-width="2" stroke-linejoin="round"/>
@@ -39,21 +39,21 @@
 <polyline points="336,244 364,244" fill="none" stroke="#14171B" stroke-width="2" stroke-linejoin="round"/>
 <polyline points="350,244 350,300" fill="none" stroke="#14171B" stroke-width="2" stroke-linejoin="round"/>
 <text x="356" y="260" font-size="10.5" font-weight="400" fill="#14171B" text-anchor="start" >C4</text>
-<text x="356" y="273" font-size="10" font-weight="400" fill="#14171B" text-anchor="start" >1 µF</text>
-<text x="356" y="285" font-size="10" font-weight="400" fill="#14171B" text-anchor="start" >50 V</text>
+<text x="354" y="273" font-size="9.5" font-weight="400" fill="#14171B" text-anchor="start" >470 nF</text>
+<text x="356" y="285" font-size="10" font-weight="400" fill="#14171B" text-anchor="start" >100 V</text>
 <rect x="405" y="140" width="120" height="135" rx="4" fill="#f4f6fb" stroke="#14171B" stroke-width="2.2"/>
 <text x="465" y="160" font-size="13" font-weight="700" fill="#14171B" text-anchor="middle" >U1</text>
-<text x="465" y="175" font-size="10" font-weight="400" fill="#59616b" text-anchor="middle" >LM2596HVS-5.0</text>
-<text x="465" y="262" font-size="9.5" font-weight="400" fill="#59616b" text-anchor="middle" >TO-263-5</text>
+<text x="465" y="175" font-size="10" font-weight="400" fill="#59616b" text-anchor="middle" >LM2596HVT-5.0</text>
+<text x="465" y="262" font-size="9.5" font-weight="400" fill="#59616b" text-anchor="middle" >TO-220-5</text>
 <text x="411" y="194" font-size="11" font-weight="400" fill="#14171B" text-anchor="start" >VIN</text>
 <text x="411" y="229" font-size="11" font-weight="400" fill="#14171B" text-anchor="start" >ON_OFF</text>
 <text x="411" y="259" font-size="11" font-weight="400" fill="#14171B" text-anchor="start" >GND</text>
 <text x="519" y="169" font-size="11" font-weight="400" fill="#14171B" text-anchor="end" >FB</text>
 <text x="519" y="209" font-size="11" font-weight="400" fill="#14171B" text-anchor="end" >OUT</text>
-<polyline points="405,225 390,225 390,300" fill="none" stroke="#14171B" stroke-width="2" stroke-linejoin="round"/>
-<polyline points="405,255 390,255" fill="none" stroke="#14171B" stroke-width="2" stroke-linejoin="round"/>
-<circle cx="390" cy="255" r="4" fill="#14171B"/>
-<circle cx="390" cy="300" r="4" fill="#14171B"/>
+<polyline points="405,225 398,225 398,300" fill="none" stroke="#14171B" stroke-width="2" stroke-linejoin="round"/>
+<polyline points="405,255 398,255" fill="none" stroke="#14171B" stroke-width="2" stroke-linejoin="round"/>
+<circle cx="398" cy="255" r="4" fill="#14171B"/>
+<circle cx="398" cy="300" r="4" fill="#14171B"/>
 <polyline points="525,165 640,165 640,205" fill="none" stroke="#c1121f" stroke-width="2" stroke-linejoin="round"/>
 <polyline points="525,205 548,205" fill="none" stroke="#c1121f" stroke-width="2" stroke-linejoin="round"/>
 <circle cx="548" cy="205" r="4" fill="#c1121f"/>
@@ -61,13 +61,12 @@
 <polygon points="537,247 559,247 548,225" fill="none" stroke="#14171B" stroke-width="2"/>
 <polyline points="537,225 559,225" fill="none" stroke="#14171B" stroke-width="2" stroke-linejoin="round"/>
 <polyline points="548,247 548,300" fill="none" stroke="#14171B" stroke-width="2" stroke-linejoin="round"/>
-<text x="556" y="236" font-size="10.5" font-weight="400" fill="#14171B" text-anchor="start" >D5</text>
-<text x="556" y="249" font-size="10" font-weight="400" fill="#14171B" text-anchor="start" >SS34</text>
+<text x="560" y="236" font-size="10.5" font-weight="400" fill="#14171B" text-anchor="start" >D5</text>
+<text x="560" y="249" font-size="10" font-weight="400" fill="#14171B" text-anchor="start" >1N5822</text>
 <polyline points="548,205 572,205" fill="none" stroke="#c1121f" stroke-width="2" stroke-linejoin="round"/>
 <path d="M572 205 q6 -14 12 0 q6 -14 12 0 q6 -14 12 0 q6 -14 12 0" fill="none" stroke="#14171B" stroke-width="2.2"/>
 <polyline points="620,205 640,205" fill="none" stroke="#c1121f" stroke-width="2" stroke-linejoin="round"/>
-<text x="596" y="224" font-size="10.5" font-weight="400" fill="#14171B" text-anchor="middle" >L1 33 µH</text>
-<text x="596" y="237" font-size="10" font-weight="400" fill="#14171B" text-anchor="middle" >3 A</text>
+<text x="596" y="184" font-size="10" font-weight="400" fill="#14171B" text-anchor="middle" >L1 33 µH · 3 A</text>
 <circle cx="640" cy="205" r="4" fill="#c1121f"/>
 <polyline points="640,205 640,236" fill="none" stroke="#c1121f" stroke-width="2" stroke-linejoin="round"/>
 <polyline points="626,236 654,236" fill="none" stroke="#14171B" stroke-width="2" stroke-linejoin="round"/>
@@ -79,7 +78,7 @@
 <polyline points="640,205 660,205" fill="none" stroke="#c1121f" stroke-width="2" stroke-linejoin="round"/>
 <polygon points="660,194 660,216 682,205" fill="none" stroke="#14171B" stroke-width="2"/>
 <polyline points="682,194 682,216" fill="none" stroke="#14171B" stroke-width="2" stroke-linejoin="round"/>
-<text x="671" y="181" font-size="11" font-weight="400" fill="#14171B" text-anchor="middle" >D4 SS34</text>
+<text x="671" y="181" font-size="11" font-weight="400" fill="#14171B" text-anchor="middle" >D4 1N5822</text>
 <polyline points="682,205 715,205 715,330 760,330" fill="none" stroke="#c1121f" stroke-width="2" stroke-linejoin="round"/>
 <circle cx="715" cy="205" r="4" fill="#c1121f"/>
 <text x="724" y="262" font-size="12" font-weight="700" fill="#c1121f" text-anchor="start" >+5 V</text>
@@ -146,10 +145,11 @@
 <polyline points="252,643 268,643" fill="none" stroke="#14171B" stroke-width="2" stroke-linejoin="round"/>
 <polyline points="256,648 264,648" fill="none" stroke="#14171B" stroke-width="2" stroke-linejoin="round"/>
 <text x="300" y="603" font-size="11" font-weight="400" fill="#59616b" text-anchor="start" >PESD2CAN</text>
-<text x="300" y="617" font-size="11" font-weight="400" fill="#59616b" text-anchor="start" >(anti-parasites)</text>
+<text x="300" y="617" font-size="11" font-weight="400" fill="#59616b" text-anchor="start" >(option : non monté</text>
+<text x="300" y="631" font-size="11" font-weight="400" fill="#59616b" text-anchor="start" >sur le prototype)</text>
 <rect x="340" y="448" width="170" height="134" rx="4" fill="#f4f6fb" stroke="#14171B" stroke-width="2.2"/>
 <text x="425" y="468" font-size="14" font-weight="700" fill="#14171B" text-anchor="middle" >U2 SN65HVD230</text>
-<text x="425" y="572" font-size="10.5" font-weight="400" fill="#59616b" text-anchor="middle" >transceiver CAN 3,3 V</text>
+<text x="425" y="572" font-size="10.5" font-weight="400" fill="#59616b" text-anchor="middle" >module CAN 3,3 V</text>
 <text x="348" y="494" font-size="11" font-weight="400" fill="#14171B" text-anchor="start" >CANH</text>
 <text x="348" y="524" font-size="11" font-weight="400" fill="#14171B" text-anchor="start" >CANL</text>
 <text x="348" y="559" font-size="11" font-weight="400" fill="#14171B" text-anchor="start" >Rs → GND</text>
@@ -217,7 +217,7 @@
 <polyline points="500,970 760,970" fill="none" stroke="#1c5fb8" stroke-width="2.5" stroke-linejoin="round"/>
 <polyline points="500,1000 760,1000" fill="none" stroke="#1c5fb8" stroke-width="2.5" stroke-linejoin="round"/>
 <polyline points="500,1030 760,1030" fill="none" stroke="#1c5fb8" stroke-width="2.5" stroke-linejoin="round"/>
-<text x="50" y="1108" font-size="10.5" font-weight="400" fill="#59616b" text-anchor="start" >Module SD à régulateur : VCC à 5 V.</text>
+<text x="50" y="1094" font-size="10.5" font-weight="400" fill="#59616b" text-anchor="start" >Module SD à régulateur : VCC à 5 V.</text>
 <text x="50" y="1122" font-size="10.5" font-weight="400" fill="#59616b" text-anchor="start" >Sans carte : mémoire interne (quelques minutes).</text>
 <rect x="30" y="1162" width="690" height="150" rx="8" fill="none" stroke="#8a929c" stroke-width="1.8" stroke-dasharray="7 5"/>
 <text x="42" y="1154" font-size="14" font-weight="700" fill="#14171B" text-anchor="start" >5 · BOUTON D'ENREGISTREMENT</text>
@@ -553,6 +553,6 @@
 <text x="52" y="1824" font-size="12" font-weight="400" fill="#14171B" text-anchor="start" >• Aucun fil connecté à la prise CAN en dehors de CAN H, CAN L et GND ; brochage à vérifier dans le manuel d'atelier.</text>
 <text x="52" y="1846" font-size="12" font-weight="400" fill="#14171B" text-anchor="start" >• Potentiomètres alimentés en +3,3 V uniquement : un curseur à 5 V détruirait l'entrée de l'ESP32.</text>
 <text x="52" y="1868" font-size="12" font-weight="400" fill="#14171B" text-anchor="start" >• GPIO3 (ADC3) est une broche de démarrage : ne rien brancher dessus. GPIO38 pilote aussi la LED RGB du DevKit v1.1.</text>
-<text x="52" y="1890" font-size="12" font-weight="400" fill="#14171B" text-anchor="start" >• Convertisseur : LM2596HVS-5.0 (entrée 60 V). Le LM2596 standard est limité à 30 V : trop juste face à la TVS SMBJ18A.</text>
-<text x="1770" y="1946" font-size="11" font-weight="400" fill="#59616b" text-anchor="end" >TrackLab Electronics · schéma de raccordement ESP32-S3 · rév. 5 · 15/11/2026</text>
+<text x="52" y="1890" font-size="12" font-weight="400" fill="#14171B" text-anchor="start" >• Convertisseur : LM2596HVT-5.0 (TO-220-5, entrée 60 V). Le LM2596 standard est limité à 30 V : trop juste face à la TVS P6KE18A.</text>
+<text x="1770" y="1946" font-size="11" font-weight="400" fill="#59616b" text-anchor="end" >TrackLab Electronics · schéma de raccordement ESP32-S3 · rév. 5 · prototype à pattes · 15/11/2026</text>
 </svg>
